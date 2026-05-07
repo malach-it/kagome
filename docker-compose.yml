@@ -1,6 +1,7 @@
 services:
   kagome:
     build: .
+    init: true
     environment:
       KAGOME_SERVER_ADDRESS: ${KAGOME_SERVER_ADDRESS:-0.0.0.0:4000}
       KAGOME_WORKERS: ${KAGOME_WORKERS:-4}

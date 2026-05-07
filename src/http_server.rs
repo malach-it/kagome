@@ -2,11 +2,12 @@ use std::{
     env,
     io::{self, BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
+    sync::{Arc, Mutex, mpsc},
     thread,
 };
 
 pub const ADDRESS_ENV_VAR: &str = "KAGOME_SERVER_ADDRESS";
-pub const DEFAULT_ADDRESS: &str = "127.0.0.1:4000";
+pub const DEFAULT_ADDRESS: &str = "0.0.0.0:4000";
 pub const WORKERS_ENV_VAR: &str = "KAGOME_WORKERS";
 pub const DEFAULT_WORKERS: usize = 4;
 
@@ -40,36 +41,56 @@ pub fn serve_listener_with_workers(listener: TcpListener, worker_count: usize) -
 
     println!("{}", listener.local_addr()?);
 
-    if worker_count == 1 {
-        return accept_connections(listener);
-    }
-
+    let (sender, receiver) = mpsc::channel();
+    let receiver = Arc::new(Mutex::new(receiver));
     let mut workers = Vec::with_capacity(worker_count);
 
     for _ in 0..worker_count {
-        let listener = listener.try_clone()?;
-        workers.push(thread::spawn(move || accept_connections(listener)));
+        let receiver = Arc::clone(&receiver);
+        workers.push(thread::spawn(move || worker_loop(receiver)));
     }
 
-    drop(listener);
+    let accept_result = accept_connections(listener, sender.clone());
+    drop(sender);
 
     for worker in workers {
         worker
             .join()
-            .map_err(|_| io::Error::other("http server worker panicked"))??;
+            .map_err(|_| io::Error::other("http server worker panicked"))?;
+    }
+
+    accept_result
+}
+
+fn accept_connections(listener: TcpListener, sender: mpsc::Sender<TcpStream>) -> io::Result<()> {
+    for stream in listener.incoming() {
+        let stream = stream?;
+        sender
+            .send(stream)
+            .map_err(|_| io::Error::other("http server workers stopped"))?;
     }
 
     Ok(())
 }
 
-fn accept_connections(listener: TcpListener) -> io::Result<()> {
-    for stream in listener.incoming() {
-        if let Err(error) = stream.and_then(handle_connection) {
-            eprintln!("failed to handle connection: {error}");
+fn worker_loop(receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>) {
+    loop {
+        let stream = {
+            let receiver = receiver
+                .lock()
+                .expect("http server worker receiver poisoned");
+            receiver.recv()
+        };
+
+        match stream {
+            Ok(stream) => {
+                if let Err(error) = handle_connection(stream) {
+                    eprintln!("failed to handle connection: {error}");
+                }
+            }
+            Err(_) => break,
         }
     }
-
-    Ok(())
 }
 
 fn handle_connection(mut stream: TcpStream) -> io::Result<()> {
