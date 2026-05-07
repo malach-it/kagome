@@ -1,4 +1,4 @@
-use crate::{errors::OAuthError, unit::KagomeRequest};
+use crate::errors::OAuthError;
 
 pub const SUPPORTED_GRANT_TYPES: [&str; 3] =
     ["client_credentials", "code_chain", "authorization_code"];
@@ -28,10 +28,7 @@ pub trait Validate {
     fn add_grant_type(&mut self, grant_type: &GrantType);
 }
 
-pub fn validate<T: Validate>(
-    mut token_request: T,
-    _request: &KagomeRequest,
-) -> Result<T, OAuthError> {
+pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
     let grant_type = parse(token_request.request_grant_type())?;
     token_request.add_grant_type(&grant_type);
 

@@ -6,7 +6,7 @@ use jsonwebtoken::{
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{errors::OAuthError, unit::KagomeRequest};
+use crate::errors::OAuthError;
 
 pub const SECRET: &str = "static_authorization_code_secret";
 pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = 600;
@@ -42,10 +42,7 @@ pub trait Validate {
     fn add_authorization_code(&mut self, authorization_code: &str);
 }
 
-pub fn validate<T: Validate>(
-    mut token_request: T,
-    _request: &KagomeRequest,
-) -> Result<T, OAuthError> {
+pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
     let authorization_code = token_request
         .request_authorization_code()
         .map(str::to_owned)
@@ -57,10 +54,7 @@ pub fn validate<T: Validate>(
     Ok(token_request)
 }
 
-pub fn validate_optional<T: Validate>(
-    mut token_request: T,
-    _request: &KagomeRequest,
-) -> Result<T, OAuthError> {
+pub fn validate_optional<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
     let Some(authorization_code) = token_request
         .request_authorization_code()
         .map(str::to_owned)
@@ -74,10 +68,7 @@ pub fn validate_optional<T: Validate>(
     Ok(token_request)
 }
 
-pub fn generate<T: Generate>(
-    mut token_request: T,
-    _request: &KagomeRequest,
-) -> Result<T, OAuthError> {
+pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     let client_id = token_request
         .client_id()
         .ok_or_else(OAuthError::missing_client_id)?;

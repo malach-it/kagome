@@ -2,7 +2,7 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{errors::OAuthError, unit::KagomeRequest};
+use crate::errors::OAuthError;
 
 pub const SECRET: &str = "static_secret";
 pub const ACCESS_TOKEN_TTL_SECONDS: u64 = 3600;
@@ -28,10 +28,7 @@ pub trait Generate {
     fn add_access_token(&mut self, access_token: AccessToken);
 }
 
-pub fn generate<T: Generate>(
-    mut token_request: T,
-    _request: &KagomeRequest,
-) -> Result<T, OAuthError> {
+pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     let client_id = token_request
         .client_id()
         .ok_or_else(OAuthError::missing_client_id)?;

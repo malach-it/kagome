@@ -2,7 +2,7 @@ use crate::{
     errors::OAuthError,
     resources::{
         access_token::{self, AccessToken},
-        authorization_code, client_id, client_secret,
+        authorization_code, client_credentials,
         grant_type::{self, GrantType},
     },
     unit::{KagomeRequest, parse_request_parameter},
@@ -102,23 +102,21 @@ impl<'a> access_token::Generate for AuthorizationCodeRequest<'a> {
     }
 }
 
-impl<'a> client_id::Validate for AuthorizationCodeRequest<'a> {
+impl<'a> client_credentials::Validate for AuthorizationCodeRequest<'a> {
     fn request_client_id(&self) -> Option<&str> {
         self.client_id.as_deref()
     }
 
-    fn add_client_id(&mut self, client_id: &str) {
-        self.response.client_id = Some(client_id.to_owned());
-    }
-}
-
-impl<'a> client_secret::Validate for AuthorizationCodeRequest<'a> {
     fn request_client_secret(&self) -> Option<&str> {
         self.client_secret.as_deref()
     }
 
-    fn add_client_secret(&mut self, client_secret: &str) {
-        self.response.client_secret = Some(client_secret.to_owned());
+    fn add_client_credentials(
+        &mut self,
+        client_credentials: client_credentials::ClientCredentials,
+    ) {
+        self.response.client_id = Some(client_credentials.client_id);
+        self.response.client_secret = Some(client_credentials.client_secret);
     }
 }
 

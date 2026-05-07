@@ -2,7 +2,7 @@ use crate::{
     errors::OAuthError,
     resources::{
         authorization_code::{self, AuthorizationCode},
-        client_id, client_secret,
+        client_credentials,
         grant_type::{self, GrantType},
         id_token,
     },
@@ -106,23 +106,21 @@ impl<'a> authorization_code::Generate for CodeChainRequest<'a> {
     }
 }
 
-impl<'a> client_id::Validate for CodeChainRequest<'a> {
+impl<'a> client_credentials::Validate for CodeChainRequest<'a> {
     fn request_client_id(&self) -> Option<&str> {
         self.client_id.as_deref()
     }
 
-    fn add_client_id(&mut self, client_id: &str) {
-        self.response.client_id = Some(client_id.to_owned());
-    }
-}
-
-impl<'a> client_secret::Validate for CodeChainRequest<'a> {
     fn request_client_secret(&self) -> Option<&str> {
         self.client_secret.as_deref()
     }
 
-    fn add_client_secret(&mut self, client_secret: &str) {
-        self.response.client_secret = Some(client_secret.to_owned());
+    fn add_client_credentials(
+        &mut self,
+        client_credentials: client_credentials::ClientCredentials,
+    ) {
+        self.response.client_id = Some(client_credentials.client_id);
+        self.response.client_secret = Some(client_credentials.client_secret);
     }
 }
 

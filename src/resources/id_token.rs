@@ -5,17 +5,14 @@ use jsonwebtoken::{
 };
 use serde::Deserialize;
 
-use crate::{errors::OAuthError, unit::KagomeRequest};
+use crate::errors::OAuthError;
 
 pub trait Validate {
     fn request_id_token(&self) -> Option<&str>;
     fn add_id_token(&mut self, id_token: &str);
 }
 
-pub fn validate<T: Validate>(
-    mut token_request: T,
-    _request: &KagomeRequest,
-) -> Result<T, OAuthError> {
+pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
     let id_token = token_request
         .request_id_token()
         .map(str::to_owned)
