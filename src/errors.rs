@@ -66,6 +66,13 @@ impl OAuthError {
         }
     }
 
+    pub fn missing_authorization_code() -> Self {
+        Self {
+            error: "invalid_grant".to_owned(),
+            error_description: "authorization_code is required".to_owned(),
+        }
+    }
+
     pub fn invalid_token_response(error_description: impl Into<String>) -> Self {
         Self {
             error: "invalid_token_response".to_owned(),

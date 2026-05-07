@@ -2,7 +2,10 @@ use crate::{
     errors::OAuthError,
     resources::{
         access_token::{AccessToken, TokenResponseAccessToken},
-        authorization_code::{AuthorizationCode, TokenResponseAuthorizationCode},
+        authorization_code::{
+            AuthorizationCode, TokenResponseAuthorizationCode,
+            TokenResponseValidatedAuthorizationCode,
+        },
         client_id::TokenResponseClientId,
         client_secret::TokenResponseClientSecret,
         grant_type::{GrantType, TokenResponseGrantType},
@@ -18,6 +21,15 @@ pub struct GrantTypeResponse {
 #[derive(Debug)]
 pub struct ClientCredentialsResponse {
     pub access_token: Option<AccessToken>,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub grant_type: Option<GrantType>,
+}
+
+#[derive(Debug)]
+pub struct AuthorizationCodeResponse {
+    pub access_token: Option<AccessToken>,
+    pub authorization_code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub grant_type: Option<GrantType>,
@@ -42,6 +54,26 @@ impl ClientCredentialsResponse {
     pub fn empty() -> Self {
         Self {
             access_token: None,
+            client_id: None,
+            client_secret: None,
+            grant_type: None,
+        }
+    }
+
+    pub fn to_response(&self) -> Result<String, OAuthError> {
+        let access_token = self.access_token.as_ref().ok_or_else(|| {
+            OAuthError::invalid_token_response("token response requires access_token")
+        })?;
+
+        Ok(access_token_response(access_token))
+    }
+}
+
+impl AuthorizationCodeResponse {
+    pub fn empty() -> Self {
+        Self {
+            access_token: None,
+            authorization_code: None,
             client_id: None,
             client_secret: None,
             grant_type: None,
@@ -88,6 +120,18 @@ impl From<GrantTypeResponse> for ClientCredentialsResponse {
     }
 }
 
+impl From<GrantTypeResponse> for AuthorizationCodeResponse {
+    fn from(response: GrantTypeResponse) -> Self {
+        Self {
+            access_token: None,
+            authorization_code: None,
+            client_id: None,
+            client_secret: None,
+            grant_type: response.grant_type,
+        }
+    }
+}
+
 impl From<GrantTypeResponse> for CodeChainResponse {
     fn from(response: GrantTypeResponse) -> Self {
         Self {
@@ -127,6 +171,36 @@ impl TokenResponseClientSecret for ClientCredentialsResponse {
 impl TokenResponseGrantType for ClientCredentialsResponse {
     fn add_grant_type(&mut self, grant_type: &GrantType) {
         self.grant_type = Some(*grant_type);
+    }
+}
+
+impl TokenResponseGrantType for AuthorizationCodeResponse {
+    fn add_grant_type(&mut self, grant_type: &GrantType) {
+        self.grant_type = Some(*grant_type);
+    }
+}
+
+impl TokenResponseAccessToken for AuthorizationCodeResponse {
+    fn add_access_token(&mut self, access_token: AccessToken) {
+        self.access_token = Some(access_token);
+    }
+}
+
+impl TokenResponseClientId for AuthorizationCodeResponse {
+    fn add_client_id(&mut self, client_id: &str) {
+        self.client_id = Some(client_id.to_owned());
+    }
+}
+
+impl TokenResponseClientSecret for AuthorizationCodeResponse {
+    fn add_client_secret(&mut self, client_secret: &str) {
+        self.client_secret = Some(client_secret.to_owned());
+    }
+}
+
+impl TokenResponseValidatedAuthorizationCode for AuthorizationCodeResponse {
+    fn add_validated_authorization_code(&mut self, authorization_code: &str) {
+        self.authorization_code = Some(authorization_code.to_owned());
     }
 }
 

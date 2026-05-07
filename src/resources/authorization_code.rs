@@ -33,20 +33,31 @@ pub trait TokenResponseAuthorizationCode {
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode);
 }
 
-pub fn validate<T>(token_response: T, request: &KagomeRequest) -> Result<T, OAuthError> {
+pub trait TokenResponseValidatedAuthorizationCode {
+    fn add_validated_authorization_code(&mut self, authorization_code: &str);
+}
+
+pub fn validate<T: TokenResponseValidatedAuthorizationCode>(
+    mut token_response: T,
+    request: &KagomeRequest,
+) -> Result<T, OAuthError> {
+    let authorization_code = request
+        .authorization_code
+        .as_deref()
+        .ok_or_else(OAuthError::missing_authorization_code)?;
+
+    validate_request_authorization_code(authorization_code, request)?;
+
+    token_response.add_validated_authorization_code(authorization_code);
+    Ok(token_response)
+}
+
+pub fn validate_optional<T>(token_response: T, request: &KagomeRequest) -> Result<T, OAuthError> {
     let Some(authorization_code) = request.authorization_code.as_deref() else {
         return Ok(token_response);
     };
 
-    let payload = validate_jwt(authorization_code)?;
-
-    if let Some(client_id) = request.client_id.as_deref()
-        && payload.client_id != client_id
-    {
-        return Err(invalid_authorization_code(
-            "authorization_code client_id does not match request",
-        ));
-    }
+    validate_request_authorization_code(authorization_code, request)?;
 
     Ok(token_response)
 }
@@ -89,6 +100,23 @@ pub fn generate<T: TokenResponseAuthorizationCode>(
 
     token_response.add_authorization_code(authorization_code);
     Ok(token_response)
+}
+
+fn validate_request_authorization_code(
+    authorization_code: &str,
+    request: &KagomeRequest,
+) -> Result<(), OAuthError> {
+    let payload = validate_jwt(authorization_code)?;
+
+    if let Some(client_id) = request.client_id.as_deref()
+        && payload.client_id != client_id
+    {
+        return Err(invalid_authorization_code(
+            "authorization_code client_id does not match request",
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_jwt(authorization_code: &str) -> Result<AuthorizationCodeJwtPayload, OAuthError> {

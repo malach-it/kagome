@@ -77,6 +77,60 @@ fn returns_token_response_for_json_code_chain_grant_type() {
 }
 
 #[test]
+fn returns_token_response_for_form_authorization_code_grant_type() {
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&authorization_code={}",
+        valid_authorization_code()
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"token_type\":\"bearer\""));
+    assert!(response.contains("\"access_token\":\""));
+    assert!(response.contains("\"expires_in\":3600"));
+    assert!(!response.contains("\"authorization_code\""));
+    assert!(!response.contains("\"client_id\""));
+    assert!(!response.contains("\"client_secret\""));
+    assert!(!response.contains("\"grant_type\""));
+}
+
+#[test]
+fn returns_oauth_error_for_missing_authorization_code_grant_type_client_id() {
+    let response = send_request(
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: 29\r\n\r\ngrant_type=authorization_code",
+    );
+
+    assert_missing_client_id_response(&response);
+}
+
+#[test]
+fn returns_oauth_error_for_missing_authorization_code_grant_type_client_secret() {
+    let response = send_form_token_request("client_id=client_id&grant_type=authorization_code");
+
+    assert_missing_client_secret_response(&response);
+}
+
+#[test]
+fn returns_oauth_error_for_missing_authorization_code_grant_type_authorization_code() {
+    let response = send_form_token_request(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code",
+    );
+
+    assert_missing_authorization_code_response(&response);
+}
+
+#[test]
+fn returns_oauth_error_for_invalid_authorization_code_grant_type_authorization_code() {
+    let response = send_form_token_request(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&authorization_code=app",
+    );
+
+    assert_invalid_authorization_code_response(&response);
+}
+
+#[test]
 fn returns_oauth_error_for_missing_code_chain_id_token() {
     let response = send_request(
         "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: 69\r\n\r\nclient_id=client_id&client_secret=client_secret&grant_type=code_chain",
@@ -184,8 +238,16 @@ fn assert_unsupported_grant_type_response(response: &str) {
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"unsupported_grant_type\""));
     assert!(response.contains(
-        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain\""
+        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain, authorization_code\""
     ));
+}
+
+fn assert_missing_authorization_code_response(response: &str) {
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("\"error_description\":\"authorization_code is required\""));
 }
 
 fn assert_invalid_client_id_response(response: &str) {
@@ -278,6 +340,25 @@ fn valid_id_token() -> String {
             exp: now + 3600,
         },
         &jsonwebtoken::EncodingKey::from_secret(b"secret"),
+    )
+    .unwrap()
+}
+
+fn valid_authorization_code() -> String {
+    let now = jsonwebtoken::get_current_timestamp();
+
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS512),
+        &kagome::resources::authorization_code::AuthorizationCodeJwtPayload {
+            client_id: "client_id".to_owned(),
+            id_token: valid_id_token(),
+            previous_code: None,
+            iat: now,
+            exp: now + kagome::resources::authorization_code::AUTHORIZATION_CODE_TTL_SECONDS,
+        },
+        &jsonwebtoken::EncodingKey::from_secret(
+            kagome::resources::authorization_code::SECRET.as_bytes(),
+        ),
     )
     .unwrap()
 }

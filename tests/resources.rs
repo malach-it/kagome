@@ -166,7 +166,8 @@ mod resources {
             let token_response = kagome::handlers::token::CodeChainResponse::empty();
 
             let token_response =
-                kagome::resources::authorization_code::validate(token_response, &request).unwrap();
+                kagome::resources::authorization_code::validate_optional(token_response, &request)
+                    .unwrap();
 
             assert!(token_response.authorization_code.is_none());
         }
@@ -177,9 +178,52 @@ mod resources {
             let token_response = kagome::handlers::token::CodeChainResponse::empty();
 
             let token_response =
-                kagome::resources::authorization_code::validate(token_response, &request).unwrap();
+                kagome::resources::authorization_code::validate_optional(token_response, &request)
+                    .unwrap();
 
             assert!(token_response.authorization_code.is_none());
+        }
+
+        #[test]
+        fn validates_required_authorization_code_parameter() {
+            let issued_request = token_request(Some("client_id"), Some("id_token"));
+            let issued_response = kagome::resources::authorization_code::generate(
+                kagome::handlers::token::CodeChainResponse::empty(),
+                &issued_request,
+            )
+            .unwrap();
+            let request = token_request_with_authorization_code(
+                Some("client_id"),
+                Some("id_token"),
+                issued_response
+                    .authorization_code
+                    .as_ref()
+                    .map(|authorization_code| authorization_code.value.as_str()),
+            );
+            let token_response = kagome::handlers::token::AuthorizationCodeResponse::empty();
+
+            let token_response =
+                kagome::resources::authorization_code::validate(token_response, &request).unwrap();
+
+            assert_eq!(
+                token_response.authorization_code,
+                issued_response
+                    .authorization_code
+                    .as_ref()
+                    .map(|authorization_code| authorization_code.value.clone())
+            );
+        }
+
+        #[test]
+        fn returns_oauth_error_for_missing_required_authorization_code_parameter() {
+            let request = token_request(Some("client_id"), Some("id_token"));
+            let token_response = kagome::handlers::token::AuthorizationCodeResponse::empty();
+
+            let error = kagome::resources::authorization_code::validate(token_response, &request)
+                .unwrap_err();
+
+            assert_eq!(error.error, "invalid_grant");
+            assert_eq!(error.error_description, "authorization_code is required");
         }
 
         #[test]
@@ -190,8 +234,9 @@ mod resources {
                 Some("app"),
             );
             let token_response = kagome::handlers::token::CodeChainResponse::empty();
-            let error = kagome::resources::authorization_code::validate(token_response, &request)
-                .unwrap_err();
+            let error =
+                kagome::resources::authorization_code::validate_optional(token_response, &request)
+                    .unwrap_err();
 
             assert_eq!(error.error, "invalid_grant");
             assert_eq!(error.error_description, "authorization_code must be a jwt");
@@ -214,8 +259,9 @@ mod resources {
                     .map(|authorization_code| authorization_code.value.as_str()),
             );
             let token_response = kagome::handlers::token::CodeChainResponse::empty();
-            let error = kagome::resources::authorization_code::validate(token_response, &request)
-                .unwrap_err();
+            let error =
+                kagome::resources::authorization_code::validate_optional(token_response, &request)
+                    .unwrap_err();
 
             assert_eq!(error.error, "invalid_grant");
             assert_eq!(
@@ -243,7 +289,8 @@ mod resources {
             let token_response = kagome::handlers::token::CodeChainResponse::empty();
 
             let token_response =
-                kagome::resources::authorization_code::validate(token_response, &request).unwrap();
+                kagome::resources::authorization_code::validate_optional(token_response, &request)
+                    .unwrap();
 
             assert!(token_response.authorization_code.is_none());
         }
@@ -703,6 +750,19 @@ mod resources {
         }
 
         #[test]
+        fn validates_authorization_code() {
+            let request = token_request(Some("authorization_code"));
+            let token_response = kagome::handlers::token::ClientCredentialsResponse::empty();
+            let token_response =
+                kagome::resources::grant_type::validate(token_response, &request).unwrap();
+
+            assert_eq!(
+                token_response.grant_type,
+                Some(kagome::resources::grant_type::GrantType::AuthorizationCode)
+            );
+        }
+
+        #[test]
         fn converts_validated_token_response_to_response() {
             let request = token_request(Some("client_credentials"));
             let token_response = kagome::handlers::token::ClientCredentialsResponse::empty();
@@ -736,6 +796,22 @@ mod resources {
                 kagome::resources::client_id::validate(token_response, &request).unwrap();
             let token_response =
                 kagome::resources::client_secret::validate(token_response, &request).unwrap();
+            let token_response =
+                kagome::resources::grant_type::validate(token_response, &request).unwrap();
+
+            let error = token_response.to_response().unwrap_err();
+
+            assert_eq!(error.error, "invalid_token_response");
+            assert_eq!(
+                error.error_description,
+                "token response requires access_token"
+            );
+        }
+
+        #[test]
+        fn converts_empty_authorization_code_response_to_oauth_error() {
+            let request = token_request(Some("authorization_code"));
+            let token_response = kagome::handlers::token::AuthorizationCodeResponse::empty();
             let token_response =
                 kagome::resources::grant_type::validate(token_response, &request).unwrap();
 
@@ -810,7 +886,7 @@ mod resources {
             assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
                 error.error_description,
-                "grant_type must be one of: client_credentials, code_chain"
+                "grant_type must be one of: client_credentials, code_chain, authorization_code"
             );
         }
 
@@ -824,7 +900,7 @@ mod resources {
             assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
                 error.error_description,
-                "grant_type must be one of: client_credentials, code_chain"
+                "grant_type must be one of: client_credentials, code_chain, authorization_code"
             );
         }
 
