@@ -10,6 +10,9 @@ fn parses_crlf_request_protocol_headers_and_body() {
     assert_eq!(request.path, "/echo");
     assert_eq!(request.protocol, "HTTP/1.1");
     assert_eq!(request.body, "hello");
+    assert_eq!(request.client_id, None);
+    assert_eq!(request.client_secret, None);
+    assert_eq!(request.grant_type, None);
     assert_eq!(request.headers.len(), 2);
     assert_eq!(request.headers[0].name, "host");
     assert_eq!(request.headers[0].value, "example.com");
@@ -25,6 +28,9 @@ fn parses_lf_request_body_separator() {
     assert_eq!(request.path, "/echo");
     assert_eq!(request.protocol, "HTTP/2");
     assert_eq!(request.body, "hello");
+    assert_eq!(request.client_id, None);
+    assert_eq!(request.client_secret, None);
+    assert_eq!(request.grant_type, None);
     assert_eq!(request.headers.len(), 1);
     assert_eq!(request.headers[0].name, "accept");
     assert_eq!(request.headers[0].value, "application/json");
@@ -47,6 +53,9 @@ fn defaults_protocol_when_request_line_is_invalid() {
     assert_eq!(request.path, "");
     assert_eq!(request.protocol, "");
     assert_eq!(request.body, "hello");
+    assert_eq!(request.client_id, None);
+    assert_eq!(request.client_secret, None);
+    assert_eq!(request.grant_type, None);
     assert_eq!(request.headers.len(), 1);
     assert_eq!(request.headers[0].name, "host");
     assert_eq!(request.headers[0].value, "example.com");
@@ -70,7 +79,150 @@ fn handles_empty_request() {
     assert_eq!(request.path, "");
     assert_eq!(request.protocol, "");
     assert!(request.headers.is_empty());
+    assert_eq!(request.client_id, None);
+    assert_eq!(request.client_secret, None);
+    assert_eq!(request.grant_type, None);
     assert_eq!(request.body, "");
+}
+
+#[test]
+fn parses_client_id_from_post_body_parameter() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nclient_id=client_id&grant_type=client_credentials",
+    );
+
+    assert_eq!(request.client_id, Some("client_id".to_owned()));
+}
+
+#[test]
+fn parses_client_id_from_json_post_body() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"client_id\":\"client_id\",\"grant_type\":\"client_credentials\"}",
+    );
+
+    assert_eq!(request.client_id, Some("client_id".to_owned()));
+}
+
+#[test]
+fn parses_client_secret_from_post_body_parameter() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nclient_id=client_id&client_secret=client_secret&grant_type=client_credentials",
+    );
+
+    assert_eq!(request.client_secret, Some("client_secret".to_owned()));
+}
+
+#[test]
+fn parses_client_secret_from_json_post_body() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"client_credentials\"}",
+    );
+
+    assert_eq!(request.client_secret, Some("client_secret".to_owned()));
+}
+
+#[test]
+fn parses_grant_type_from_post_body_parameter() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nclient_id=kagome&grant_type=client_credentials",
+    );
+
+    assert_eq!(request.grant_type, Some("client_credentials".to_owned()));
+}
+
+#[test]
+fn decodes_grant_type_form_value() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\ngrant_type=urn%3Aexample+grant",
+    );
+
+    assert_eq!(request.grant_type, Some("urn:example grant".to_owned()));
+}
+
+#[test]
+fn keeps_malformed_percent_encoding_in_grant_type() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\ngrant_type=client%zz",
+    );
+
+    assert_eq!(request.grant_type, Some("client%zz".to_owned()));
+}
+
+#[test]
+fn keeps_empty_grant_type_from_post_body_parameter() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\ngrant_type=",
+    );
+
+    assert_eq!(request.grant_type, Some("".to_owned()));
+}
+
+#[test]
+fn ignores_grant_type_for_non_post_requests() {
+    let request = parse_request("GET /echo HTTP/1.1\r\n\r\ngrant_type=client_credentials");
+
+    assert_eq!(request.grant_type, None);
+}
+
+#[test]
+fn ignores_missing_grant_type_body_parameter() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nclient_id=kagome",
+    );
+
+    assert_eq!(request.grant_type, None);
+}
+
+#[test]
+fn parses_grant_type_from_json_post_body() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"client_id\":\"kagome\",\"grant_type\":\"client_credentials\"}",
+    );
+
+    assert_eq!(request.grant_type, Some("client_credentials".to_owned()));
+}
+
+#[test]
+fn parses_grant_type_from_json_with_content_type_parameters() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json; charset=utf-8\r\n\r\n{\"grant_type\":\"client_credentials\"}",
+    );
+
+    assert_eq!(request.grant_type, Some("client_credentials".to_owned()));
+}
+
+#[test]
+fn decodes_escaped_json_grant_type() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"grant_type\":\"urn:\\/example\\ngrant\"}",
+    );
+
+    assert_eq!(request.grant_type, Some("urn:/example\ngrant".to_owned()));
+}
+
+#[test]
+fn ignores_json_grant_type_when_value_is_not_string() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"grant_type\":123}",
+    );
+
+    assert_eq!(request.grant_type, None);
+}
+
+#[test]
+fn ignores_grant_type_for_unsupported_content_type() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: text/plain\r\n\r\ngrant_type=client_credentials",
+    );
+
+    assert_eq!(request.grant_type, None);
+}
+
+#[test]
+fn ignores_grant_type_when_content_type_is_missing() {
+    let request = parse_request("POST /echo HTTP/1.1\r\n\r\ngrant_type=client_credentials");
+
+    assert_eq!(request.grant_type, None);
 }
 
 #[test]
@@ -83,12 +235,15 @@ fn converts_request_to_json() {
             name: "x-message".to_owned(),
             value: "hello \"kagome\"".to_owned(),
         }],
+        client_id: Some("client_id".to_owned()),
+        client_secret: Some("client_secret".to_owned()),
+        grant_type: Some("client_credentials".to_owned()),
         body: "line one\nline two".to_owned(),
     };
 
     assert_eq!(
         to_json(&request),
-        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-message\",\"value\":\"hello \\\"kagome\\\"\"}],\"body\":\"line one\\nline two\"}"
+        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-message\",\"value\":\"hello \\\"kagome\\\"\"}],\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"client_credentials\",\"body\":\"line one\\nline two\"}"
     );
 }
 
@@ -102,11 +257,14 @@ fn escapes_control_characters_in_json() {
             name: "x-tab".to_owned(),
             value: "a\tb".to_owned(),
         }],
+        client_id: None,
+        client_secret: None,
+        grant_type: None,
         body: "carriage\rreturn".to_owned(),
     };
 
     assert_eq!(
         to_json(&request),
-        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-tab\",\"value\":\"a\\tb\"}],\"body\":\"carriage\\rreturn\"}"
+        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-tab\",\"value\":\"a\\tb\"}],\"client_id\":null,\"client_secret\":null,\"grant_type\":null,\"body\":\"carriage\\rreturn\"}"
     );
 }

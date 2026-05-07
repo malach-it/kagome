@@ -1,3 +1,0 @@
-mod handlers {
-    mod echo;
-}
