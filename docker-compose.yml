@@ -21,17 +21,53 @@ services:
       retries: 3
       start_period: 5s
 
-  k6:
+  k6-client-credentials:
     image: grafana/k6:latest
     depends_on:
       kagome:
         condition: service_healthy
     environment:
-      KAGOME_TARGET: ${KAGOME_TARGET:-http://kagome:4000/echo}
+      KAGOME_TOKEN_TARGET: ${KAGOME_TOKEN_TARGET:-http://kagome:4000/token}
+      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
+      KAGOME_CLIENT_SECRET: ${KAGOME_CLIENT_SECRET:-client_secret}
       K6_VUS: ${K6_VUS:-4}
       K6_DURATION: ${K6_DURATION:-30s}
     volumes:
-      - ./k6:/scripts:ro
-    command: run /scripts/echo.js
+      - ./scripts:/scripts:ro
+    command: run /scripts/client-credentials.k6.js
+    profiles:
+      - loadtest
+
+  k6-code-chain:
+    image: grafana/k6:latest
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_TOKEN_TARGET: ${KAGOME_TOKEN_TARGET:-http://kagome:4000/token}
+      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
+      KAGOME_CLIENT_SECRET: ${KAGOME_CLIENT_SECRET:-client_secret}
+      K6_VUS: ${K6_VUS:-4}
+      K6_DURATION: ${K6_DURATION:-30s}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: run /scripts/code-chain.k6.js
+    profiles:
+      - loadtest
+
+  k6-authorization-code:
+    image: grafana/k6:latest
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_TOKEN_TARGET: ${KAGOME_TOKEN_TARGET:-http://kagome:4000/token}
+      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
+      KAGOME_CLIENT_SECRET: ${KAGOME_CLIENT_SECRET:-client_secret}
+      K6_VUS: ${K6_VUS:-4}
+      K6_DURATION: ${K6_DURATION:-30s}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: run /scripts/authorization-code.k6.js
     profiles:
       - loadtest
