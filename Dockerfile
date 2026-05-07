@@ -6,6 +6,10 @@ RUN cargo build --release
 
 FROM debian:bookworm-slim
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app/target/release/kagome /usr/local/bin/kagome
 
 ENV KAGOME_SERVER_ADDRESS=0.0.0.0:4000

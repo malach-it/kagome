@@ -7,3 +7,31 @@ services:
       KAGOME_WORKERS: ${KAGOME_WORKERS:-4}
     ports:
       - "${KAGOME_PORT:-4000}:${KAGOME_PORT:-4000}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--spider",
+          "http://127.0.0.1:${KAGOME_PORT:-4000}/echo",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  k6:
+    image: grafana/k6:latest
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_TARGET: ${KAGOME_TARGET:-http://kagome:4000/echo}
+      K6_VUS: ${K6_VUS:-4}
+      K6_DURATION: ${K6_DURATION:-30s}
+    volumes:
+      - ./k6:/scripts:ro
+    command: run /scripts/echo.js
+    profiles:
+      - loadtest
