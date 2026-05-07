@@ -5,6 +5,7 @@
 - Run formatting checks before committing: `cargo fmt --check`.
 - Run the test suite before committing: `cargo test`.
 - Run linting before committing: `cargo clippy -- -D warnings`.
+- Test both passing behavior and error or edge cases for changed logic.
 - Fix any formatting, test, or lint failures before creating a commit.
 
 ## Commit Messages
