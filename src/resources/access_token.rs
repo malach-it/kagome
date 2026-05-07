@@ -23,17 +23,17 @@ pub struct AccessTokenJwtPayload {
     pub exp: u64,
 }
 
-pub trait TokenResponseAccessToken {
+pub trait Generate {
+    fn client_id(&self) -> Option<&str>;
     fn add_access_token(&mut self, access_token: AccessToken);
 }
 
-pub fn generate<T: TokenResponseAccessToken>(
-    mut token_response: T,
-    request: &KagomeRequest,
+pub fn generate<T: Generate>(
+    mut token_request: T,
+    _request: &KagomeRequest,
 ) -> Result<T, OAuthError> {
-    let client_id = request
-        .client_id
-        .as_deref()
+    let client_id = token_request
+        .client_id()
         .ok_or_else(OAuthError::missing_client_id)?;
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -57,6 +57,6 @@ pub fn generate<T: TokenResponseAccessToken>(
         payload,
     };
 
-    token_response.add_access_token(access_token);
-    Ok(token_response)
+    token_request.add_access_token(access_token);
+    Ok(token_request)
 }

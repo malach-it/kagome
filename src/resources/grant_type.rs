@@ -20,18 +20,22 @@ impl GrantType {
     }
 }
 
-pub trait TokenResponseGrantType {
+pub trait Validate {
+    fn request_grant_type(&self) -> Option<&str> {
+        None
+    }
+
     fn add_grant_type(&mut self, grant_type: &GrantType);
 }
 
-pub fn validate<T: TokenResponseGrantType>(
-    mut token_response: T,
-    request: &KagomeRequest,
+pub fn validate<T: Validate>(
+    mut token_request: T,
+    _request: &KagomeRequest,
 ) -> Result<T, OAuthError> {
-    let grant_type = parse(request.grant_type.as_deref())?;
-    token_response.add_grant_type(&grant_type);
+    let grant_type = parse(token_request.request_grant_type())?;
+    token_request.add_grant_type(&grant_type);
 
-    Ok(token_response)
+    Ok(token_request)
 }
 
 fn parse(grant_type: Option<&str>) -> Result<GrantType, OAuthError> {

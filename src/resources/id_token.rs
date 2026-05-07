@@ -7,23 +7,24 @@ use serde::Deserialize;
 
 use crate::{errors::OAuthError, unit::KagomeRequest};
 
-pub trait TokenResponseIdToken {
+pub trait Validate {
+    fn request_id_token(&self) -> Option<&str>;
     fn add_id_token(&mut self, id_token: &str);
 }
 
-pub fn validate<T: TokenResponseIdToken>(
-    mut token_response: T,
-    request: &KagomeRequest,
+pub fn validate<T: Validate>(
+    mut token_request: T,
+    _request: &KagomeRequest,
 ) -> Result<T, OAuthError> {
-    let id_token = request
-        .id_token
-        .as_deref()
+    let id_token = token_request
+        .request_id_token()
+        .map(str::to_owned)
         .ok_or_else(OAuthError::missing_id_token)?;
 
-    validate_jwt(id_token)?;
+    validate_jwt(&id_token)?;
 
-    token_response.add_id_token(id_token);
-    Ok(token_response)
+    token_request.add_id_token(&id_token);
+    Ok(token_request)
 }
 
 #[derive(Debug, Deserialize)]

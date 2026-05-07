@@ -29,51 +29,62 @@ pub struct AuthorizationCodeJwtPayload {
     pub exp: u64,
 }
 
-pub trait TokenResponseAuthorizationCode {
+pub trait Generate {
+    fn authorization_code(&self) -> Option<&str>;
+    fn client_id(&self) -> Option<&str>;
+    fn id_token(&self) -> Option<&str>;
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode);
 }
 
-pub trait TokenResponseValidatedAuthorizationCode {
-    fn add_validated_authorization_code(&mut self, authorization_code: &str);
+pub trait Validate {
+    fn request_authorization_code(&self) -> Option<&str>;
+    fn client_id(&self) -> Option<&str>;
+    fn add_authorization_code(&mut self, authorization_code: &str);
 }
 
-pub fn validate<T: TokenResponseValidatedAuthorizationCode>(
-    mut token_response: T,
-    request: &KagomeRequest,
+pub fn validate<T: Validate>(
+    mut token_request: T,
+    _request: &KagomeRequest,
 ) -> Result<T, OAuthError> {
-    let authorization_code = request
-        .authorization_code
-        .as_deref()
+    let authorization_code = token_request
+        .request_authorization_code()
+        .map(str::to_owned)
         .ok_or_else(OAuthError::missing_authorization_code)?;
 
-    validate_request_authorization_code(authorization_code, request)?;
+    validate_request_authorization_code(&authorization_code, token_request.client_id())?;
 
-    token_response.add_validated_authorization_code(authorization_code);
-    Ok(token_response)
+    token_request.add_authorization_code(&authorization_code);
+    Ok(token_request)
 }
 
-pub fn validate_optional<T>(token_response: T, request: &KagomeRequest) -> Result<T, OAuthError> {
-    let Some(authorization_code) = request.authorization_code.as_deref() else {
-        return Ok(token_response);
+pub fn validate_optional<T: Validate>(
+    mut token_request: T,
+    _request: &KagomeRequest,
+) -> Result<T, OAuthError> {
+    let Some(authorization_code) = token_request
+        .request_authorization_code()
+        .map(str::to_owned)
+    else {
+        return Ok(token_request);
     };
 
-    validate_request_authorization_code(authorization_code, request)?;
+    validate_request_authorization_code(&authorization_code, token_request.client_id())?;
 
-    Ok(token_response)
+    token_request.add_authorization_code(&authorization_code);
+    Ok(token_request)
 }
 
-pub fn generate<T: TokenResponseAuthorizationCode>(
-    mut token_response: T,
-    request: &KagomeRequest,
+pub fn generate<T: Generate>(
+    mut token_request: T,
+    _request: &KagomeRequest,
 ) -> Result<T, OAuthError> {
-    let client_id = request
-        .client_id
-        .as_deref()
+    let client_id = token_request
+        .client_id()
         .ok_or_else(OAuthError::missing_client_id)?;
-    let id_token = request
-        .id_token
-        .as_deref()
+    let id_token = token_request
+        .id_token()
         .ok_or_else(OAuthError::missing_id_token)?;
+    let previous_code = token_request.authorization_code().map(str::to_owned);
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?
@@ -82,7 +93,7 @@ pub fn generate<T: TokenResponseAuthorizationCode>(
     let payload = AuthorizationCodeJwtPayload {
         client_id: client_id.to_owned(),
         id_token: id_token.to_owned(),
-        previous_code: request.authorization_code.clone(),
+        previous_code: previous_code.clone(),
         iat,
         exp,
     };
@@ -94,21 +105,21 @@ pub fn generate<T: TokenResponseAuthorizationCode>(
         )
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?,
         expires_in: exp - iat,
-        previous_code: request.authorization_code.clone(),
+        previous_code,
         payload,
     };
 
-    token_response.add_authorization_code(authorization_code);
-    Ok(token_response)
+    token_request.add_authorization_code(authorization_code);
+    Ok(token_request)
 }
 
 fn validate_request_authorization_code(
     authorization_code: &str,
-    request: &KagomeRequest,
+    client_id: Option<&str>,
 ) -> Result<(), OAuthError> {
     let payload = validate_jwt(authorization_code)?;
 
-    if let Some(client_id) = request.client_id.as_deref()
+    if let Some(client_id) = client_id
         && payload.client_id != client_id
     {
         return Err(invalid_authorization_code(

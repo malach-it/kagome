@@ -1,16 +1,13 @@
+#[derive(Debug)]
 pub struct KagomeRequest {
     pub method: String,
     pub path: String,
     pub protocol: String,
     pub headers: Vec<HttpHeader>,
-    pub client_id: Option<String>,
-    pub client_secret: Option<String>,
-    pub grant_type: Option<String>,
-    pub id_token: Option<String>,
-    pub authorization_code: Option<String>,
     pub body: String,
 }
 
+#[derive(Debug)]
 pub struct HttpHeader {
     pub name: String,
     pub value: String,
@@ -31,23 +28,11 @@ pub fn parse_request(request: &str) -> KagomeRequest {
             value: value.trim().to_owned(),
         })
         .collect();
-    let client_id = parse_body_string_parameter(&method, &headers, body, "client_id");
-    let client_secret = parse_body_string_parameter(&method, &headers, body, "client_secret");
-    let grant_type = parse_body_string_parameter(&method, &headers, body, "grant_type");
-    let id_token = parse_body_string_parameter(&method, &headers, body, "id_token");
-    let authorization_code =
-        parse_body_string_parameter(&method, &headers, body, "authorization_code");
-
     KagomeRequest {
         method,
         path,
         protocol,
         headers,
-        client_id,
-        client_secret,
-        grant_type,
-        id_token,
-        authorization_code,
         body: body.to_owned(),
     }
 }
@@ -67,17 +52,21 @@ pub fn to_json(request: &KagomeRequest) -> String {
         .join(",");
 
     format!(
-        "{{\"method\":\"{}\",\"path\":\"{}\",\"protocol\":\"{}\",\"headers\":[{}],\"client_id\":{},\"client_secret\":{},\"grant_type\":{},\"id_token\":{},\"authorization_code\":{},\"body\":\"{}\"}}",
+        "{{\"method\":\"{}\",\"path\":\"{}\",\"protocol\":\"{}\",\"headers\":[{}],\"body\":\"{}\"}}",
         escape_json(&request.method),
         escape_json(&request.path),
         escape_json(&request.protocol),
         headers,
-        json_optional_string(&request.client_id),
-        json_optional_string(&request.client_secret),
-        json_optional_string(&request.grant_type),
-        json_optional_string(&request.id_token),
-        json_optional_string(&request.authorization_code),
         escape_json(&request.body)
+    )
+}
+
+pub fn parse_request_parameter(request: &KagomeRequest, parameter_name: &str) -> Option<String> {
+    parse_body_string_parameter(
+        &request.method,
+        &request.headers,
+        &request.body,
+        parameter_name,
     )
 }
 
@@ -316,13 +305,6 @@ fn decode_hex_digit(digit: u8) -> Option<u8> {
         b'A'..=b'F' => Some(digit - b'A' + 10),
         _ => None,
     }
-}
-
-fn json_optional_string(value: &Option<String>) -> String {
-    value
-        .as_ref()
-        .map(|value| format!("\"{}\"", escape_json(value)))
-        .unwrap_or_else(|| "null".to_owned())
 }
 
 fn parse_request_line(request_line: &str) -> (String, String, String) {
