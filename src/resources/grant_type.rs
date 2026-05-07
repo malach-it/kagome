@@ -1,16 +1,18 @@
 use crate::{errors::OAuthError, unit::KagomeRequest};
 
-pub const SUPPORTED_GRANT_TYPES: [&str; 1] = ["client_credentials"];
+pub const SUPPORTED_GRANT_TYPES: [&str; 2] = ["client_credentials", "code_chain"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GrantType {
     ClientCredentials,
+    CodeChain,
 }
 
 impl GrantType {
     pub fn as_str(self) -> &'static str {
         match self {
             GrantType::ClientCredentials => "client_credentials",
+            GrantType::CodeChain => "code_chain",
         }
     }
 }
@@ -32,6 +34,7 @@ pub fn validate<T: TokenResponseGrantType>(
 fn parse(grant_type: Option<&str>) -> Result<GrantType, OAuthError> {
     match grant_type {
         Some("client_credentials") => Ok(GrantType::ClientCredentials),
+        Some("code_chain") => Ok(GrantType::CodeChain),
         _ => Err(OAuthError::unsupported_grant_type(&SUPPORTED_GRANT_TYPES)),
     }
 }

@@ -1,16 +1,16 @@
 #[test]
 fn returns_unsupported_grant_type_oauth_response() {
     let response =
-        kagome::errors::OAuthError::unsupported_grant_type(&["client_credentials"]).to_response();
+        kagome::errors::OAuthError::unsupported_grant_type(&["client_credentials", "code_chain"])
+            .to_response();
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"unsupported_grant_type\""));
-    assert!(
-        response
-            .contains("\"error_description\":\"grant_type must be one of: client_credentials\"")
-    );
+    assert!(response.contains(
+        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain\""
+    ));
 }
 
 #[test]
@@ -71,6 +71,29 @@ fn returns_missing_client_secret_oauth_response() {
 }
 
 #[test]
+fn returns_invalid_id_token_oauth_response() {
+    let response =
+        kagome::errors::OAuthError::invalid_id_token("id_token is expired").to_response();
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("\"error_description\":\"id_token is expired\""));
+}
+
+#[test]
+fn returns_missing_id_token_oauth_response() {
+    let response = kagome::errors::OAuthError::missing_id_token().to_response();
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("\"error_description\":\"id_token is required\""));
+}
+
+#[test]
 fn escapes_oauth_error_response_json() {
     let response = kagome::errors::OAuthError {
         error: "invalid_grant".to_owned(),
@@ -84,11 +107,12 @@ fn escapes_oauth_error_response_json() {
 
 #[test]
 fn implements_native_rust_error() {
-    let error = kagome::errors::OAuthError::unsupported_grant_type(&["client_credentials"]);
+    let error =
+        kagome::errors::OAuthError::unsupported_grant_type(&["client_credentials", "code_chain"]);
     let native_error: &dyn std::error::Error = &error;
 
     assert_eq!(
         native_error.to_string(),
-        "unsupported_grant_type: grant_type must be one of: client_credentials"
+        "unsupported_grant_type: grant_type must be one of: client_credentials, code_chain"
     );
 }

@@ -12,6 +12,7 @@ fn returns_token_response_for_form_client_credentials_grant_type() {
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));
     assert!(response.contains("\"expires_in\":3600"));
+    assert!(!response.contains("\"authorization_code\""));
     assert!(!response.contains("\"client_id\""));
     assert!(!response.contains("\"client_secret\""));
     assert!(!response.contains("\"grant_type\""));
@@ -29,9 +30,79 @@ fn returns_token_response_for_json_client_credentials_grant_type() {
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));
     assert!(response.contains("\"expires_in\":3600"));
+    assert!(!response.contains("\"authorization_code\""));
     assert!(!response.contains("\"client_id\""));
     assert!(!response.contains("\"client_secret\""));
     assert!(!response.contains("\"grant_type\""));
+}
+
+#[test]
+fn returns_token_response_for_form_code_chain_grant_type() {
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=code_chain&id_token={}",
+        valid_id_token()
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"authorization_code\":\""));
+    assert!(response.contains("\"expires_in\":600"));
+    assert!(!response.contains("\"token_type\""));
+    assert!(!response.contains("\"access_token\""));
+    assert!(!response.contains("\"client_id\""));
+    assert!(!response.contains("\"client_secret\""));
+    assert!(!response.contains("\"grant_type\""));
+}
+
+#[test]
+fn returns_token_response_for_json_code_chain_grant_type() {
+    let body = format!(
+        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"code_chain\",\"id_token\":\"{}\"}}",
+        valid_id_token()
+    );
+    let response = send_json_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"authorization_code\":\""));
+    assert!(response.contains("\"expires_in\":600"));
+    assert!(!response.contains("\"token_type\""));
+    assert!(!response.contains("\"access_token\""));
+    assert!(!response.contains("\"client_id\""));
+    assert!(!response.contains("\"client_secret\""));
+    assert!(!response.contains("\"grant_type\""));
+}
+
+#[test]
+fn returns_oauth_error_for_missing_code_chain_id_token() {
+    let response = send_request(
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: 69\r\n\r\nclient_id=client_id&client_secret=client_secret&grant_type=code_chain",
+    );
+
+    assert_missing_id_token_response(&response);
+}
+
+#[test]
+fn returns_oauth_error_for_invalid_code_chain_id_token() {
+    let response = send_request(
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: 82\r\n\r\nclient_id=client_id&client_secret=client_secret&grant_type=code_chain&id_token=app",
+    );
+
+    assert_invalid_id_token_response(&response);
+}
+
+#[test]
+fn returns_oauth_error_for_invalid_code_chain_authorization_code() {
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=code_chain&id_token={}&authorization_code=app",
+        valid_id_token()
+    );
+    let response = send_form_token_request(&body);
+
+    assert_invalid_authorization_code_response(&response);
 }
 
 #[test]
@@ -112,10 +183,9 @@ fn assert_unsupported_grant_type_response(response: &str) {
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"unsupported_grant_type\""));
-    assert!(
-        response
-            .contains("\"error_description\":\"grant_type must be one of: client_credentials\"")
-    );
+    assert!(response.contains(
+        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain\""
+    ));
 }
 
 fn assert_invalid_client_id_response(response: &str) {
@@ -148,4 +218,81 @@ fn assert_missing_client_secret_response(response: &str) {
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"invalid_client\""));
     assert!(response.contains("\"error_description\":\"client_secret is required\""));
+}
+
+fn assert_missing_id_token_response(response: &str) {
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("\"error_description\":\"id_token is required\""));
+}
+
+fn assert_invalid_id_token_response(response: &str) {
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("\"error_description\":\"id_token must be a jwt\""));
+}
+
+fn assert_invalid_authorization_code_response(response: &str) {
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("\"error_description\":\"authorization_code must be a jwt\""));
+}
+
+fn send_form_token_request(body: &str) -> String {
+    send_request(&format!(
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    ))
+}
+
+fn send_json_token_request(body: &str) -> String {
+    send_request(&format!(
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    ))
+}
+
+fn valid_id_token() -> String {
+    #[derive(serde::Serialize)]
+    struct Claims {
+        iat: u64,
+        exp: u64,
+    }
+
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    header.jwk = Some(jwk());
+    let now = jsonwebtoken::get_current_timestamp();
+
+    jsonwebtoken::encode(
+        &header,
+        &Claims {
+            iat: now,
+            exp: now + 3600,
+        },
+        &jsonwebtoken::EncodingKey::from_secret(b"secret"),
+    )
+    .unwrap()
+}
+
+fn jwk() -> jsonwebtoken::jwk::Jwk {
+    jsonwebtoken::jwk::Jwk {
+        common: jsonwebtoken::jwk::CommonParameters {
+            key_algorithm: Some(jsonwebtoken::jwk::KeyAlgorithm::HS256),
+            ..Default::default()
+        },
+        algorithm: jsonwebtoken::jwk::AlgorithmParameters::OctetKey(
+            jsonwebtoken::jwk::OctetKeyParameters {
+                key_type: jsonwebtoken::jwk::OctetKeyType::Octet,
+                value: "c2VjcmV0".to_owned(),
+            },
+        ),
+    }
 }

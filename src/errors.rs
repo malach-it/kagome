@@ -45,6 +45,27 @@ impl OAuthError {
         }
     }
 
+    pub fn invalid_id_token(error_description: impl Into<String>) -> Self {
+        Self {
+            error: "invalid_grant".to_owned(),
+            error_description: error_description.into(),
+        }
+    }
+
+    pub fn missing_id_token() -> Self {
+        Self {
+            error: "invalid_grant".to_owned(),
+            error_description: "id_token is required".to_owned(),
+        }
+    }
+
+    pub fn invalid_authorization_code(error_description: impl Into<String>) -> Self {
+        Self {
+            error: "invalid_grant".to_owned(),
+            error_description: error_description.into(),
+        }
+    }
+
     pub fn invalid_token_response(error_description: impl Into<String>) -> Self {
         Self {
             error: "invalid_token_response".to_owned(),

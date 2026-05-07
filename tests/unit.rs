@@ -13,6 +13,8 @@ fn parses_crlf_request_protocol_headers_and_body() {
     assert_eq!(request.client_id, None);
     assert_eq!(request.client_secret, None);
     assert_eq!(request.grant_type, None);
+    assert_eq!(request.id_token, None);
+    assert_eq!(request.authorization_code, None);
     assert_eq!(request.headers.len(), 2);
     assert_eq!(request.headers[0].name, "host");
     assert_eq!(request.headers[0].value, "example.com");
@@ -31,6 +33,8 @@ fn parses_lf_request_body_separator() {
     assert_eq!(request.client_id, None);
     assert_eq!(request.client_secret, None);
     assert_eq!(request.grant_type, None);
+    assert_eq!(request.id_token, None);
+    assert_eq!(request.authorization_code, None);
     assert_eq!(request.headers.len(), 1);
     assert_eq!(request.headers[0].name, "accept");
     assert_eq!(request.headers[0].value, "application/json");
@@ -56,6 +60,8 @@ fn defaults_protocol_when_request_line_is_invalid() {
     assert_eq!(request.client_id, None);
     assert_eq!(request.client_secret, None);
     assert_eq!(request.grant_type, None);
+    assert_eq!(request.id_token, None);
+    assert_eq!(request.authorization_code, None);
     assert_eq!(request.headers.len(), 1);
     assert_eq!(request.headers[0].name, "host");
     assert_eq!(request.headers[0].value, "example.com");
@@ -82,6 +88,8 @@ fn handles_empty_request() {
     assert_eq!(request.client_id, None);
     assert_eq!(request.client_secret, None);
     assert_eq!(request.grant_type, None);
+    assert_eq!(request.id_token, None);
+    assert_eq!(request.authorization_code, None);
     assert_eq!(request.body, "");
 }
 
@@ -131,6 +139,42 @@ fn parses_grant_type_from_post_body_parameter() {
 }
 
 #[test]
+fn parses_id_token_from_post_body_parameter() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nid_token=id.jwt.token&grant_type=code_chain",
+    );
+
+    assert_eq!(request.id_token, Some("id.jwt.token".to_owned()));
+}
+
+#[test]
+fn parses_id_token_from_json_post_body() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"id_token\":\"id.jwt.token\",\"grant_type\":\"code_chain\"}",
+    );
+
+    assert_eq!(request.id_token, Some("id.jwt.token".to_owned()));
+}
+
+#[test]
+fn parses_authorization_code_from_post_body_parameter() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nauthorization_code=auth.jwt.code&grant_type=code_chain",
+    );
+
+    assert_eq!(request.authorization_code, Some("auth.jwt.code".to_owned()));
+}
+
+#[test]
+fn parses_authorization_code_from_json_post_body() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"authorization_code\":\"auth.jwt.code\",\"grant_type\":\"code_chain\"}",
+    );
+
+    assert_eq!(request.authorization_code, Some("auth.jwt.code".to_owned()));
+}
+
+#[test]
 fn decodes_grant_type_form_value() {
     let request = parse_request(
         "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\ngrant_type=urn%3Aexample+grant",
@@ -162,6 +206,20 @@ fn ignores_grant_type_for_non_post_requests() {
     let request = parse_request("GET /echo HTTP/1.1\r\n\r\ngrant_type=client_credentials");
 
     assert_eq!(request.grant_type, None);
+}
+
+#[test]
+fn ignores_id_token_for_non_post_requests() {
+    let request = parse_request("GET /echo HTTP/1.1\r\n\r\nid_token=id.jwt.token");
+
+    assert_eq!(request.id_token, None);
+}
+
+#[test]
+fn ignores_authorization_code_for_non_post_requests() {
+    let request = parse_request("GET /echo HTTP/1.1\r\n\r\nauthorization_code=auth.jwt.code");
+
+    assert_eq!(request.authorization_code, None);
 }
 
 #[test]
@@ -219,10 +277,42 @@ fn ignores_grant_type_for_unsupported_content_type() {
 }
 
 #[test]
+fn ignores_id_token_for_unsupported_content_type() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: text/plain\r\n\r\nid_token=id.jwt.token",
+    );
+
+    assert_eq!(request.id_token, None);
+}
+
+#[test]
+fn ignores_authorization_code_for_unsupported_content_type() {
+    let request = parse_request(
+        "POST /echo HTTP/1.1\r\ncontent-type: text/plain\r\n\r\nauthorization_code=auth.jwt.code",
+    );
+
+    assert_eq!(request.authorization_code, None);
+}
+
+#[test]
 fn ignores_grant_type_when_content_type_is_missing() {
     let request = parse_request("POST /echo HTTP/1.1\r\n\r\ngrant_type=client_credentials");
 
     assert_eq!(request.grant_type, None);
+}
+
+#[test]
+fn ignores_id_token_when_content_type_is_missing() {
+    let request = parse_request("POST /echo HTTP/1.1\r\n\r\nid_token=id.jwt.token");
+
+    assert_eq!(request.id_token, None);
+}
+
+#[test]
+fn ignores_authorization_code_when_content_type_is_missing() {
+    let request = parse_request("POST /echo HTTP/1.1\r\n\r\nauthorization_code=auth.jwt.code");
+
+    assert_eq!(request.authorization_code, None);
 }
 
 #[test]
@@ -238,12 +328,14 @@ fn converts_request_to_json() {
         client_id: Some("client_id".to_owned()),
         client_secret: Some("client_secret".to_owned()),
         grant_type: Some("client_credentials".to_owned()),
+        id_token: Some("id.jwt.token".to_owned()),
+        authorization_code: Some("auth.jwt.code".to_owned()),
         body: "line one\nline two".to_owned(),
     };
 
     assert_eq!(
         to_json(&request),
-        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-message\",\"value\":\"hello \\\"kagome\\\"\"}],\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"client_credentials\",\"body\":\"line one\\nline two\"}"
+        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-message\",\"value\":\"hello \\\"kagome\\\"\"}],\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"client_credentials\",\"id_token\":\"id.jwt.token\",\"authorization_code\":\"auth.jwt.code\",\"body\":\"line one\\nline two\"}"
     );
 }
 
@@ -260,11 +352,13 @@ fn escapes_control_characters_in_json() {
         client_id: None,
         client_secret: None,
         grant_type: None,
+        id_token: None,
+        authorization_code: None,
         body: "carriage\rreturn".to_owned(),
     };
 
     assert_eq!(
         to_json(&request),
-        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-tab\",\"value\":\"a\\tb\"}],\"client_id\":null,\"client_secret\":null,\"grant_type\":null,\"body\":\"carriage\\rreturn\"}"
+        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-tab\",\"value\":\"a\\tb\"}],\"client_id\":null,\"client_secret\":null,\"grant_type\":null,\"id_token\":null,\"authorization_code\":null,\"body\":\"carriage\\rreturn\"}"
     );
 }

@@ -6,6 +6,8 @@ pub struct KagomeRequest {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub grant_type: Option<String>,
+    pub id_token: Option<String>,
+    pub authorization_code: Option<String>,
     pub body: String,
 }
 
@@ -32,6 +34,9 @@ pub fn parse_request(request: &str) -> KagomeRequest {
     let client_id = parse_body_string_parameter(&method, &headers, body, "client_id");
     let client_secret = parse_body_string_parameter(&method, &headers, body, "client_secret");
     let grant_type = parse_body_string_parameter(&method, &headers, body, "grant_type");
+    let id_token = parse_body_string_parameter(&method, &headers, body, "id_token");
+    let authorization_code =
+        parse_body_string_parameter(&method, &headers, body, "authorization_code");
 
     KagomeRequest {
         method,
@@ -41,6 +46,8 @@ pub fn parse_request(request: &str) -> KagomeRequest {
         client_id,
         client_secret,
         grant_type,
+        id_token,
+        authorization_code,
         body: body.to_owned(),
     }
 }
@@ -60,7 +67,7 @@ pub fn to_json(request: &KagomeRequest) -> String {
         .join(",");
 
     format!(
-        "{{\"method\":\"{}\",\"path\":\"{}\",\"protocol\":\"{}\",\"headers\":[{}],\"client_id\":{},\"client_secret\":{},\"grant_type\":{},\"body\":\"{}\"}}",
+        "{{\"method\":\"{}\",\"path\":\"{}\",\"protocol\":\"{}\",\"headers\":[{}],\"client_id\":{},\"client_secret\":{},\"grant_type\":{},\"id_token\":{},\"authorization_code\":{},\"body\":\"{}\"}}",
         escape_json(&request.method),
         escape_json(&request.path),
         escape_json(&request.protocol),
@@ -68,6 +75,8 @@ pub fn to_json(request: &KagomeRequest) -> String {
         json_optional_string(&request.client_id),
         json_optional_string(&request.client_secret),
         json_optional_string(&request.grant_type),
+        json_optional_string(&request.id_token),
+        json_optional_string(&request.authorization_code),
         escape_json(&request.body)
     )
 }
