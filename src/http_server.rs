@@ -84,7 +84,9 @@ fn worker_loop(receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>) {
 
         match stream {
             Ok(stream) => {
-                if let Err(error) = handle_connection(stream) {
+                if let Err(error) = handle_connection(stream)
+                    && !is_client_disconnect(&error)
+                {
                     eprintln!("failed to handle connection: {error}");
                 }
             }
@@ -93,15 +95,36 @@ fn worker_loop(receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>) {
     }
 }
 
-fn handle_connection(mut stream: TcpStream) -> io::Result<()> {
-    let request = read_http_request(&mut stream)?;
-    let response = crate::handlers::echo::handle(&request);
+fn handle_connection(stream: TcpStream) -> io::Result<()> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut writer = stream;
 
-    stream.write_all(response.as_bytes())
+    while let Some(request) = read_http_request(&mut reader)? {
+        let should_keep_alive = requests_connection_keep_alive(&request);
+        let mut response = crate::handlers::echo::handle(&request);
+
+        if should_keep_alive {
+            response = response.replace("connection: close", "connection: keep-alive");
+        }
+
+        writer.write_all(response.as_bytes())?;
+
+        if !should_keep_alive {
+            break;
+        }
+    }
+
+    Ok(())
 }
 
-fn read_http_request(stream: &mut TcpStream) -> io::Result<String> {
-    let mut reader = BufReader::new(stream);
+pub fn is_client_disconnect(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof
+    )
+}
+
+fn read_http_request(reader: &mut BufReader<TcpStream>) -> io::Result<Option<String>> {
     let mut request = String::new();
     let mut content_length = 0;
 
@@ -110,7 +133,11 @@ fn read_http_request(stream: &mut TcpStream) -> io::Result<String> {
         let bytes_read = reader.read_line(&mut line)?;
 
         if bytes_read == 0 {
-            break;
+            return if request.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(request))
+            };
         }
 
         if let Some((name, value)) = line.split_once(':')
@@ -131,5 +158,16 @@ fn read_http_request(stream: &mut TcpStream) -> io::Result<String> {
     reader.read_exact(&mut body)?;
     request.push_str(&String::from_utf8_lossy(&body));
 
-    Ok(request)
+    Ok(Some(request))
+}
+
+fn requests_connection_keep_alive(request: &str) -> bool {
+    request.lines().any(|line| {
+        line.split_once(':')
+            .map(|(name, value)| {
+                name.eq_ignore_ascii_case("connection")
+                    && value.trim().eq_ignore_ascii_case("keep-alive")
+            })
+            .unwrap_or(false)
+    })
 }

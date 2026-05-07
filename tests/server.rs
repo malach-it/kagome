@@ -1,7 +1,8 @@
 use std::{io, net::TcpListener, time::Instant};
 
 use kagome::http_server::{
-    DEFAULT_ADDRESS, DEFAULT_WORKERS, serve_listener_with_workers, worker_count_from_value,
+    DEFAULT_ADDRESS, DEFAULT_WORKERS, is_client_disconnect, serve_listener_with_workers,
+    worker_count_from_value,
 };
 
 #[test]
@@ -42,4 +43,24 @@ fn server_workers_stop_when_listener_closes() {
         io::ErrorKind::WouldBlock
     );
     assert!(started_waiting.elapsed().as_secs() < 1);
+}
+
+#[test]
+fn server_treats_client_disconnects_as_expected_errors() {
+    assert!(is_client_disconnect(&io::Error::from(
+        io::ErrorKind::BrokenPipe
+    )));
+    assert!(is_client_disconnect(&io::Error::from(
+        io::ErrorKind::ConnectionReset
+    )));
+    assert!(is_client_disconnect(&io::Error::from(
+        io::ErrorKind::UnexpectedEof
+    )));
+}
+
+#[test]
+fn server_does_not_treat_other_errors_as_client_disconnects() {
+    assert!(!is_client_disconnect(&io::Error::from(
+        io::ErrorKind::InvalidData
+    )));
 }
