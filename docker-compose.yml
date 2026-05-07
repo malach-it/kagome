@@ -1,0 +1,8 @@
+services:
+  kagome:
+    build: .
+    environment:
+      KAGOME_SERVER_ADDRESS: ${KAGOME_SERVER_ADDRESS:-0.0.0.0:4000}
+      KAGOME_WORKERS: ${KAGOME_WORKERS:-4}
+    ports:
+      - "${KAGOME_PORT:-4000}:${KAGOME_PORT:-4000}"
