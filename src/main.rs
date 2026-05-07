@@ -1,9 +1,8 @@
-use std::io::{self, Read, Write};
+use std::io;
 
 fn main() -> io::Result<()> {
-    let mut request = String::new();
-    io::stdin().read_to_string(&mut request)?;
+    let address = kagome::http_server::address_from_environment();
+    let workers = kagome::http_server::worker_count_from_environment();
 
-    let response = kagome::handlers::echo::handle(&request);
-    io::stdout().write_all(response.as_bytes())
+    kagome::http_server::serve_with_workers(address, workers)
 }

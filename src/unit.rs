@@ -1,4 +1,5 @@
 pub struct KagomeRequest {
+    pub method: String,
     pub protocol: String,
     pub headers: Vec<HttpHeader>,
     pub body: String,
@@ -12,11 +13,10 @@ pub struct HttpHeader {
 pub fn parse_request(request: &str) -> KagomeRequest {
     let (head, body) = split_request(request);
     let mut lines = head.lines();
-    let protocol = lines
+    let (method, protocol) = lines
         .next()
-        .and_then(|request_line| request_line.split_whitespace().nth(2))
-        .unwrap_or_default()
-        .to_owned();
+        .map(parse_request_line)
+        .unwrap_or_else(|| ("".to_owned(), "".to_owned()));
 
     let headers = lines
         .filter_map(|line| line.split_once(':'))
@@ -27,6 +27,7 @@ pub fn parse_request(request: &str) -> KagomeRequest {
         .collect();
 
     KagomeRequest {
+        method,
         protocol,
         headers,
         body: body.to_owned(),
@@ -48,11 +49,20 @@ pub fn to_json(request: &KagomeRequest) -> String {
         .join(",");
 
     format!(
-        "{{\"protocol\":\"{}\",\"headers\":[{}],\"body\":\"{}\"}}",
+        "{{\"method\":\"{}\",\"protocol\":\"{}\",\"headers\":[{}],\"body\":\"{}\"}}",
+        escape_json(&request.method),
         escape_json(&request.protocol),
         headers,
         escape_json(&request.body)
     )
+}
+
+fn parse_request_line(request_line: &str) -> (String, String) {
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or_default().to_owned();
+    let protocol = parts.nth(1).unwrap_or_default().to_owned();
+
+    (method, protocol)
 }
 
 fn split_request(request: &str) -> (&str, &str) {

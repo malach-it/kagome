@@ -6,6 +6,7 @@ fn parses_crlf_request_protocol_headers_and_body() {
         "POST /echo HTTP/1.1\r\nhost: example.com\r\ncontent-type: text/plain\r\n\r\nhello",
     );
 
+    assert_eq!(request.method, "POST");
     assert_eq!(request.protocol, "HTTP/1.1");
     assert_eq!(request.body, "hello");
     assert_eq!(request.headers.len(), 2);
@@ -19,6 +20,7 @@ fn parses_crlf_request_protocol_headers_and_body() {
 fn parses_lf_request_body_separator() {
     let request = parse_request("GET /echo HTTP/2\naccept: application/json\n\nhello");
 
+    assert_eq!(request.method, "GET");
     assert_eq!(request.protocol, "HTTP/2");
     assert_eq!(request.body, "hello");
     assert_eq!(request.headers.len(), 1);
@@ -39,6 +41,7 @@ fn trims_header_names_and_values() {
 fn defaults_protocol_when_request_line_is_invalid() {
     let request = parse_request("invalid-request-line\r\nhost: example.com\r\n\r\nhello");
 
+    assert_eq!(request.method, "invalid-request-line");
     assert_eq!(request.protocol, "");
     assert_eq!(request.body, "hello");
     assert_eq!(request.headers.len(), 1);
@@ -60,6 +63,7 @@ fn ignores_header_lines_without_colons() {
 fn handles_empty_request() {
     let request = parse_request("");
 
+    assert_eq!(request.method, "");
     assert_eq!(request.protocol, "");
     assert!(request.headers.is_empty());
     assert_eq!(request.body, "");
@@ -68,6 +72,7 @@ fn handles_empty_request() {
 #[test]
 fn converts_request_to_json() {
     let request = KagomeRequest {
+        method: "POST".to_owned(),
         protocol: "HTTP/1.1".to_owned(),
         headers: vec![HttpHeader {
             name: "x-message".to_owned(),
@@ -78,13 +83,14 @@ fn converts_request_to_json() {
 
     assert_eq!(
         to_json(&request),
-        "{\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-message\",\"value\":\"hello \\\"kagome\\\"\"}],\"body\":\"line one\\nline two\"}"
+        "{\"method\":\"POST\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-message\",\"value\":\"hello \\\"kagome\\\"\"}],\"body\":\"line one\\nline two\"}"
     );
 }
 
 #[test]
 fn escapes_control_characters_in_json() {
     let request = KagomeRequest {
+        method: "POST".to_owned(),
         protocol: "HTTP/1.1".to_owned(),
         headers: vec![HttpHeader {
             name: "x-tab".to_owned(),
@@ -95,6 +101,6 @@ fn escapes_control_characters_in_json() {
 
     assert_eq!(
         to_json(&request),
-        "{\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-tab\",\"value\":\"a\\tb\"}],\"body\":\"carriage\\rreturn\"}"
+        "{\"method\":\"POST\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-tab\",\"value\":\"a\\tb\"}],\"body\":\"carriage\\rreturn\"}"
     );
 }
