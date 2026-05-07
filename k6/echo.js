@@ -13,10 +13,8 @@ export const options = {
 const target = __ENV.KAGOME_TARGET || "http://kagome:4000/echo";
 
 export default function () {
-  const body = "hello from k6";
-  const response = http.post(target, body, {
+  const response = http.get(target, {
     headers: {
-      "content-type": "text/plain",
       "x-kagome-test": "k6",
     },
   });
@@ -25,15 +23,10 @@ export default function () {
 
   check(response, {
     "status is 200": (response) => response.status === 200,
-    "method is post": () => payload.method === "POST",
+    "method is get": () => payload.method === "GET",
+    "path is echo": () => payload.path === "/echo",
     "protocol is http 1.1": () => payload.protocol === "HTTP/1.1",
-    "body is echoed": () => payload.body === body,
-    "content type is echoed": () =>
-      payload.headers.some(
-        (header) =>
-          header.name.toLowerCase() === "content-type" &&
-          header.value === "text/plain",
-      ),
+    "body is empty": () => payload.body === "",
     "custom header is echoed": () =>
       payload.headers.some(
         (header) =>

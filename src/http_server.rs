@@ -100,8 +100,8 @@ fn handle_connection(stream: TcpStream) -> io::Result<()> {
     let mut writer = stream;
 
     while let Some(request) = read_http_request(&mut reader)? {
-        let should_keep_alive = requests_connection_keep_alive(&request);
-        let mut response = crate::handlers::echo::handle(&request);
+        let should_keep_alive = raw_request_connection_keep_alive(&request);
+        let mut response = crate::router::route_raw_request(&request);
 
         if should_keep_alive {
             response = response.replace("connection: close", "connection: keep-alive");
@@ -161,7 +161,7 @@ fn read_http_request(reader: &mut BufReader<TcpStream>) -> io::Result<Option<Str
     Ok(Some(request))
 }
 
-fn requests_connection_keep_alive(request: &str) -> bool {
+fn raw_request_connection_keep_alive(request: &str) -> bool {
     request.lines().any(|line| {
         line.split_once(':')
             .map(|(name, value)| {

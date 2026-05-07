@@ -48,18 +48,20 @@ pub fn send_persistent_requests(requests: &[&str]) -> Vec<String> {
 fn keeps_connection_alive_when_requested() {
     let responses = send_persistent_requests(&[
         "GET /echo HTTP/1.1\r\nhost: example.com\r\nconnection: keep-alive\r\n\r\n",
-        "POST /echo HTTP/1.1\r\nhost: example.com\r\nconnection: keep-alive\r\ncontent-length: 6\r\n\r\nsecond",
+        "GET /echo HTTP/1.1\r\nhost: example.com\r\nconnection: keep-alive\r\n\r\n",
     ]);
 
     assert_eq!(responses.len(), 2);
     assert!(responses[0].contains("\"method\":\"GET\""));
+    assert!(responses[0].contains("\"path\":\"/echo\""));
     assert!(responses[0].contains("connection: keep-alive\r\n"));
     assert!(responses[0].contains("{\"name\":\"connection\",\"value\":\"keep-alive\"}"));
     assert!(responses[0].ends_with("\"body\":\"\"}"));
-    assert!(responses[1].contains("\"method\":\"POST\""));
+    assert!(responses[1].contains("\"method\":\"GET\""));
+    assert!(responses[1].contains("\"path\":\"/echo\""));
     assert!(responses[1].contains("connection: keep-alive\r\n"));
     assert!(responses[1].contains("{\"name\":\"connection\",\"value\":\"keep-alive\"}"));
-    assert!(responses[1].ends_with("\"body\":\"second\"}"));
+    assert!(responses[1].ends_with("\"body\":\"\"}"));
 }
 
 #[test]
@@ -76,6 +78,28 @@ fn closes_connection_when_requested() {
 
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("{\"name\":\"connection\",\"value\":\"close\"}"));
+}
+
+#[test]
+fn returns_not_found_for_unknown_path() {
+    let response = send_request("GET /missing HTTP/1.1\r\nhost: example.com\r\n\r\n");
+
+    assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+    assert!(response.contains("content-type: text/plain\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.ends_with("not found"));
+}
+
+#[test]
+fn routes_echo_for_any_http_method() {
+    let response =
+        send_request("POST /echo HTTP/1.1\r\nhost: example.com\r\ncontent-length: 5\r\n\r\nhello");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"method\":\"POST\""));
+    assert!(response.contains("\"path\":\"/echo\""));
+    assert!(response.ends_with("\"body\":\"hello\"}"));
 }
 
 fn read_response(reader: &mut BufReader<TcpStream>) -> String {

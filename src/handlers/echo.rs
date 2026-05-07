@@ -1,8 +1,7 @@
-use crate::unit;
+use crate::unit::{self, KagomeRequest};
 
-pub fn handle(request: &str) -> String {
-    let parsed_request = unit::parse_request(request);
-    let response_body = unit::to_json(&parsed_request);
+pub fn handle(request: &KagomeRequest) -> String {
+    let response_body = unit::to_json(request);
 
     format!(
         "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
