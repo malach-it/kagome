@@ -158,6 +158,15 @@ class AgentRoom:
         self.send(message)
         return message
 
+    def run_parallel(self, agent_names: list[str]) -> list[Message]:
+        messages = [
+            self.agents[agent_name].respond(self.transcript)
+            for agent_name in agent_names
+        ]
+        for message in messages:
+            self.send(message)
+        return messages
+
     def latest_authorization_code(self, agent_name: str) -> str | None:
         agent = self.agents.get(agent_name)
         if agent is None or not agent.authorization_codes:
@@ -178,20 +187,27 @@ def latest_user_request(transcript: list[Message]) -> str:
     return ""
 
 
-def latest_from(transcript: list[Message], sender: str) -> str:
+def latest_from(
+    transcript: list[Message],
+    sender: str,
+    recipient: str | None = None,
+) -> str:
     for message in reversed(transcript):
-        if message.sender == sender:
+        if message.sender == sender and (
+            recipient is None or message.recipient == recipient
+        ):
             return message.content
     return ""
 
 
-def local_writer_reply(request: str, plan: str, critique: str) -> str:
+def local_writer_reply(request: str, merge: str, critique: str) -> str:
     return (
         f"Final response for: {request}\n\n"
-        "A planner agent turned the request into a concrete plan, a critic agent "
-        "checked that plan for gaps, and this writer agent produced the final "
-        "reply from those intermediate results.\n\n"
-        f"Planner output:\n{plan}\n\n"
+        "The workflow mixed a linear path with parallel specialist branches: "
+        "planner, then researcher/security/implementer in parallel, "
+        "then merger -> critic -> writer. Each receiving agent made "
+        "a code-chain token call before contributing.\n\n"
+        f"Merge output:\n{merge}\n\n"
         f"Critic output:\n{critique}"
     )
 
@@ -232,30 +248,87 @@ def planner_handler(agent: Agent, transcript: list[Message]) -> Message:
         f"Goal: {request}\n"
         "Plan:\n"
         "1. Identify the user's concrete outcome.\n"
-        "2. Split the work into small steps.\n"
-        "3. Draft a direct answer with a runnable example.\n"
-        "4. Ask the critic to check for missing assumptions."
+        "2. Fan out the same plan to researcher, security, and implementer.\n"
+        "3. Merge the parallel outputs into one synthesis.\n"
+        "4. Send the synthesis to the critic for risk review.\n"
+        "5. Ask the writer to summarize the merged and reviewed result."
     )
-    return Message(sender=agent.name, recipient="critic", content=plan)
+    return Message(sender=agent.name, recipient="all", content=plan)
+
+
+def researcher_handler(agent: Agent, transcript: list[Message]) -> Message:
+    plan = latest_from(transcript, "planner", "all")
+    research = (
+        "Research notes:\n"
+        "- Keep the workflow local and deterministic.\n"
+        "- Preserve the receive-time code_chain call for every agent handoff.\n"
+        "- Make the transcript show distinct agent responsibilities.\n"
+        "- Pass the previous agent's authorization_code along the chain.\n\n"
+        f"Plan reviewed:\n{plan}"
+    )
+    return Message(sender=agent.name, recipient="merger", content=research)
+
+
+def security_handler(agent: Agent, transcript: list[Message]) -> Message:
+    plan = latest_from(transcript, "planner", "all")
+    security_review = (
+        "Security branch:\n"
+        "- Every receiving agent mints its own id_token.\n"
+        "- Each receive call submits code_chain with the previous authorization_code.\n"
+        "- Printed authorization codes make the chain observable for the example.\n"
+        "- The merge step should preserve branch context without exposing secrets.\n\n"
+        f"Plan reviewed:\n{plan}"
+    )
+    return Message(sender=agent.name, recipient="merger", content=security_review)
+
+
+def implementer_handler(agent: Agent, transcript: list[Message]) -> Message:
+    plan = latest_from(transcript, "planner", "all")
+    implementation = (
+        "Implementation branch:\n"
+        "- Build a routed multi-agent conversation.\n"
+        "- Run researcher, security, and implementer from the same plan snapshot.\n"
+        "- Merge the branch outputs before review.\n\n"
+        f"Plan reviewed:\n{plan}"
+    )
+    return Message(sender=agent.name, recipient="merger", content=implementation)
+
+
+def merger_handler(agent: Agent, transcript: list[Message]) -> Message:
+    plan = latest_from(transcript, "planner", "all")
+    research = latest_from(transcript, "researcher", "merger")
+    security = latest_from(transcript, "security", "merger")
+    implementation = latest_from(transcript, "implementer", "merger")
+    merge = (
+        "Merged synthesis:\n"
+        "- Linear setup established the route and plan.\n"
+        "- Parallel branches produced research, security, and implementation views.\n"
+        "- The next linear stage can review one merged artifact.\n\n"
+        f"Plan:\n{plan}\n\n"
+        f"Research branch:\n{research}\n\n"
+        f"Security branch:\n{security}\n\n"
+        f"Implementation branch:\n{implementation}"
+    )
+    return Message(sender=agent.name, recipient="critic", content=merge)
 
 
 def critic_handler(agent: Agent, transcript: list[Message]) -> Message:
-    plan = latest_from(transcript, "planner")
+    merge = latest_from(transcript, "merger", "critic")
     critique = (
         "Review:\n"
-        "- The plan is clear, but the final answer should avoid abstract theory.\n"
-        "- Include the exact command to run the example.\n"
-        "- Show where each agent contributes so the interaction is visible.\n\n"
-        f"Plan reviewed:\n{plan}"
+        "- The merged output shows both linear and parallel phases.\n"
+        "- The final writer should include the merged result and critique.\n"
+        "- The transcript should make the authorization-code chain visible.\n\n"
+        f"Merged artifact reviewed:\n{merge}"
     )
     return Message(sender=agent.name, recipient="writer", content=critique)
 
 
 def writer_handler(agent: Agent, transcript: list[Message]) -> Message:
     request = latest_user_request(transcript)
-    plan = latest_from(transcript, "planner")
-    critique = latest_from(transcript, "critic")
-    answer = local_writer_reply(request, plan, critique)
+    merge = latest_from(transcript, "merger", "critic")
+    critique = latest_from(transcript, "critic", "writer")
+    answer = local_writer_reply(request, merge, critique)
     return Message(sender=agent.name, recipient="user", content=answer)
 
 
@@ -267,6 +340,30 @@ def main() -> None:
                 name="planner",
                 instructions="Break a user request into a practical plan.",
                 handler=planner_handler,
+                token_client=token_client,
+            ),
+            agent(
+                name="researcher",
+                instructions="Gather constraints and facts for another agent's plan.",
+                handler=researcher_handler,
+                token_client=token_client,
+            ),
+            agent(
+                name="security",
+                instructions="Review token-chain and handoff risks in a parallel branch.",
+                handler=security_handler,
+                token_client=token_client,
+            ),
+            agent(
+                name="implementer",
+                instructions="Turn a shared plan into concrete implementation notes.",
+                handler=implementer_handler,
+                token_client=token_client,
+            ),
+            agent(
+                name="merger",
+                instructions="Merge parallel branch outputs into one artifact.",
+                handler=merger_handler,
                 token_client=token_client,
             ),
             agent(
@@ -295,6 +392,12 @@ def main() -> None:
 
     room.ask("user", "planner", user_prompt)
     room.run_round("planner")
+    plan = latest_from(room.transcript, "planner", "all")
+    room.ask("planner", "researcher", plan)
+    room.ask("planner", "security", plan)
+    room.ask("planner", "implementer", plan)
+    room.run_parallel(["researcher", "security", "implementer"])
+    room.run_round("merger")
     room.run_round("critic")
     room.run_round("writer")
     room.print_transcript()

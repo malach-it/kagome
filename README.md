@@ -13,7 +13,8 @@ critic reviews it, and a writer produces the final reply locally.
 
 Each agent has its own signing key. When an agent receives a message, it signs
 an `id_token` and calls the local `/token` endpoint with the `code_chain` grant
-before processing that message.
+before processing that message. The `id_token` remains a JWT, while issued
+authorization codes are COSE_Mac0 values.
 
 Optional environment variables:
 

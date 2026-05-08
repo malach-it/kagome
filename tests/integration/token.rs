@@ -303,7 +303,7 @@ fn assert_invalid_authorization_code_response(response: &str) {
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("\"error_description\":\"authorization_code must be a jwt\""));
+    assert!(response.contains("\"error_description\":\"authorization_code must be a cose_mac0\""));
 }
 
 fn send_form_token_request(body: &str) -> String {
@@ -345,22 +345,42 @@ fn valid_id_token() -> String {
 }
 
 fn valid_authorization_code() -> String {
-    let now = jsonwebtoken::get_current_timestamp();
+    struct TestAuthorizationCodeRequest {
+        authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
+        id_token: String,
+    }
 
-    jsonwebtoken::encode(
-        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS512),
-        &kagome::resources::authorization_code::AuthorizationCodeJwtPayload {
-            client_id: "client_id".to_owned(),
-            id_token: valid_id_token(),
-            previous_code: None,
-            iat: now,
-            exp: now + kagome::resources::authorization_code::AUTHORIZATION_CODE_TTL_SECONDS,
-        },
-        &jsonwebtoken::EncodingKey::from_secret(
-            kagome::resources::authorization_code::SECRET.as_bytes(),
-        ),
-    )
-    .unwrap()
+    impl kagome::resources::authorization_code::Generate for TestAuthorizationCodeRequest {
+        fn authorization_code(&self) -> Option<&str> {
+            None
+        }
+
+        fn client_id(&self) -> Option<&str> {
+            Some("client_id")
+        }
+
+        fn id_token(&self) -> Option<&str> {
+            Some(&self.id_token)
+        }
+
+        fn add_authorization_code(
+            &mut self,
+            authorization_code: kagome::resources::authorization_code::AuthorizationCode,
+        ) {
+            self.authorization_code = Some(authorization_code);
+        }
+    }
+
+    let request = TestAuthorizationCodeRequest {
+        authorization_code: None,
+        id_token: valid_id_token(),
+    };
+
+    kagome::resources::authorization_code::generate(request)
+        .unwrap()
+        .authorization_code
+        .unwrap()
+        .value
 }
 
 fn jwk() -> jsonwebtoken::jwk::Jwk {

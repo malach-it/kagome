@@ -1,26 +1,27 @@
-use jsonwebtoken::{
-    Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode,
-    errors::{Error as JwtError, ErrorKind},
-    get_current_timestamp,
-};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use coset::{CborSerializable, CoseMac0, CoseMac0Builder, HeaderBuilder, iana};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::errors::OAuthError;
 
+type HmacSha512 = Hmac<sha2::Sha512>;
+
 pub const SECRET: &str = "static_authorization_code_secret";
 pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = 600;
+const COSE_EXTERNAL_AAD: &[u8] = b"kagome.authorization_code";
 
 #[derive(Debug)]
 pub struct AuthorizationCode {
     pub value: String,
     pub expires_in: u64,
     pub previous_code: Option<String>,
-    pub payload: AuthorizationCodeJwtPayload,
+    pub payload: AuthorizationCodeCosePayload,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AuthorizationCodeJwtPayload {
+pub struct AuthorizationCodeCosePayload {
     pub client_id: String,
     pub id_token: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -81,7 +82,7 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?
         .as_secs();
     let exp = iat + AUTHORIZATION_CODE_TTL_SECONDS;
-    let payload = AuthorizationCodeJwtPayload {
+    let payload = AuthorizationCodeCosePayload {
         client_id: client_id.to_owned(),
         id_token: id_token.to_owned(),
         previous_code: previous_code.clone(),
@@ -89,12 +90,7 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
         exp,
     };
     let authorization_code = AuthorizationCode {
-        value: encode(
-            &Header::new(Algorithm::HS512),
-            &payload,
-            &EncodingKey::from_secret(SECRET.as_bytes()),
-        )
-        .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?,
+        value: encode_cose_mac0(&payload)?,
         expires_in: exp - iat,
         previous_code,
         payload,
@@ -108,7 +104,7 @@ fn validate_request_authorization_code(
     authorization_code: &str,
     client_id: Option<&str>,
 ) -> Result<(), OAuthError> {
-    let payload = validate_jwt(authorization_code)?;
+    let payload = validate_cose_mac0(authorization_code)?;
 
     if let Some(client_id) = client_id
         && payload.client_id != client_id
@@ -121,46 +117,106 @@ fn validate_request_authorization_code(
     Ok(())
 }
 
-fn validate_jwt(authorization_code: &str) -> Result<AuthorizationCodeJwtPayload, OAuthError> {
-    let mut validation = Validation::new(Algorithm::HS512);
-    validation.set_required_spec_claims(&["exp"]);
-    validation.validate_aud = false;
+fn encode_cose_mac0(payload: &AuthorizationCodeCosePayload) -> Result<String, OAuthError> {
+    let mut payload_bytes = Vec::new();
+    ciborium::into_writer(payload, &mut payload_bytes)
+        .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?;
 
-    let token_data = decode::<AuthorizationCodeJwtPayload>(
-        authorization_code,
-        &DecodingKey::from_secret(SECRET.as_bytes()),
-        &validation,
-    )
-    .map_err(invalid_decode_error)?;
-    let now = get_current_timestamp();
+    let cose = CoseMac0Builder::new()
+        .protected(
+            HeaderBuilder::new()
+                .algorithm(iana::Algorithm::HMAC_512_512)
+                .build(),
+        )
+        .payload(payload_bytes)
+        .create_tag(COSE_EXTERNAL_AAD, hmac_sha512)
+        .build();
+    let cose_bytes = cose
+        .to_vec()
+        .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?;
 
-    if token_data.claims.iat > now + validation.leeway {
+    Ok(URL_SAFE_NO_PAD.encode(cose_bytes))
+}
+
+pub fn decode_cose_payload(
+    authorization_code: &str,
+) -> Result<AuthorizationCodeCosePayload, OAuthError> {
+    let cose_bytes = URL_SAFE_NO_PAD
+        .decode(authorization_code)
+        .map_err(|_| invalid_authorization_code("authorization_code must be a cose_mac0"))?;
+    let cose = CoseMac0::from_slice(&cose_bytes)
+        .map_err(|_| invalid_authorization_code("authorization_code must be a cose_mac0"))?;
+    let payload = cose
+        .payload
+        .as_deref()
+        .ok_or_else(|| invalid_authorization_code("authorization_code payload is required"))?;
+
+    ciborium::from_reader(payload)
+        .map_err(|_| invalid_authorization_code("authorization_code claims are invalid"))
+}
+
+fn validate_cose_mac0(
+    authorization_code: &str,
+) -> Result<AuthorizationCodeCosePayload, OAuthError> {
+    let cose_bytes = URL_SAFE_NO_PAD
+        .decode(authorization_code)
+        .map_err(|_| invalid_authorization_code("authorization_code must be a cose_mac0"))?;
+    let cose = CoseMac0::from_slice(&cose_bytes)
+        .map_err(|_| invalid_authorization_code("authorization_code must be a cose_mac0"))?;
+
+    cose.verify_payload_tag(
+        COSE_EXTERNAL_AAD,
+        || invalid_authorization_code("authorization_code payload is required"),
+        verify_hmac_sha512,
+    )?;
+
+    let payload = cose
+        .payload
+        .as_deref()
+        .ok_or_else(|| invalid_authorization_code("authorization_code payload is required"))?;
+    let payload: AuthorizationCodeCosePayload = ciborium::from_reader(payload)
+        .map_err(|_| invalid_authorization_code("authorization_code claims are invalid"))?;
+    let now = current_timestamp()?;
+
+    if payload.iat > now {
         return Err(invalid_authorization_code(
             "authorization_code iat must not be in the future",
         ));
     }
 
-    if token_data.claims.exp <= token_data.claims.iat {
+    if payload.exp <= payload.iat {
         return Err(invalid_authorization_code(
             "authorization_code exp must be after iat",
         ));
     }
 
-    Ok(token_data.claims)
+    if payload.exp <= now {
+        return Err(invalid_authorization_code("authorization_code is expired"));
+    }
+
+    Ok(payload)
 }
 
-fn invalid_decode_error(error: JwtError) -> OAuthError {
-    match error.kind() {
-        ErrorKind::InvalidToken => invalid_authorization_code("authorization_code must be a jwt"),
-        ErrorKind::InvalidSignature => {
-            invalid_authorization_code("authorization_code signature is invalid")
-        }
-        ErrorKind::ExpiredSignature => invalid_authorization_code("authorization_code is expired"),
-        ErrorKind::MissingRequiredClaim(claim) if claim == "exp" => {
-            invalid_authorization_code("authorization_code exp is required")
-        }
-        _ => invalid_authorization_code("authorization_code claims are invalid"),
-    }
+fn hmac_sha512(data: &[u8]) -> Vec<u8> {
+    let mut mac = HmacSha512::new_from_slice(SECRET.as_bytes())
+        .expect("static authorization code secret is valid for hmac");
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
+
+fn verify_hmac_sha512(tag: &[u8], data: &[u8]) -> Result<(), OAuthError> {
+    let mut mac = HmacSha512::new_from_slice(SECRET.as_bytes())
+        .expect("static authorization code secret is valid for hmac");
+    mac.update(data);
+    mac.verify_slice(tag)
+        .map_err(|_| invalid_authorization_code("authorization_code authentication tag is invalid"))
+}
+
+fn current_timestamp() -> Result<u64, OAuthError> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| OAuthError::invalid_token_response("authorization code validation failed"))?
+        .as_secs())
 }
 
 fn invalid_authorization_code(error_description: &str) -> OAuthError {

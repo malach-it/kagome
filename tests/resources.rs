@@ -99,7 +99,7 @@ mod resources {
 
     mod authorization_code {
         #[test]
-        fn generates_hs512_jwt_containing_client_id_and_id_token() {
+        fn generates_cose_mac0_containing_client_id_and_id_token() {
             let request = token_request(Some("client_id"), Some("id_token"));
             let token_response =
                 token_response_with_validated_response(&request, "client_id", "id_token");
@@ -140,13 +140,13 @@ mod resources {
             let request = token_request_with_authorization_code(
                 Some("client_id"),
                 Some("id_token"),
-                Some("previous.jwt.code"),
+                Some("previous.cose.code"),
             );
             let mut token_response =
                 token_response_with_validated_response(&request, "client_id", "id_token");
             kagome::resources::authorization_code::Validate::add_authorization_code(
                 &mut token_response,
-                "previous.jwt.code",
+                "previous.cose.code",
             );
 
             let token_response =
@@ -156,13 +156,13 @@ mod resources {
 
             assert_eq!(
                 authorization_code.previous_code,
-                Some("previous.jwt.code".to_owned())
+                Some("previous.cose.code".to_owned())
             );
             assert_eq!(
                 authorization_code.payload.previous_code,
-                Some("previous.jwt.code".to_owned())
+                Some("previous.cose.code".to_owned())
             );
-            assert_eq!(payload.previous_code, Some("previous.jwt.code".to_owned()));
+            assert_eq!(payload.previous_code, Some("previous.cose.code".to_owned()));
         }
 
         #[test]
@@ -271,7 +271,10 @@ mod resources {
                 .unwrap_err();
 
             assert_eq!(error.error, "invalid_grant");
-            assert_eq!(error.error_description, "authorization_code must be a jwt");
+            assert_eq!(
+                error.error_description,
+                "authorization_code must be a cose_mac0"
+            );
         }
 
         #[test]
@@ -371,22 +374,8 @@ mod resources {
 
         fn decode_payload(
             authorization_code: &str,
-        ) -> kagome::resources::authorization_code::AuthorizationCodeJwtPayload {
-            let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS512);
-            validation.validate_exp = false;
-            validation.required_spec_claims.clear();
-
-            jsonwebtoken::decode::<
-                kagome::resources::authorization_code::AuthorizationCodeJwtPayload,
-            >(
-                authorization_code,
-                &jsonwebtoken::DecodingKey::from_secret(
-                    kagome::resources::authorization_code::SECRET.as_bytes(),
-                ),
-                &validation,
-            )
-            .unwrap()
-            .claims
+        ) -> kagome::resources::authorization_code::AuthorizationCodeCosePayload {
+            kagome::resources::authorization_code::decode_cose_payload(authorization_code).unwrap()
         }
 
         fn issued_at_timestamp() -> u64 {

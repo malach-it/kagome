@@ -83,24 +83,6 @@ export function validIdToken() {
   );
 }
 
-export function validAuthorizationCode(idToken) {
-  const now = currentTimestamp();
-  return signJwt(
-    {
-      alg: "HS512",
-      typ: "JWT",
-    },
-    {
-      client_id: clientId,
-      id_token: idToken,
-      iat: now,
-      exp: now + 600,
-    },
-    "static_authorization_code_secret",
-    "sha512",
-  );
-}
-
 function signJwt(header, payload, secret, algorithm) {
   const encodedHeader = base64UrlJson(header);
   const encodedPayload = base64UrlJson(payload);

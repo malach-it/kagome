@@ -192,24 +192,24 @@ fn parses_id_token_from_json_post_body() {
 #[test]
 fn parses_authorization_code_from_post_body_parameter() {
     let request = parse_request(
-        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nauthorization_code=auth.jwt.code&grant_type=code_chain",
+        "POST /echo HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nauthorization_code=auth.cose.code&grant_type=code_chain",
     );
 
     assert_eq!(
         parse_request_parameter(&request, "authorization_code"),
-        Some("auth.jwt.code".to_owned())
+        Some("auth.cose.code".to_owned())
     );
 }
 
 #[test]
 fn parses_authorization_code_from_json_post_body() {
     let request = parse_request(
-        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"authorization_code\":\"auth.jwt.code\",\"grant_type\":\"code_chain\"}",
+        "POST /echo HTTP/1.1\r\ncontent-type: application/json\r\n\r\n{\"authorization_code\":\"auth.cose.code\",\"grant_type\":\"code_chain\"}",
     );
 
     assert_eq!(
         parse_request_parameter(&request, "authorization_code"),
-        Some("auth.jwt.code".to_owned())
+        Some("auth.cose.code".to_owned())
     );
 }
 
@@ -265,7 +265,7 @@ fn ignores_id_token_for_non_post_requests() {
 
 #[test]
 fn ignores_authorization_code_for_non_post_requests() {
-    let request = parse_request("GET /echo HTTP/1.1\r\n\r\nauthorization_code=auth.jwt.code");
+    let request = parse_request("GET /echo HTTP/1.1\r\n\r\nauthorization_code=auth.cose.code");
 
     assert_eq!(
         parse_request_parameter(&request, "authorization_code"),
@@ -348,7 +348,7 @@ fn ignores_id_token_for_unsupported_content_type() {
 #[test]
 fn ignores_authorization_code_for_unsupported_content_type() {
     let request = parse_request(
-        "POST /echo HTTP/1.1\r\ncontent-type: text/plain\r\n\r\nauthorization_code=auth.jwt.code",
+        "POST /echo HTTP/1.1\r\ncontent-type: text/plain\r\n\r\nauthorization_code=auth.cose.code",
     );
 
     assert_eq!(
@@ -373,7 +373,7 @@ fn ignores_id_token_when_content_type_is_missing() {
 
 #[test]
 fn ignores_authorization_code_when_content_type_is_missing() {
-    let request = parse_request("POST /echo HTTP/1.1\r\n\r\nauthorization_code=auth.jwt.code");
+    let request = parse_request("POST /echo HTTP/1.1\r\n\r\nauthorization_code=auth.cose.code");
 
     assert_eq!(
         parse_request_parameter(&request, "authorization_code"),
