@@ -21,6 +21,25 @@ services:
       retries: 3
       start_period: 5s
 
+  agentic-chat:
+    image: python:3.13-slim
+    init: true
+    depends_on:
+      kagome:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    environment:
+      KAGOME_TOKEN_TARGET: ${KAGOME_TOKEN_TARGET:-http://kagome:4000/token}
+      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
+      KAGOME_CLIENT_SECRET: ${KAGOME_CLIENT_SECRET:-client_secret}
+    working_dir: /scripts
+    volumes:
+      - ./scripts:/scripts:ro
+    command: python agent_chat.py
+    profiles:
+      - tools
+
   k6-client-credentials:
     image: grafana/k6:latest
     depends_on:
