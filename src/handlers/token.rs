@@ -8,7 +8,7 @@ use crate::{
     unit::KagomeRequest,
 };
 
-pub use super::requests::{
+pub use crate::requests::{
     AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainRequest, ContinueCodeChainRequest,
     GrantTypeRequest, GrantTypeResponse, NewCodeChainRequest,
 };

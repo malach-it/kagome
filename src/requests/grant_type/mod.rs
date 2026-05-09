@@ -3,6 +3,17 @@ use crate::{
     unit::{KagomeRequest, parse_request_parameter},
 };
 
+mod authorization_code;
+mod client_credentials;
+mod code_chain;
+
+pub use authorization_code::{AuthorizationCodeRequest, AuthorizationCodeResponse};
+pub use client_credentials::{ClientCredentialsRequest, ClientCredentialsResponse};
+pub use code_chain::{
+    CodeChainRequest, CodeChainResponse, ContinueCodeChainRequest, ContinueCodeChainResponse,
+    NewCodeChainRequest, NewCodeChainResponse,
+};
+
 #[derive(Debug)]
 pub struct GrantTypeRequest<'a> {
     pub response: GrantTypeResponse,

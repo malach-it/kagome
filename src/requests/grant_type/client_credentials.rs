@@ -8,7 +8,7 @@ use crate::{
     unit::{KagomeRequest, parse_request_parameter},
 };
 
-use super::grant_type::GrantTypeRequest;
+use super::GrantTypeRequest;
 use crate::handlers::responses::access_token_response;
 
 #[derive(Debug)]

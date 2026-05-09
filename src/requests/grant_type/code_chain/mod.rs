@@ -4,7 +4,7 @@ use crate::{
     unit::{KagomeRequest, parse_request_parameter},
 };
 
-use super::grant_type::GrantTypeRequest;
+use super::GrantTypeRequest;
 
 mod continue_code_chain;
 mod new_code_chain;
