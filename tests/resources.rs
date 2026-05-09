@@ -99,7 +99,7 @@ mod resources {
 
     mod authorization_code {
         #[test]
-        fn generates_cose_mac0_containing_client_id_and_id_token() {
+        fn generates_cose_encrypt0_containing_client_id_and_id_token() {
             let request = token_request(Some("client_id"), Some("id_token"));
             let token_response =
                 token_response_with_validated_response(&request, "client_id", "id_token");
@@ -108,6 +108,7 @@ mod resources {
                 kagome::resources::authorization_code::generate(token_response).unwrap();
             let authorization_code = token_response.response.authorization_code.as_ref().unwrap();
 
+            assert_authorization_code_claims_are_not_plaintext(&authorization_code.value);
             let payload = decode_payload(&authorization_code.value);
 
             assert_eq!(authorization_code.payload.client_id, payload.client_id);
@@ -265,7 +266,7 @@ mod resources {
             assert_eq!(error.error, "invalid_grant");
             assert_eq!(
                 error.error_description,
-                "authorization_code must be a cose_mac0"
+                "authorization_code must be a cose_encrypt0"
             );
         }
 
@@ -367,6 +368,25 @@ mod resources {
             authorization_code: &str,
         ) -> kagome::resources::authorization_code::AuthorizationCodeCosePayload {
             kagome::resources::authorization_code::decode_cose_payload(authorization_code).unwrap()
+        }
+
+        fn assert_authorization_code_claims_are_not_plaintext(authorization_code: &str) {
+            use base64::Engine;
+
+            let cose_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(authorization_code)
+                .unwrap();
+
+            assert!(
+                !cose_bytes
+                    .windows(b"client_id".len())
+                    .any(|window| { window == b"client_id" })
+            );
+            assert!(
+                !cose_bytes
+                    .windows(b"id_token".len())
+                    .any(|window| { window == b"id_token" })
+            );
         }
 
         fn issued_at_timestamp() -> u64 {

@@ -57,6 +57,28 @@ fn returns_token_response_for_form_code_chain_grant_type() {
 }
 
 #[test]
+fn returns_encrypted_authorization_code_containing_request_claims() {
+    let id_token = valid_id_token();
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=code_chain&id_token={id_token}",
+    );
+    let response = send_form_token_request(&body);
+    let authorization_code = json_string_field(&response, "authorization_code")
+        .expect("token response should include authorization_code");
+
+    let payload =
+        kagome::resources::authorization_code::decode_cose_payload(&authorization_code).unwrap();
+
+    assert_eq!(payload.client_id, "client_id");
+    assert_eq!(payload.id_token, id_token);
+    assert_eq!(payload.previous_code, None);
+    assert_eq!(
+        payload.exp,
+        payload.iat + kagome::resources::authorization_code::AUTHORIZATION_CODE_TTL_SECONDS
+    );
+}
+
+#[test]
 fn returns_token_response_for_json_code_chain_grant_type() {
     let body = format!(
         "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"code_chain\",\"id_token\":\"{}\"}}",
@@ -345,7 +367,9 @@ fn assert_invalid_authorization_code_response(response: &str) {
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("\"error_description\":\"authorization_code must be a cose_mac0\""));
+    assert!(
+        response.contains("\"error_description\":\"authorization_code must be a cose_encrypt0\"")
+    );
 }
 
 fn send_form_token_request(body: &str) -> String {
@@ -362,6 +386,14 @@ fn send_json_token_request(body: &str) -> String {
         body.len(),
         body
     ))
+}
+
+fn json_string_field(response: &str, field: &str) -> Option<String> {
+    let field = format!("\"{field}\":\"");
+    let start = response.find(&field)? + field.len();
+    let end = response[start..].find('"')?;
+
+    Some(response[start..start + end].to_owned())
 }
 
 fn valid_id_token() -> String {
