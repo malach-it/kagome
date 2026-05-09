@@ -31,7 +31,7 @@ pub struct AuthorizationCodeCosePayload {
 }
 
 pub trait Generate {
-    fn authorization_code(&self) -> Option<&str>;
+    fn previous_authorization_code(&self) -> Option<&str>;
     fn client_id(&self) -> Option<&str>;
     fn id_token(&self) -> Option<&str>;
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode);
@@ -76,7 +76,9 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     let id_token = token_request
         .id_token()
         .ok_or_else(OAuthError::missing_id_token)?;
-    let previous_code = token_request.authorization_code().map(str::to_owned);
+    let previous_code = token_request
+        .previous_authorization_code()
+        .map(str::to_owned);
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?

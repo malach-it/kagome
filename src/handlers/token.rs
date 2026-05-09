@@ -9,8 +9,8 @@ use crate::{
 };
 
 pub use super::requests::{
-    AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainRequest, GrantTypeRequest,
-    GrantTypeResponse,
+    AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainRequest, ContinueCodeChainRequest,
+    GrantTypeRequest, GrantTypeResponse, NewCodeChainRequest,
 };
 
 pub fn handle(request: &KagomeRequest) -> String {
@@ -63,28 +63,29 @@ fn client_credentials(token_request: ClientCredentialsRequest) -> Result<String,
 fn code_chain(token_request: CodeChainRequest) -> Result<String, OAuthError> {
     use crate::resources::authorization_code;
 
-    let token_request = authorization_code::validate_optional(token_request)?;
+    let token_request = client_credentials::validate(token_request)
+        .and_then(authorization_code::validate_optional)?;
 
-    match token_request.previous_authorization_code() {
-        None => new_code_chain(token_request),
-        Some(_) => continue_code_chain(token_request),
+    match token_request.authorization_code() {
+        None => new_code_chain(NewCodeChainRequest::from_code_chain_request(token_request)),
+        Some(_) => continue_code_chain(ContinueCodeChainRequest::from_code_chain_request(
+            token_request,
+        )),
     }
 }
 
-fn new_code_chain(token_request: CodeChainRequest) -> Result<String, OAuthError> {
+fn new_code_chain(token_request: NewCodeChainRequest) -> Result<String, OAuthError> {
     use crate::resources::authorization_code;
 
-    client_credentials::validate(token_request)
-        .and_then(id_token::validate)
+    id_token::validate(token_request)
         .and_then(authorization_code::generate)
         .and_then(|token_request| token_request.to_response())
 }
 
-fn continue_code_chain(token_request: CodeChainRequest) -> Result<String, OAuthError> {
+fn continue_code_chain(token_request: ContinueCodeChainRequest) -> Result<String, OAuthError> {
     use crate::resources::authorization_code;
 
-    client_credentials::validate(token_request)
-        .and_then(id_token::validate)
+    id_token::validate(token_request)
         .and_then(authorization_code::generate)
         .and_then(|token_request| token_request.to_response())
 }

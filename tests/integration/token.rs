@@ -351,7 +351,7 @@ fn valid_authorization_code() -> String {
     }
 
     impl kagome::resources::authorization_code::Generate for TestAuthorizationCodeRequest {
-        fn authorization_code(&self) -> Option<&str> {
+        fn previous_authorization_code(&self) -> Option<&str> {
             None
         }
 
