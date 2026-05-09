@@ -73,6 +73,10 @@ impl<'a> CodeChainRequest<'a> {
 
         Ok(authorization_code_response(authorization_code))
     }
+
+    pub fn previous_authorization_code(&self) -> Option<&str> {
+        self.response.previous_authorization_code.as_deref()
+    }
 }
 
 impl CodeChainResponse {
@@ -150,7 +154,7 @@ impl<'a> authorization_code::Validate for CodeChainRequest<'a> {
     }
 
     fn client_id(&self) -> Option<&str> {
-        self.response.client_id.as_deref()
+        self.client_id.as_deref()
     }
 
     fn add_authorization_code(&mut self, authorization_code: &str) {

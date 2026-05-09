@@ -63,9 +63,28 @@ fn client_credentials(token_request: ClientCredentialsRequest) -> Result<String,
 fn code_chain(token_request: CodeChainRequest) -> Result<String, OAuthError> {
     use crate::resources::authorization_code;
 
+    let token_request = authorization_code::validate_optional(token_request)?;
+
+    match token_request.previous_authorization_code() {
+        None => new_code_chain(token_request),
+        Some(_) => continue_code_chain(token_request),
+    }
+}
+
+fn new_code_chain(token_request: CodeChainRequest) -> Result<String, OAuthError> {
+    use crate::resources::authorization_code;
+
     client_credentials::validate(token_request)
         .and_then(id_token::validate)
-        .and_then(authorization_code::validate_optional)
+        .and_then(authorization_code::generate)
+        .and_then(|token_request| token_request.to_response())
+}
+
+fn continue_code_chain(token_request: CodeChainRequest) -> Result<String, OAuthError> {
+    use crate::resources::authorization_code;
+
+    client_credentials::validate(token_request)
+        .and_then(id_token::validate)
         .and_then(authorization_code::generate)
         .and_then(|token_request| token_request.to_response())
 }
