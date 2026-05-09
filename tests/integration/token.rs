@@ -97,6 +97,48 @@ fn returns_token_response_for_form_authorization_code_grant_type() {
 }
 
 #[test]
+fn returns_token_response_for_form_code_chain_authorization_code_grant_type() {
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code&id_token={}&authorization_code={}",
+        valid_id_token(),
+        valid_authorization_code()
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"token_type\":\"bearer\""));
+    assert!(response.contains("\"access_token\":\""));
+    assert!(response.contains("\"expires_in\":3600"));
+    assert!(!response.contains("\"authorization_code\""));
+    assert!(!response.contains("\"client_id\""));
+    assert!(!response.contains("\"client_secret\""));
+    assert!(!response.contains("\"grant_type\""));
+}
+
+#[test]
+fn returns_token_response_for_json_code_chain_authorization_code_grant_type() {
+    let body = format!(
+        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"code_chain authorization_code\",\"id_token\":\"{}\",\"authorization_code\":\"{}\"}}",
+        valid_id_token(),
+        valid_authorization_code()
+    );
+    let response = send_json_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"token_type\":\"bearer\""));
+    assert!(response.contains("\"access_token\":\""));
+    assert!(response.contains("\"expires_in\":3600"));
+    assert!(!response.contains("\"authorization_code\""));
+    assert!(!response.contains("\"client_id\""));
+    assert!(!response.contains("\"client_secret\""));
+    assert!(!response.contains("\"grant_type\""));
+}
+
+#[test]
 fn returns_oauth_error_for_missing_authorization_code_grant_type_client_id() {
     let response = send_request(
         "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: 29\r\n\r\ngrant_type=authorization_code",

@@ -9,8 +9,8 @@ use crate::{
 };
 
 pub use crate::requests::{
-    AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainRequest, ContinueCodeChainRequest,
-    GrantTypeRequest, GrantTypeResponse, NewCodeChainRequest,
+    AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
+    CodeChainRequest, GrantTypeRequest, GrantTypeResponse,
 };
 
 pub fn handle(request: &KagomeRequest) -> String {
@@ -26,66 +26,65 @@ fn handle_validated_grant_type(
     token_request: GrantTypeRequest,
     request: &KagomeRequest,
 ) -> Result<String, OAuthError> {
-    let grant_type = token_request
-        .response
-        .grant_type
-        .ok_or_else(|| OAuthError::invalid_token_response("token response requires grant_type"))?;
-
-    match grant_type {
-        GrantType::AuthorizationCode => authorization_code(
-            AuthorizationCodeRequest::from_grant_type_response(token_request, request),
-        ),
-        GrantType::ClientCredentials => client_credentials(
-            ClientCredentialsRequest::from_grant_type_response(token_request, request),
-        ),
-        GrantType::CodeChain => code_chain(CodeChainRequest::from_grant_type_response(
-            token_request,
+    match token_request.grant_types() {
+        [GrantType::AuthorizationCode, ..] => authorization_code(
+            AuthorizationCodeRequest::from_grant_type_response(&token_request, request),
+        )
+        .and_then(|token_request| token_request.to_response()),
+        [GrantType::ClientCredentials, ..] => client_credentials(
+            ClientCredentialsRequest::from_grant_type_response(&token_request, request),
+        )
+        .and_then(|token_request| token_request.to_response()),
+        [GrantType::CodeChain, GrantType::AuthorizationCode, ..] => code_chain_authorization_code(
+            CodeChainRequest::from_grant_type_response(&token_request, request),
+            AuthorizationCodeRequest::from_grant_type_response(&token_request, request),
+        )
+        .and_then(|token_request| token_request.to_response()),
+        [GrantType::CodeChain, ..] => code_chain(CodeChainRequest::from_grant_type_response(
+            &token_request,
             request,
+        ))
+        .and_then(|token_request| token_request.to_response()),
+        [] => Err(OAuthError::invalid_token_response(
+            "token response requires grant_type",
         )),
     }
 }
 
-fn authorization_code(token_request: AuthorizationCodeRequest) -> Result<String, OAuthError> {
+fn authorization_code(
+    token_request: AuthorizationCodeRequest,
+) -> Result<AuthorizationCodeRequest, OAuthError> {
     use crate::resources::authorization_code;
 
     client_credentials::validate(token_request)
         .and_then(authorization_code::validate)
         .and_then(access_token::generate)
-        .and_then(|token_request| token_request.to_response())
 }
 
-fn client_credentials(token_request: ClientCredentialsRequest) -> Result<String, OAuthError> {
+fn code_chain(token_request: CodeChainRequest) -> Result<CodeChainRequest, OAuthError> {
+    use crate::resources::authorization_code;
+
     client_credentials::validate(token_request)
-        .and_then(access_token::generate)
-        .and_then(|token_request| token_request.to_response())
-}
-
-fn code_chain(token_request: CodeChainRequest) -> Result<String, OAuthError> {
-    use crate::resources::authorization_code;
-
-    let token_request = client_credentials::validate(token_request)
-        .and_then(authorization_code::validate_optional)?;
-
-    match token_request.authorization_code() {
-        None => new_code_chain(NewCodeChainRequest::from_code_chain_request(token_request)),
-        Some(_) => continue_code_chain(ContinueCodeChainRequest::from_code_chain_request(
-            token_request,
-        )),
-    }
-}
-
-fn new_code_chain(token_request: NewCodeChainRequest) -> Result<String, OAuthError> {
-    use crate::resources::authorization_code;
-
-    id_token::validate(token_request)
+        .and_then(authorization_code::validate_optional)
+        .and_then(id_token::validate)
         .and_then(authorization_code::generate)
-        .and_then(|token_request| token_request.to_response())
 }
 
-fn continue_code_chain(token_request: ContinueCodeChainRequest) -> Result<String, OAuthError> {
-    use crate::resources::authorization_code;
+fn code_chain_authorization_code<'a>(
+    code_chain_request: CodeChainRequest<'a>,
+    authorization_code_request: AuthorizationCodeRequest<'a>,
+) -> Result<CodeChainAuthorizationCodeRequest<'a>, OAuthError> {
+    let code_chain_result = code_chain(code_chain_request)?;
+    let authorization_code_result = authorization_code(authorization_code_request)?;
 
-    id_token::validate(token_request)
-        .and_then(authorization_code::generate)
-        .and_then(|token_request| token_request.to_response())
+    Ok(CodeChainAuthorizationCodeRequest::from_requests(
+        code_chain_result,
+        authorization_code_result,
+    ))
+}
+
+fn client_credentials(
+    token_request: ClientCredentialsRequest,
+) -> Result<ClientCredentialsRequest, OAuthError> {
+    client_credentials::validate(token_request).and_then(access_token::generate)
 }

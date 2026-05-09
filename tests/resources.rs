@@ -341,10 +341,7 @@ mod resources {
         #[test]
         fn returns_oauth_error_for_missing_client_id() {
             let request = token_request(None, Some("id_token"));
-            let token_response =
-                kagome::handlers::token::NewCodeChainRequest::from_code_chain_request(
-                    kagome::handlers::token::CodeChainRequest::empty(&request),
-                );
+            let token_response = kagome::handlers::token::CodeChainRequest::empty(&request);
             let error =
                 kagome::resources::authorization_code::generate(token_response).unwrap_err();
 
@@ -359,10 +356,6 @@ mod resources {
                 kagome::handlers::token::CodeChainRequest::empty(&request),
             )
             .unwrap();
-            let token_response =
-                kagome::handlers::token::NewCodeChainRequest::from_code_chain_request(
-                    token_response,
-                );
             let error =
                 kagome::resources::authorization_code::generate(token_response).unwrap_err();
 
@@ -425,7 +418,7 @@ mod resources {
             request: &'a kagome::unit::KagomeRequest,
             client_id: &str,
             id_token: &str,
-        ) -> kagome::handlers::token::NewCodeChainRequest<'a> {
+        ) -> kagome::handlers::token::CodeChainRequest<'a> {
             let mut token_response = kagome::handlers::token::CodeChainRequest::empty(request);
             kagome::resources::client_credentials::Validate::add_client_credentials(
                 &mut token_response,
@@ -434,10 +427,6 @@ mod resources {
                     client_secret: "client_secret".to_owned(),
                 },
             );
-            let mut token_response =
-                kagome::handlers::token::NewCodeChainRequest::from_code_chain_request(
-                    token_response,
-                );
             kagome::resources::id_token::Validate::add_id_token(&mut token_response, id_token);
             token_response
         }
@@ -446,7 +435,7 @@ mod resources {
             request: &'a kagome::unit::KagomeRequest,
             client_id: &str,
             id_token: &str,
-        ) -> kagome::handlers::token::ContinueCodeChainRequest<'a> {
+        ) -> kagome::handlers::token::CodeChainRequest<'a> {
             let mut token_response = kagome::handlers::token::CodeChainRequest::empty(request);
             kagome::resources::client_credentials::Validate::add_client_credentials(
                 &mut token_response,
@@ -455,10 +444,6 @@ mod resources {
                     client_secret: "client_secret".to_owned(),
                 },
             );
-            let mut token_response =
-                kagome::handlers::token::ContinueCodeChainRequest::from_code_chain_request(
-                    token_response,
-                );
             kagome::resources::id_token::Validate::add_id_token(&mut token_response, id_token);
             token_response
         }
@@ -710,10 +695,8 @@ mod resources {
 
         fn code_chain_request(
             request: &kagome::unit::KagomeRequest,
-        ) -> kagome::handlers::token::NewCodeChainRequest<'_> {
-            kagome::handlers::token::NewCodeChainRequest::from_code_chain_request(
-                kagome::handlers::token::CodeChainRequest::empty(request),
-            )
+        ) -> kagome::handlers::token::CodeChainRequest<'_> {
+            kagome::handlers::token::CodeChainRequest::empty(request)
         }
 
         fn token_request(id_token: Option<&str>) -> kagome::unit::KagomeRequest {
@@ -861,6 +844,25 @@ mod resources {
             assert_eq!(
                 token_response.response.grant_type,
                 Some(kagome::resources::grant_type::GrantType::CodeChain)
+            );
+        }
+
+        #[test]
+        fn validates_code_chain_authorization_code() {
+            let request = token_request(Some("code_chain authorization_code"));
+            let token_response = kagome::handlers::token::GrantTypeRequest::from_request(&request);
+            let token_response = kagome::resources::grant_type::validate(token_response).unwrap();
+
+            assert_eq!(
+                token_response.response.grant_type,
+                Some(kagome::resources::grant_type::GrantType::CodeChain)
+            );
+            assert_eq!(
+                token_response.response.grant_types,
+                vec![
+                    kagome::resources::grant_type::GrantType::CodeChain,
+                    kagome::resources::grant_type::GrantType::AuthorizationCode,
+                ]
             );
         }
 

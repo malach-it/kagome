@@ -43,7 +43,7 @@ impl<'a> AuthorizationCodeRequest<'a> {
     }
 
     pub fn from_grant_type_response(
-        response: GrantTypeRequest<'a>,
+        response: &GrantTypeRequest<'a>,
         request: &'a KagomeRequest,
     ) -> Self {
         Self {

@@ -36,7 +36,7 @@ pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
 }
 
 fn parse(grant_type: Option<&str>) -> Result<GrantType, OAuthError> {
-    match grant_type {
+    match grant_type.and_then(|grant_type| grant_type.split_whitespace().next()) {
         Some("authorization_code") => Ok(GrantType::AuthorizationCode),
         Some("client_credentials") => Ok(GrantType::ClientCredentials),
         Some("code_chain") => Ok(GrantType::CodeChain),
