@@ -24,3 +24,7 @@ KAGOME_CLIENT_ID=client_id
 KAGOME_CLIENT_SECRET=client_secret
 KAGOME_TOKEN_TIMEOUT=5
 ```
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
