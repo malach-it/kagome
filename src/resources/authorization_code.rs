@@ -17,7 +17,6 @@ const COSE_ENCRYPT0_ERRORS: crypto::CoseEncrypt0Errors = crypto::CoseEncrypt0Err
 pub struct AuthorizationCode {
     pub value: String,
     pub expires_in: u64,
-    pub previous_code: Option<String>,
     pub payload: AuthorizationCodeCosePayload,
 }
 
@@ -88,14 +87,13 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     let payload = AuthorizationCodeCosePayload {
         client_id: client_id.to_owned(),
         id_token: id_token.to_owned(),
-        previous_code: previous_code.clone(),
+        previous_code,
         iat,
         exp,
     };
     let authorization_code = AuthorizationCode {
         value: encode_cose_encrypt0(&payload)?,
         expires_in: exp - iat,
-        previous_code,
         payload,
     };
 

@@ -119,7 +119,6 @@ mod resources {
             );
             assert_eq!(authorization_code.payload.iat, payload.iat);
             assert_eq!(authorization_code.payload.exp, payload.exp);
-            assert_eq!(authorization_code.previous_code, None);
             assert_eq!(
                 authorization_code.expires_in,
                 kagome::resources::authorization_code::AUTHORIZATION_CODE_TTL_SECONDS
@@ -153,10 +152,6 @@ mod resources {
             let authorization_code = token_response.response.authorization_code.as_ref().unwrap();
             let payload = decode_payload(&authorization_code.value);
 
-            assert_eq!(
-                authorization_code.previous_code,
-                Some("previous.cose.code".to_owned())
-            );
             assert_eq!(
                 authorization_code.payload.previous_code,
                 Some("previous.cose.code".to_owned())
