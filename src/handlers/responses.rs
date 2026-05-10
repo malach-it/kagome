@@ -1,4 +1,32 @@
-use crate::resources::{access_token::AccessToken, authorization_code::AuthorizationCode};
+use crate::{
+    errors::OAuthError,
+    requests::{
+        AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
+        CodeChainRequest,
+    },
+    resources::{
+        access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
+    },
+};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+pub trait ResponseLog {
+    fn to_http_response(&self) -> Result<String, OAuthError>;
+    fn log_success(&self);
+}
+
+pub fn logged_response<T: ResponseLog>(response: T) -> Result<String, OAuthError> {
+    let http_response = response.to_http_response()?;
+
+    response.log_success();
+    Ok(http_response)
+}
+
+pub fn log_timestamp() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "unknown".to_owned())
+}
 
 pub fn access_token_response(access_token: &AccessToken) -> String {
     let response_body = format!(
@@ -19,6 +47,181 @@ pub fn authorization_code_response(authorization_code: &AuthorizationCode) -> St
     );
 
     http_json_response(&response_body)
+}
+
+impl ResponseLog for AuthorizationCodeRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        let access_token = self.response.access_token.as_ref();
+
+        log_token_success(
+            "authorization_code",
+            &[
+                (
+                    "request.grant_type",
+                    optional_str(self.grant_type.as_deref()),
+                ),
+                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "request.client_secret",
+                    redacted_optional(self.client_secret.as_deref()),
+                ),
+                (
+                    "request.authorization_code",
+                    redacted_optional(self.authorization_code.as_deref()),
+                ),
+                (
+                    "response.access_token",
+                    optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                ),
+            ],
+        );
+    }
+}
+
+impl ResponseLog for ClientCredentialsRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        let access_token = self.response.access_token.as_ref();
+
+        log_token_success(
+            "client_credentials",
+            &[
+                (
+                    "request.grant_type",
+                    optional_str(self.grant_type.as_deref()),
+                ),
+                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "request.client_secret",
+                    redacted_optional(self.client_secret.as_deref()),
+                ),
+                (
+                    "response.access_token",
+                    optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                ),
+            ],
+        );
+    }
+}
+
+impl ResponseLog for CodeChainRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        let authorization_code = self.response.authorization_code.as_ref();
+
+        log_token_success(
+            "code_chain",
+            &[
+                (
+                    "request.grant_type",
+                    grant_type_value(self.response.grant_type),
+                ),
+                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "request.client_secret",
+                    redacted_optional(self.client_secret.as_deref()),
+                ),
+                (
+                    "request.authorization_code",
+                    redacted_optional(self.authorization_code.as_deref()),
+                ),
+                (
+                    "request.id_token",
+                    redacted_optional(self.response.id_token.as_deref()),
+                ),
+                (
+                    "response.authorization_code",
+                    optional_str(
+                        authorization_code
+                            .map(|authorization_code| authorization_code.value.as_str()),
+                    ),
+                ),
+            ],
+        );
+    }
+}
+
+impl ResponseLog for CodeChainAuthorizationCodeRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        let access_token = self.response.access_token.as_ref();
+        let authorization_code = self.response.authorization_code.as_ref();
+
+        log_token_success(
+            "code_chain_authorization_code",
+            &[
+                (
+                    "request.grant_type",
+                    grant_type_value(self.response.grant_type),
+                ),
+                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "request.client_secret",
+                    redacted_optional(self.client_secret.as_deref()),
+                ),
+                (
+                    "request.authorization_code",
+                    redacted_optional(self.authorization_code.as_deref()),
+                ),
+                (
+                    "response.authorization_code",
+                    optional_str(
+                        authorization_code
+                            .map(|authorization_code| authorization_code.value.as_str()),
+                    ),
+                ),
+                (
+                    "response.access_token",
+                    optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                ),
+            ],
+        );
+    }
+}
+
+fn log_token_success(response_type: &str, attributes: &[(&str, String)]) {
+    eprintln!(
+        "[{}] token_handler success type={} {}",
+        log_timestamp(),
+        response_type,
+        attributes
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+}
+
+fn grant_type_value(grant_type: Option<GrantType>) -> String {
+    grant_type
+        .map(GrantType::as_str)
+        .unwrap_or("<none>")
+        .to_owned()
+}
+
+fn optional_str(value: Option<&str>) -> String {
+    value.unwrap_or("<none>").to_owned()
+}
+
+fn redacted_optional(value: Option<&str>) -> String {
+    if value.is_some() {
+        "<redacted>".to_owned()
+    } else {
+        "<none>".to_owned()
+    }
 }
 
 fn http_json_response(response_body: &str) -> String {

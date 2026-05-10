@@ -8,6 +8,8 @@ use crate::{
     unit::KagomeRequest,
 };
 
+use super::responses::{log_timestamp, logged_response};
+
 pub use crate::requests::{
     AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
     CodeChainRequest, GrantTypeRequest, GrantTypeResponse,
@@ -18,7 +20,10 @@ pub fn handle(request: &KagomeRequest) -> String {
         .and_then(|token_request| handle_validated_grant_type(token_request, request))
     {
         Ok(response) => response,
-        Err(error) => error.to_response(),
+        Err(error) => {
+            log_token_failure(&error);
+            error.to_response()
+        }
     }
 }
 
@@ -30,21 +35,21 @@ fn handle_validated_grant_type(
         [GrantType::AuthorizationCode, ..] => authorization_code(
             AuthorizationCodeRequest::from_grant_type_response(&token_request, request),
         )
-        .and_then(|token_request| token_request.to_response()),
+        .and_then(logged_response),
         [GrantType::ClientCredentials, ..] => client_credentials(
             ClientCredentialsRequest::from_grant_type_response(&token_request, request),
         )
-        .and_then(|token_request| token_request.to_response()),
+        .and_then(logged_response),
         [GrantType::CodeChain, GrantType::AuthorizationCode, ..] => code_chain_authorization_code(
             CodeChainRequest::from_grant_type_response(&token_request, request),
             AuthorizationCodeRequest::from_grant_type_response(&token_request, request),
         )
-        .and_then(|token_request| token_request.to_response()),
+        .and_then(logged_response),
         [GrantType::CodeChain, ..] => code_chain(CodeChainRequest::from_grant_type_response(
             &token_request,
             request,
         ))
-        .and_then(|token_request| token_request.to_response()),
+        .and_then(logged_response),
         [] => Err(OAuthError::invalid_token_response(
             "token response requires grant_type",
         )),
@@ -87,4 +92,13 @@ fn client_credentials(
     token_request: ClientCredentialsRequest,
 ) -> Result<ClientCredentialsRequest, OAuthError> {
     client_credentials::validate(token_request).and_then(access_token::generate)
+}
+
+fn log_token_failure(error: &OAuthError) {
+    eprintln!(
+        "timestamp={} token_handler failure error={} error_description={}",
+        log_timestamp(),
+        error.error,
+        error.error_description
+    );
 }

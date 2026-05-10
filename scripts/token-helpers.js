@@ -77,10 +77,22 @@ export function validIdToken() {
     {
       iat: now,
       exp: now + 3600,
+      message: randomMessage(10, 200),
     },
     "secret",
     "sha256",
   );
+}
+
+function randomMessage(minLength, maxLength) {
+  const alphabet =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const length =
+    minLength + Math.floor(Math.random() * (maxLength - minLength + 1));
+
+  return Array.from({ length }, () =>
+    alphabet.charAt(Math.floor(Math.random() * alphabet.length)),
+  ).join("");
 }
 
 function signJwt(header, payload, secret, algorithm) {

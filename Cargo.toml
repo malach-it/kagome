@@ -11,3 +11,4 @@ coset = "0.4.2"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 ring = "0.17.14"
 serde = { version = "1", features = ["derive"] }
+time = { version = "0.3.47", features = ["formatting"] }
