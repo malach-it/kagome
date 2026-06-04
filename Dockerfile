@@ -1,21 +1,22 @@
-FROM rust:1-slim AS builder
+FROM ghcr.io/malach-it/boruta-gateway:kubernetes-ingress-controller.alpha.7 AS gateway
+
+FROM rust:1-alpine AS builder
+
+RUN apk add --no-cache build-base
 
 WORKDIR /app
 COPY . .
 RUN cargo build --release
 
-FROM debian:bookworm-slim
+FROM rust:1-alpine AS runtime
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends wget \
-    && rm -rf /var/lib/apt/lists/*
-
+COPY --from=gateway /app /gateway
 COPY --from=builder /app/target/release/kagome /usr/local/bin/kagome
+COPY docker/entrypoint.sh /usr/local/bin/kagome-gateway
 
-ENV KAGOME_SERVER_ADDRESS=0.0.0.0:4000
+RUN chmod +x /usr/local/bin/kagome-gateway
+
+ENV KAGOME_SERVER_ADDRESS=127.0.0.1:4000
 ENV KAGOME_WORKERS=4
-ENV KAGOME_PORT=4000
 
-EXPOSE ${KAGOME_PORT}
-
-CMD ["kagome"]
+CMD ["kagome-gateway"]
