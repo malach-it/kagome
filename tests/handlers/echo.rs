@@ -8,6 +8,7 @@ fn echoes_http_request_parts() {
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"method\":\"POST\""));
+    assert!(response.contains("\"path\":\"/echo\""));
     assert!(response.contains("\"protocol\":\"HTTP/1.1\""));
     assert!(response.contains("{\"name\":\"host\",\"value\":\"example.com\"}"));
     assert!(response.contains("{\"name\":\"content-type\",\"value\":\"text/plain\"}"));
