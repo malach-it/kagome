@@ -10,6 +10,8 @@ RUN cargo build --release
 
 FROM rust:1-alpine AS runtime
 
+RUN apk add --no-cache ncurses-libs openssl
+
 COPY --from=gateway /app /gateway
 COPY --from=builder /app/target/release/kagome /usr/local/bin/kagome
 COPY docker/entrypoint.sh /usr/local/bin/kagome-gateway
