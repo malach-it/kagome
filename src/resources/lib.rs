@@ -4,3 +4,4 @@ pub mod client_credentials;
 pub mod crypto;
 pub mod grant_type;
 pub mod id_token;
+pub mod response_type;

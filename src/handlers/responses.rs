@@ -1,8 +1,8 @@
 use crate::{
     errors::OAuthError,
     requests::{
-        AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
-        CodeChainRequest,
+        AuthorizationCodeRequest, AuthorizeCodeRequest, ClientCredentialsRequest,
+        CodeChainAuthorizationCodeRequest, CodeChainRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -47,6 +47,54 @@ pub fn authorization_code_response(authorization_code: &AuthorizationCode) -> St
     );
 
     http_json_response(&response_body)
+}
+
+pub fn code_redirect_response(
+    redirect_uri: &str,
+    authorization_code: &AuthorizationCode,
+) -> String {
+    let location = append_query_parameter(
+        redirect_uri,
+        "code",
+        &percent_encode_query_value(&authorization_code.value),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
+impl ResponseLog for AuthorizeCodeRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        let authorization_code = self.response.authorization_code.as_ref();
+
+        log_authorize_success(
+            "code",
+            &[
+                (
+                    "request.response_type",
+                    optional_str(self.response_type.as_deref()),
+                ),
+                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "request.id_token",
+                    redacted_optional(self.id_token.as_deref()),
+                ),
+                (
+                    "response.code",
+                    optional_str(
+                        authorization_code
+                            .map(|authorization_code| authorization_code.value.as_str()),
+                    ),
+                ),
+            ],
+        );
+    }
 }
 
 impl ResponseLog for AuthorizationCodeRequest<'_> {
@@ -205,6 +253,19 @@ fn log_token_success(response_type: &str, attributes: &[(&str, String)]) {
     );
 }
 
+fn log_authorize_success(response_type: &str, attributes: &[(&str, String)]) {
+    eprintln!(
+        "[{}] authorize_handler success type={} {}",
+        log_timestamp(),
+        response_type,
+        attributes
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+}
+
 fn grant_type_value(grant_type: Option<GrantType>) -> String {
     grant_type
         .map(GrantType::as_str)
@@ -230,6 +291,24 @@ fn http_json_response(response_body: &str) -> String {
         response_body.len(),
         response_body
     )
+}
+
+fn append_query_parameter(uri: &str, name: &str, encoded_value: &str) -> String {
+    let separator = if uri.contains('?') { '&' } else { '?' };
+
+    format!("{uri}{separator}{name}={encoded_value}")
+}
+
+fn percent_encode_query_value(value: &str) -> String {
+    value
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                vec![byte as char]
+            }
+            byte => format!("%{byte:02X}").chars().collect(),
+        })
+        .collect()
 }
 
 fn escape_json(value: &str) -> String {

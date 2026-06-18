@@ -7,6 +7,10 @@ pub fn route_raw_request(request: &str) -> String {
 }
 
 pub fn route_request(request: &KagomeRequest) -> String {
+    if request.method.eq_ignore_ascii_case("GET") && request.path == "/authorize" {
+        return crate::handlers::authorize::handle(request);
+    }
+
     if request.method.eq_ignore_ascii_case("POST") && request.path == "/token" {
         return crate::handlers::token::handle(request);
     }

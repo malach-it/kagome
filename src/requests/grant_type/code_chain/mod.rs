@@ -103,7 +103,7 @@ impl<'a> client_credentials::Validate for CodeChainRequest<'a> {
         client_credentials: client_credentials::ClientCredentials,
     ) {
         self.response.client_id = Some(client_credentials.client_id);
-        self.response.client_secret = Some(client_credentials.client_secret);
+        self.response.client_secret = client_credentials.client_secret;
     }
 }
 

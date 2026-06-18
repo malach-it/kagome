@@ -7,6 +7,16 @@ pub struct OAuthError {
 }
 
 impl OAuthError {
+    pub fn unsupported_response_type(supported_response_types: &[&str]) -> Self {
+        Self {
+            error: "unsupported_response_type".to_owned(),
+            error_description: format!(
+                "response_type must be one of: {}",
+                supported_response_types.join(", ")
+            ),
+        }
+    }
+
     pub fn unsupported_grant_type(supported_grant_types: &[&str]) -> Self {
         Self {
             error: "unsupported_grant_type".to_owned(),
@@ -42,6 +52,20 @@ impl OAuthError {
         Self {
             error: "invalid_client".to_owned(),
             error_description: "client_secret is required".to_owned(),
+        }
+    }
+
+    pub fn invalid_redirect_uri(expected_redirect_uri: &str) -> Self {
+        Self {
+            error: "invalid_request".to_owned(),
+            error_description: format!("redirect_uri must be: {expected_redirect_uri}"),
+        }
+    }
+
+    pub fn missing_redirect_uri() -> Self {
+        Self {
+            error: "invalid_request".to_owned(),
+            error_description: "redirect_uri is required".to_owned(),
         }
     }
 

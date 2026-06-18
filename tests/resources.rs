@@ -9,7 +9,8 @@ mod resources {
                 &mut token_response,
                 kagome::resources::client_credentials::ClientCredentials {
                     client_id: "client_id".to_owned(),
-                    client_secret: "client_secret".to_owned(),
+                    client_secret: Some("client_secret".to_owned()),
+                    redirect_uri: None,
                 },
             );
             let generated_at = issued_at_timestamp();
@@ -441,7 +442,8 @@ mod resources {
                 &mut token_response,
                 kagome::resources::client_credentials::ClientCredentials {
                     client_id: client_id.to_owned(),
-                    client_secret: "client_secret".to_owned(),
+                    client_secret: Some("client_secret".to_owned()),
+                    redirect_uri: None,
                 },
             );
             kagome::resources::id_token::Validate::add_id_token(&mut token_response, id_token);
@@ -458,7 +460,8 @@ mod resources {
                 &mut token_response,
                 kagome::resources::client_credentials::ClientCredentials {
                     client_id: client_id.to_owned(),
-                    client_secret: "client_secret".to_owned(),
+                    client_secret: Some("client_secret".to_owned()),
+                    redirect_uri: None,
                 },
             );
             kagome::resources::id_token::Validate::add_id_token(&mut token_response, id_token);
@@ -507,6 +510,48 @@ mod resources {
             assert_eq!(error.error_description, "client_id must be: client_id");
         }
 
+        #[test]
+        fn validates_redirect_uri_for_authorize_request() {
+            let request =
+                authorize_request(Some(kagome::resources::client_credentials::REDIRECT_URI));
+            let authorize_response =
+                kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
+            let authorize_response =
+                kagome::resources::client_credentials::validate(authorize_response).unwrap();
+
+            assert_eq!(
+                authorize_response.response.redirect_uri,
+                Some(kagome::resources::client_credentials::REDIRECT_URI.to_owned())
+            );
+        }
+
+        #[test]
+        fn returns_oauth_error_for_missing_redirect_uri() {
+            let request = authorize_request(None);
+            let authorize_response =
+                kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
+            let error =
+                kagome::resources::client_credentials::validate(authorize_response).unwrap_err();
+
+            assert_eq!(error.error, "invalid_request");
+            assert_eq!(error.error_description, "redirect_uri is required");
+        }
+
+        #[test]
+        fn returns_oauth_error_for_invalid_redirect_uri() {
+            let request = authorize_request(Some("https://app.example.com/callback"));
+            let authorize_response =
+                kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
+            let error =
+                kagome::resources::client_credentials::validate(authorize_response).unwrap_err();
+
+            assert_eq!(error.error, "invalid_request");
+            assert_eq!(
+                error.error_description,
+                "redirect_uri must be: https://client.example.com/callback"
+            );
+        }
+
         fn token_request(client_id: Option<&str>) -> kagome::unit::KagomeRequest {
             let mut parameters = vec![
                 "client_secret=client_secret".to_owned(),
@@ -526,6 +571,22 @@ mod resources {
                 }],
                 query_params: Vec::new(),
                 body: parameters.join("&"),
+            }
+        }
+
+        fn authorize_request(redirect_uri: Option<&str>) -> kagome::unit::KagomeRequest {
+            let mut query_params = vec![("client_id".to_owned(), "client_id".to_owned())];
+            if let Some(redirect_uri) = redirect_uri {
+                query_params.push(("redirect_uri".to_owned(), redirect_uri.to_owned()));
+            }
+
+            kagome::unit::KagomeRequest {
+                method: "GET".to_owned(),
+                path: "/authorize".to_owned(),
+                protocol: "HTTP/1.1".to_owned(),
+                headers: Vec::new(),
+                query_params,
+                body: String::new(),
             }
         }
     }
