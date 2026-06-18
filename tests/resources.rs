@@ -92,6 +92,7 @@ mod resources {
                     name: "content-type".to_owned(),
                     value: "application/x-www-form-urlencoded".to_owned(),
                 }],
+                query_params: Vec::new(),
                 body: parameters.join("&"),
             }
         }
@@ -425,6 +426,7 @@ mod resources {
                     name: "content-type".to_owned(),
                     value: "application/x-www-form-urlencoded".to_owned(),
                 }],
+                query_params: Vec::new(),
                 body: parameters.join("&"),
             }
         }
@@ -522,6 +524,7 @@ mod resources {
                     name: "content-type".to_owned(),
                     value: "application/x-www-form-urlencoded".to_owned(),
                 }],
+                query_params: Vec::new(),
                 body: parameters.join("&"),
             }
         }
@@ -588,6 +591,7 @@ mod resources {
                     name: "content-type".to_owned(),
                     value: "application/x-www-form-urlencoded".to_owned(),
                 }],
+                query_params: Vec::new(),
                 body: parameters.join("&"),
             }
         }
@@ -732,6 +736,7 @@ mod resources {
                     name: "content-type".to_owned(),
                     value: "application/x-www-form-urlencoded".to_owned(),
                 }],
+                query_params: Vec::new(),
                 body: parameters.join("&"),
             }
         }
@@ -1033,6 +1038,7 @@ mod resources {
                     name: "content-type".to_owned(),
                     value: "application/x-www-form-urlencoded".to_owned(),
                 }],
+                query_params: Vec::new(),
                 body: parameters.join("&"),
             }
         }

@@ -4,6 +4,7 @@ pub struct KagomeRequest {
     pub path: String,
     pub protocol: String,
     pub headers: Vec<HttpHeader>,
+    pub query_params: Vec<(String, String)>,
     pub body: String,
 }
 
@@ -20,6 +21,7 @@ pub fn parse_request(request: &str) -> KagomeRequest {
         .next()
         .map(parse_request_line)
         .unwrap_or_else(|| ("".to_owned(), "".to_owned(), "".to_owned()));
+    let (path, query_params) = split_path_query(&path);
 
     let headers: Vec<HttpHeader> = lines
         .filter_map(|line| line.split_once(':'))
@@ -33,6 +35,7 @@ pub fn parse_request(request: &str) -> KagomeRequest {
         path,
         protocol,
         headers,
+        query_params,
         body: body.to_owned(),
     }
 }
@@ -50,13 +53,26 @@ pub fn to_json(request: &KagomeRequest) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
+    let query_params = request
+        .query_params
+        .iter()
+        .map(|(name, value)| {
+            format!(
+                "{{\"name\":\"{}\",\"value\":\"{}\"}}",
+                escape_json(name),
+                escape_json(value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
 
     format!(
-        "{{\"method\":\"{}\",\"path\":\"{}\",\"protocol\":\"{}\",\"headers\":[{}],\"body\":\"{}\"}}",
+        "{{\"method\":\"{}\",\"path\":\"{}\",\"protocol\":\"{}\",\"headers\":[{}],\"query_params\":[{}],\"body\":\"{}\"}}",
         escape_json(&request.method),
         escape_json(&request.path),
         escape_json(&request.protocol),
         headers,
+        query_params,
         escape_json(&request.body)
     )
 }
@@ -68,6 +84,14 @@ pub fn parse_request_parameter(request: &KagomeRequest, parameter_name: &str) ->
         &request.body,
         parameter_name,
     )
+}
+
+pub fn parse_query_parameter(request: &KagomeRequest, parameter_name: &str) -> Option<String> {
+    request
+        .query_params
+        .iter()
+        .find(|(name, _)| name == parameter_name)
+        .map(|(_, value)| value.clone())
 }
 
 fn parse_body_string_parameter(
@@ -117,6 +141,25 @@ fn parse_form_parameter(body: &str, parameter_name: &str) -> Option<String> {
             None
         }
     })
+}
+
+fn split_path_query(path: &str) -> (String, Vec<(String, String)>) {
+    let Some((path, query)) = path.split_once('?') else {
+        return (path.to_owned(), Vec::new());
+    };
+
+    (path.to_owned(), parse_query_parameters(query))
+}
+
+fn parse_query_parameters(query: &str) -> Vec<(String, String)> {
+    query
+        .split('&')
+        .filter_map(|parameter| {
+            let (name, value) = parameter.split_once('=')?;
+
+            Some((decode_form_value(name), decode_form_value(value)))
+        })
+        .collect()
 }
 
 fn parse_json_string_parameter(body: &str, parameter_name: &str) -> Option<String> {

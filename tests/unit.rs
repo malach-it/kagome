@@ -1,4 +1,7 @@
-use kagome::unit::{HttpHeader, KagomeRequest, parse_request, parse_request_parameter, to_json};
+use kagome::unit::{
+    HttpHeader, KagomeRequest, parse_query_parameter, parse_request, parse_request_parameter,
+    to_json,
+};
 
 #[test]
 fn parses_crlf_request_protocol_headers_and_body() {
@@ -114,6 +117,51 @@ fn parses_client_id_from_post_body_parameter() {
     assert_eq!(
         parse_request_parameter(&request, "client_id"),
         Some("client_id".to_owned())
+    );
+}
+
+#[test]
+fn parses_query_parameter() {
+    let request = parse_request(
+        "GET /authorize?response_type=code&client_id=client_id&id_token=id.jwt.token HTTP/1.1\r\n\r\n",
+    );
+
+    assert_eq!(request.path, "/authorize");
+    assert_eq!(
+        request.query_params,
+        vec![
+            ("response_type".to_owned(), "code".to_owned()),
+            ("client_id".to_owned(), "client_id".to_owned()),
+            ("id_token".to_owned(), "id.jwt.token".to_owned()),
+        ]
+    );
+    assert_eq!(
+        parse_query_parameter(&request, "response_type"),
+        Some("code".to_owned())
+    );
+    assert_eq!(
+        parse_query_parameter(&request, "client_id"),
+        Some("client_id".to_owned())
+    );
+    assert_eq!(
+        parse_query_parameter(&request, "id_token"),
+        Some("id.jwt.token".to_owned())
+    );
+}
+
+#[test]
+fn decodes_query_parameter_form_value() {
+    let request = parse_request(
+        "GET /authorize?response_type=code&client_id=client+id&id_token=id%2Ejwt%2Etoken HTTP/1.1\r\n\r\n",
+    );
+
+    assert_eq!(
+        parse_query_parameter(&request, "client_id"),
+        Some("client id".to_owned())
+    );
+    assert_eq!(
+        parse_query_parameter(&request, "id_token"),
+        Some("id.jwt.token".to_owned())
     );
 }
 
@@ -391,12 +439,13 @@ fn converts_request_to_json() {
             name: "x-message".to_owned(),
             value: "hello \"kagome\"".to_owned(),
         }],
+        query_params: vec![("trace".to_owned(), "hello \"query\"".to_owned())],
         body: "line one\nline two".to_owned(),
     };
 
     assert_eq!(
         to_json(&request),
-        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-message\",\"value\":\"hello \\\"kagome\\\"\"}],\"body\":\"line one\\nline two\"}"
+        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-message\",\"value\":\"hello \\\"kagome\\\"\"}],\"query_params\":[{\"name\":\"trace\",\"value\":\"hello \\\"query\\\"\"}],\"body\":\"line one\\nline two\"}"
     );
 }
 
@@ -410,11 +459,12 @@ fn escapes_control_characters_in_json() {
             name: "x-tab".to_owned(),
             value: "a\tb".to_owned(),
         }],
+        query_params: Vec::new(),
         body: "carriage\rreturn".to_owned(),
     };
 
     assert_eq!(
         to_json(&request),
-        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-tab\",\"value\":\"a\\tb\"}],\"body\":\"carriage\\rreturn\"}"
+        "{\"method\":\"POST\",\"path\":\"/echo\",\"protocol\":\"HTTP/1.1\",\"headers\":[{\"name\":\"x-tab\",\"value\":\"a\\tb\"}],\"query_params\":[],\"body\":\"carriage\\rreturn\"}"
     );
 }
