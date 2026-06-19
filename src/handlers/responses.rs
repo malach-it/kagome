@@ -3,6 +3,7 @@ use crate::{
     requests::{
         AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
         ClientCredentialsRequest, CodeChainAuthorizationCodeRequest, CodeChainRequest,
+        SshKeysRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -45,6 +46,17 @@ pub fn authorization_code_response(authorization_code: &AuthorizationCode) -> St
         "{{\"authorization_code\":\"{}\",\"expires_in\":{}}}",
         escape_json(&authorization_code.value),
         authorization_code.expires_in
+    );
+
+    http_json_response(&response_body)
+}
+
+pub fn ssh_keys_response(ssh_keys: &SshKeys) -> String {
+    let response_body = format!(
+        "{{\"ssh_private_key\":\"{}\",\"ssh_public_key\":\"{}\",\"ssh_certificate\":\"{}\"}}",
+        escape_json(&ssh_keys.private_key),
+        escape_json(&ssh_keys.public_key),
+        escape_json(&ssh_keys.certificate)
     );
 
     http_json_response(&response_body)
@@ -520,6 +532,39 @@ impl ResponseLog for CodeChainAuthorizationCodeRequest<'_> {
                 (
                     "response.access_token",
                     optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                ),
+            ],
+        );
+    }
+}
+
+impl ResponseLog for SshKeysRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        log_token_success(
+            "ssh_keys",
+            &[
+                (
+                    "request.grant_type",
+                    optional_str(self.grant_type.as_deref()),
+                ),
+                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "request.client_secret",
+                    redacted_optional(self.client_secret.as_deref()),
+                ),
+                ("request.code", redacted_optional(self.code.as_deref())),
+                (
+                    "response.ssh_certificate",
+                    redacted_optional(
+                        self.response
+                            .ssh_keys
+                            .as_ref()
+                            .map(|ssh_keys| ssh_keys.certificate.as_str()),
+                    ),
                 ),
             ],
         );

@@ -6,6 +6,7 @@ use crate::{
 mod authorization_code;
 mod client_credentials;
 mod code_chain;
+mod ssh_keys;
 
 pub use authorization_code::{AuthorizationCodeRequest, AuthorizationCodeResponse};
 pub use client_credentials::{ClientCredentialsRequest, ClientCredentialsResponse};
@@ -13,6 +14,7 @@ pub use code_chain::{
     CodeChainAuthorizationCodeRequest, CodeChainAuthorizationCodeResponse, CodeChainRequest,
     CodeChainResponse,
 };
+pub use ssh_keys::{SshKeysRequest, SshKeysResponse};
 
 #[derive(Debug)]
 pub struct GrantTypeRequest<'a> {
@@ -77,6 +79,7 @@ fn parse_grant_types(grant_type: &str) -> Vec<GrantType> {
             "authorization_code" => Some(GrantType::AuthorizationCode),
             "client_credentials" => Some(GrantType::ClientCredentials),
             "code_chain" => Some(GrantType::CodeChain),
+            "ssh_keys" => Some(GrantType::SshKeys),
             _ => None,
         })
         .collect()

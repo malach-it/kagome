@@ -6,5 +6,5 @@ pub use grant_type::{
     AuthorizationCodeRequest, AuthorizationCodeResponse, ClientCredentialsRequest,
     ClientCredentialsResponse, CodeChainAuthorizationCodeRequest,
     CodeChainAuthorizationCodeResponse, CodeChainRequest, CodeChainResponse, GrantTypeRequest,
-    GrantTypeResponse,
+    GrantTypeResponse, SshKeysRequest, SshKeysResponse,
 };

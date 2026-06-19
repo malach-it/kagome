@@ -1248,7 +1248,7 @@ mod resources {
             assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
                 error.error_description,
-                "grant_type must be one of: client_credentials, code_chain, authorization_code"
+                "grant_type must be one of: client_credentials, code_chain, authorization_code, ssh_keys"
             );
         }
 
@@ -1261,7 +1261,7 @@ mod resources {
             assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
                 error.error_description,
-                "grant_type must be one of: client_credentials, code_chain, authorization_code"
+                "grant_type must be one of: client_credentials, code_chain, authorization_code, ssh_keys"
             );
         }
 

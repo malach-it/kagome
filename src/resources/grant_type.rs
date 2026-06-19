@@ -1,13 +1,18 @@
 use crate::errors::OAuthError;
 
-pub const SUPPORTED_GRANT_TYPES: [&str; 3] =
-    ["client_credentials", "code_chain", "authorization_code"];
+pub const SUPPORTED_GRANT_TYPES: [&str; 4] = [
+    "client_credentials",
+    "code_chain",
+    "authorization_code",
+    "ssh_keys",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GrantType {
     AuthorizationCode,
     ClientCredentials,
     CodeChain,
+    SshKeys,
 }
 
 impl GrantType {
@@ -16,6 +21,7 @@ impl GrantType {
             GrantType::AuthorizationCode => "authorization_code",
             GrantType::ClientCredentials => "client_credentials",
             GrantType::CodeChain => "code_chain",
+            GrantType::SshKeys => "ssh_keys",
         }
     }
 }
@@ -40,6 +46,7 @@ fn parse(grant_type: Option<&str>) -> Result<GrantType, OAuthError> {
         Some("authorization_code") => Ok(GrantType::AuthorizationCode),
         Some("client_credentials") => Ok(GrantType::ClientCredentials),
         Some("code_chain") => Ok(GrantType::CodeChain),
+        Some("ssh_keys") => Ok(GrantType::SshKeys),
         _ => Err(OAuthError::unsupported_grant_type(&SUPPORTED_GRANT_TYPES)),
     }
 }

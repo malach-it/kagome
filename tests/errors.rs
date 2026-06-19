@@ -4,6 +4,7 @@ fn returns_unsupported_grant_type_oauth_response() {
         "client_credentials",
         "code_chain",
         "authorization_code",
+        "ssh_keys",
     ])
     .to_response();
 
@@ -12,7 +13,7 @@ fn returns_unsupported_grant_type_oauth_response() {
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"unsupported_grant_type\""));
     assert!(response.contains(
-        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain, authorization_code\""
+        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain, authorization_code, ssh_keys\""
     ));
 }
 
@@ -153,11 +154,12 @@ fn implements_native_rust_error() {
         "client_credentials",
         "code_chain",
         "authorization_code",
+        "ssh_keys",
     ]);
     let native_error: &dyn std::error::Error = &error;
 
     assert_eq!(
         native_error.to_string(),
-        "unsupported_grant_type: grant_type must be one of: client_credentials, code_chain, authorization_code"
+        "unsupported_grant_type: grant_type must be one of: client_credentials, code_chain, authorization_code, ssh_keys"
     );
 }

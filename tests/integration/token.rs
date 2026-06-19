@@ -1,4 +1,10 @@
 use super::server::send_request;
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[test]
 fn returns_token_response_for_form_client_credentials_grant_type() {
@@ -132,6 +138,48 @@ fn returns_token_response_for_json_authorization_code_grant_type() {
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));
     assert!(response.contains("\"expires_in\":3600"));
+    assert!(!response.contains("\"authorization_code\""));
+}
+
+#[test]
+fn returns_ssh_keys_response_for_form_ssh_keys_grant_type() {
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=ssh_keys&code={}",
+        valid_authorization_code_with_username("username")
+    );
+    let response = send_form_token_request(&body);
+    let certificate = json_string_field(&response, "ssh_certificate")
+        .expect("token response should include ssh certificate");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"ssh_private_key\":\""));
+    assert!(response.contains("\"ssh_public_key\":\"ssh-ed25519 "));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_ssh_certificate_principal(&certificate, "username");
+    assert!(!response.contains("\"access_token\""));
+    assert!(!response.contains("\"authorization_code\""));
+}
+
+#[test]
+fn returns_ssh_keys_response_for_json_ssh_keys_grant_type() {
+    let body = format!(
+        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"ssh_keys\",\"code\":\"{}\"}}",
+        valid_authorization_code_with_username("other_username")
+    );
+    let response = send_json_token_request(&body);
+    let certificate = json_string_field(&response, "ssh_certificate")
+        .expect("token response should include ssh certificate");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"ssh_private_key\":\""));
+    assert!(response.contains("\"ssh_public_key\":\"ssh-ed25519 "));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_ssh_certificate_principal(&certificate, "other_username");
+    assert!(!response.contains("\"access_token\""));
     assert!(!response.contains("\"authorization_code\""));
 }
 
@@ -319,7 +367,7 @@ fn assert_unsupported_grant_type_response(response: &str) {
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"unsupported_grant_type\""));
     assert!(response.contains(
-        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain, authorization_code\""
+        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain, authorization_code, ssh_keys\""
     ));
 }
 
@@ -472,6 +520,86 @@ fn valid_authorization_code() -> String {
         .authorization_code
         .unwrap()
         .value
+}
+
+fn valid_authorization_code_with_username(username: &'static str) -> String {
+    struct TestAuthorizationCodeRequest {
+        authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
+        username: &'static str,
+    }
+
+    impl kagome::resources::authorization_code::Generate for TestAuthorizationCodeRequest {
+        fn previous_authorization_code(&self) -> Option<&str> {
+            None
+        }
+
+        fn client_id(&self) -> Option<&str> {
+            Some("client_id")
+        }
+
+        fn id_token(&self) -> Option<&str> {
+            None
+        }
+
+        fn username(&self) -> Option<&str> {
+            Some(self.username)
+        }
+
+        fn require_id_token(&self) -> bool {
+            false
+        }
+
+        fn require_username(&self) -> bool {
+            true
+        }
+
+        fn add_authorization_code(
+            &mut self,
+            authorization_code: kagome::resources::authorization_code::AuthorizationCode,
+        ) {
+            self.authorization_code = Some(authorization_code);
+        }
+    }
+
+    let request = TestAuthorizationCodeRequest {
+        authorization_code: None,
+        username,
+    };
+
+    kagome::resources::authorization_code::generate(request)
+        .unwrap()
+        .authorization_code
+        .unwrap()
+        .value
+}
+
+fn assert_ssh_certificate_principal(certificate: &str, principal: &str) {
+    let certificate_path = temporary_certificate_path();
+    fs::write(&certificate_path, certificate).expect("failed to write ssh certificate");
+
+    let output = Command::new("ssh-keygen")
+        .arg("-Lf")
+        .arg(&certificate_path)
+        .output()
+        .expect("failed to inspect ssh certificate");
+
+    let _ = fs::remove_file(&certificate_path);
+
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(&format!("        {principal}\n")),
+        "certificate did not contain principal {principal}: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+fn temporary_certificate_path() -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_nanos();
+
+    std::env::temp_dir().join(format!("kagome-cert-{}-{unique}.pub", std::process::id()))
 }
 
 fn jwk() -> jsonwebtoken::jwk::Jwk {
