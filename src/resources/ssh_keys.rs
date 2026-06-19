@@ -87,10 +87,12 @@ fn generate_and_sign_keys(
     client_id: &str,
     username: &str,
 ) -> io::Result<()> {
+    let key_identity = key_identity(client_id, username);
+
     run_keygen(
         Command::new(keygen)
             .args(["-t", "ed25519", "-N", "", "-C"])
-            .arg(format!("{username}@{client_id}"))
+            .arg(&key_identity)
             .arg("-f")
             .arg(key_path),
     )?;
@@ -100,13 +102,23 @@ fn generate_and_sign_keys(
             .arg("-s")
             .arg(ca_key_path)
             .arg("-I")
-            .arg(format!("{username}@{client_id}"))
+            .arg(key_identity)
             .arg("-n")
             .arg(username)
             .arg("-V")
             .arg(format!("+{SSH_KEYS_TTL_SECONDS}s"))
             .arg(public_key_path),
     )
+}
+
+fn key_identity(client_id: &str, username: &str) -> String {
+    let username_prefix = format!("{username}@");
+
+    if client_id.starts_with(&username_prefix) {
+        client_id.to_owned()
+    } else {
+        format!("{username}@{client_id}")
+    }
 }
 
 fn run_keygen(command: &mut Command) -> io::Result<()> {

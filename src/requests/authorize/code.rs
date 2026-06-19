@@ -233,6 +233,7 @@ impl<'a> client_credentials::Validate for AuthorizeCodeRequest<'a> {
 
     fn valid_client_id(&self, client_id: &str) -> bool {
         client_id == client_credentials::CLIENT_ID
+            || client_id == client_credentials::USERNAME_LOCALHOST_CLIENT_ID
             || valid_authorize_client_id(client_id, self.request)
     }
 

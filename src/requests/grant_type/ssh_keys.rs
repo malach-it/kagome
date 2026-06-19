@@ -100,6 +100,16 @@ impl<'a> client_credentials::Validate for SshKeysRequest<'a> {
         self.client_id.as_deref()
     }
 
+    fn valid_client_id(&self, client_id: &str) -> bool {
+        client_id == client_credentials::CLIENT_ID
+            || client_id == client_credentials::USERNAME_LOCALHOST_CLIENT_ID
+            || self
+                .code
+                .as_deref()
+                .and_then(|code| authorization_code::decode_cose_payload(code).ok())
+                .is_some_and(|payload| payload.client_id == client_id)
+    }
+
     fn request_client_secret(&self) -> Option<&str> {
         self.client_secret.as_deref()
     }

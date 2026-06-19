@@ -25,6 +25,22 @@ fn returns_token_response_for_form_client_credentials_grant_type() {
 }
 
 #[test]
+fn returns_token_response_for_username_host_client_credentials_grant_type() {
+    let body = "client_id=username%40localhost%3A4000&client_secret=client_secret&grant_type=client_credentials";
+    let response = send_request(&format!(
+        "POST /token HTTP/1.1\r\nhost: localhost:4000\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("\"token_type\":\"bearer\""));
+    assert!(response.contains("\"access_token\":\""));
+    assert!(response.contains("\"expires_in\":3600"));
+}
+
+#[test]
 fn returns_token_response_for_json_client_credentials_grant_type() {
     let response = send_request(
         "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\ncontent-length: 91\r\n\r\n{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"client_credentials\"}",
@@ -189,6 +205,25 @@ fn returns_ssh_keys_response_for_json_ssh_keys_grant_type() {
     assert_ssh_certificate_principal(&certificate, "other_username");
     assert!(!response.contains("\"access_token\""));
     assert!(!response.contains("\"authorization_code\""));
+}
+
+#[test]
+fn returns_ssh_keys_response_for_userinfo_authorization_code_client_id() {
+    let body = format!(
+        "client_id=username%40example.com&client_secret=client_secret&grant_type=ssh_keys&code={}",
+        valid_authorization_code_with_client_id_and_username("username@example.com", "username")
+    );
+    let response = send_form_token_request(&body);
+    let certificate = json_string_field(&response, "ssh_certificate")
+        .expect("token response should include ssh certificate");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("\"ssh_private_key\":\""));
+    assert!(response.contains("\"ssh_public_key\":\"ssh-ed25519 "));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_ssh_certificate_key_id(&certificate, "username@example.com");
+    assert_ssh_certificate_principal(&certificate, "username");
 }
 
 #[test]
@@ -531,8 +566,16 @@ fn valid_authorization_code() -> String {
 }
 
 fn valid_authorization_code_with_username(username: &'static str) -> String {
+    valid_authorization_code_with_client_id_and_username("client_id", username)
+}
+
+fn valid_authorization_code_with_client_id_and_username(
+    client_id: &'static str,
+    username: &'static str,
+) -> String {
     struct TestAuthorizationCodeRequest {
         authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
+        client_id: &'static str,
         username: &'static str,
     }
 
@@ -542,7 +585,7 @@ fn valid_authorization_code_with_username(username: &'static str) -> String {
         }
 
         fn client_id(&self) -> Option<&str> {
-            Some("client_id")
+            Some(self.client_id)
         }
 
         fn id_token(&self) -> Option<&str> {
@@ -571,6 +614,7 @@ fn valid_authorization_code_with_username(username: &'static str) -> String {
 
     let request = TestAuthorizationCodeRequest {
         authorization_code: None,
+        client_id,
         username,
     };
 
@@ -582,19 +626,8 @@ fn valid_authorization_code_with_username(username: &'static str) -> String {
 }
 
 fn assert_ssh_certificate_principal(certificate: &str, principal: &str) {
-    let certificate_path = temporary_certificate_path();
-    fs::write(&certificate_path, certificate).expect("failed to write ssh certificate");
+    let certificate_details = ssh_certificate_details(certificate);
 
-    let output = Command::new("ssh-keygen")
-        .arg("-Lf")
-        .arg(&certificate_path)
-        .output()
-        .expect("failed to inspect ssh certificate");
-
-    let _ = fs::remove_file(&certificate_path);
-
-    assert!(output.status.success());
-    let certificate_details = String::from_utf8_lossy(&output.stdout);
     assert!(
         certificate_details.contains(&format!("        {principal}\n")),
         "certificate did not contain principal {principal}: {}",
@@ -608,6 +641,32 @@ fn assert_ssh_certificate_principal(certificate: &str, principal: &str) {
         !certificate_details.contains("forever"),
         "certificate should not be valid forever: {certificate_details}"
     );
+}
+
+fn assert_ssh_certificate_key_id(certificate: &str, key_id: &str) {
+    let certificate_details = ssh_certificate_details(certificate);
+
+    assert!(
+        certificate_details.contains(&format!("Key ID: \"{key_id}\"")),
+        "certificate did not contain key id {key_id}: {}",
+        certificate_details
+    );
+}
+
+fn ssh_certificate_details(certificate: &str) -> String {
+    let certificate_path = temporary_certificate_path();
+    fs::write(&certificate_path, certificate).expect("failed to write ssh certificate");
+
+    let output = Command::new("ssh-keygen")
+        .arg("-Lf")
+        .arg(&certificate_path)
+        .output()
+        .expect("failed to inspect ssh certificate");
+
+    let _ = fs::remove_file(&certificate_path);
+
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
 fn temporary_certificate_path() -> PathBuf {

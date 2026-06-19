@@ -3,6 +3,9 @@ use crate::errors::OAuthError;
 pub const CLIENT_ID: &str = "client_id";
 pub const CLIENT_SECRET: &str = "client_secret";
 pub const REDIRECT_URI: &str = "https://client.example.com/callback";
+pub const LOOPBACK_REDIRECT_URI_SCHEME: &str = "http";
+pub const USERNAME_LOCALHOST_CLIENT_ID: &str = "username@localhost:4000";
+pub const USERNAME_LOCALHOST_REDIRECT_URI: &str = "http://127.0.0.1:4001/oauth/callback";
 
 #[derive(Debug)]
 pub struct ClientCredentials {
@@ -14,7 +17,7 @@ pub struct ClientCredentials {
 pub trait Validate {
     fn request_client_id(&self) -> Option<&str>;
     fn valid_client_id(&self, client_id: &str) -> bool {
-        client_id == CLIENT_ID
+        client_id == CLIENT_ID || client_id == USERNAME_LOCALHOST_CLIENT_ID
     }
     fn request_client_secret(&self) -> Option<&str> {
         None
@@ -61,11 +64,11 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
             .request_redirect_uri()
             .ok_or_else(OAuthError::missing_redirect_uri)?;
 
-        if redirect_uri != REDIRECT_URI {
+        if !valid_redirect_uri(&client_id, redirect_uri) {
             return Err(OAuthError::invalid_redirect_uri(REDIRECT_URI));
         }
 
-        Some(REDIRECT_URI.to_owned())
+        Some(redirect_uri.to_owned())
     } else {
         None
     };
@@ -88,6 +91,25 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
 
 pub fn client_id_resource_owner_credentials(client_id: &str) -> bool {
     resource_owner_credentials(client_id).is_some()
+}
+
+pub fn loopback_redirect_uri() -> String {
+    loopback_redirect_uri_for_address(&crate::http_server::loopback_address_from_environment())
+}
+
+pub fn loopback_redirect_uri_for_address(address: &str) -> String {
+    format!(
+        "{LOOPBACK_REDIRECT_URI_SCHEME}://{address}{}",
+        crate::ssh_login::OAUTH_CALLBACK_PATH
+    )
+}
+
+fn valid_redirect_uri(client_id: &str, redirect_uri: &str) -> bool {
+    redirect_uri == REDIRECT_URI
+        || (client_id == USERNAME_LOCALHOST_CLIENT_ID
+            && redirect_uri == USERNAME_LOCALHOST_REDIRECT_URI)
+        || (resource_owner_credentials(client_id).is_some()
+            && redirect_uri == loopback_redirect_uri())
 }
 
 fn resource_owner_credentials(client_id: &str) -> Option<(&str, &str, &str)> {

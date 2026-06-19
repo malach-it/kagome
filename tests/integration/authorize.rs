@@ -566,6 +566,21 @@ fn redirects_for_authorize_get_request_with_client_id_resource_owner_credentials
 }
 
 #[test]
+fn redirects_to_loopback_callback_for_authorize_get_request_with_client_id_resource_owner_credentials()
+ {
+    let response = send_request(
+        "GET /authorize?response_type=code&client_id=username%3Apassword%40example.com&redirect_uri=http%3A%2F%2F127.0.0.1%3A4001%2Foauth%2Fcallback HTTP/1.1\r\nhost: example.com\r\n\r\n",
+    );
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: http://127.0.0.1:4001/oauth/callback?code="));
+    assert_eq!(payload.client_id, "username@example.com");
+    assert_eq!(payload.username, Some("username".to_owned()));
+}
+
+#[test]
 fn redirects_for_initial_authorize_get_request_with_client_id_resource_owner_credentials() {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",

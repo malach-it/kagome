@@ -1,13 +1,18 @@
 use std::{io, net::TcpListener, time::Instant};
 
 use kagome::http_server::{
-    DEFAULT_ADDRESS, DEFAULT_WORKERS, is_client_disconnect, serve_listener_with_workers,
-    worker_count_from_value,
+    DEFAULT_ADDRESS, DEFAULT_LOOPBACK_ADDRESS, DEFAULT_WORKERS, is_client_disconnect,
+    serve_listener_with_workers, worker_count_from_value,
 };
 
 #[test]
 fn server_default_address_binds_all_interfaces_on_port_4000() {
     assert_eq!(DEFAULT_ADDRESS, "0.0.0.0:4000");
+}
+
+#[test]
+fn server_default_loopback_address_binds_loopback_on_port_4001() {
+    assert_eq!(DEFAULT_LOOPBACK_ADDRESS, "127.0.0.1:4001");
 }
 
 #[test]

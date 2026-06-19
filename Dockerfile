@@ -11,8 +11,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/kagome /usr/local/bin/kagome
+COPY --from=builder /app/target/release/kagome-login /usr/local/bin/kagome-login
 
 ENV KAGOME_SERVER_ADDRESS=0.0.0.0:4000
+ENV KAGOME_LOGIN_SERVER_ADDRESS=127.0.0.1:4000
+ENV KAGOME_LOOPBACK_SERVER_ADDRESS=127.0.0.1:4001
 ENV KAGOME_WORKERS=4
 ENV KAGOME_PORT=4000
 
