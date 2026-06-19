@@ -111,12 +111,12 @@ fn redirects_back_to_authorize_for_intermediate_code_response_type() {
     assert!(response.contains("response_type=code"));
     assert!(response.contains("client_id=client_id"));
     assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
-    assert!(response.contains("authorization_code="));
+    assert!(response.contains("code="));
     assert!(response.contains("content-length: 0\r\n"));
 }
 
 #[test]
-fn returns_login_page_for_authorize_get_request_with_authorization_code() {
+fn returns_login_page_for_authorize_get_request_with_code() {
     let first_response = send_post_authorize_request(&format!(
         "response_type=code+code&client_id=client_id&redirect_uri={}",
         valid_redirect_uri()
@@ -129,7 +129,7 @@ fn returns_login_page_for_authorize_get_request_with_authorization_code() {
     assert!(response.contains("content-type: text/html\r\n"));
     assert!(response.contains("<title>kagome login</title>"));
     assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
-    assert!(response.contains("authorization_code="));
+    assert!(response.contains("code="));
 }
 
 #[test]
@@ -230,9 +230,9 @@ fn redirects_for_authorize_post_request_with_client_id_username_over_body_userna
 }
 
 #[test]
-fn returns_oauth_error_for_invalid_authorize_get_authorization_code() {
+fn returns_oauth_error_for_invalid_authorize_get_code() {
     let response = send_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}&authorization_code=app",
+        "response_type=code&client_id=client_id&redirect_uri={}&code=app",
         valid_redirect_uri()
     ));
 
@@ -240,7 +240,7 @@ fn returns_oauth_error_for_invalid_authorize_get_authorization_code() {
     assert!(response.contains("content-type: text/html\r\n"));
     assert!(response.contains("<p role=\"alert\">authorization_code must be a cose_encrypt0</p>"));
     assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
-    assert!(response.contains("authorization_code=app"));
+    assert!(response.contains("code=app"));
 }
 
 #[test]
@@ -310,8 +310,7 @@ fn redirects_to_client_redirect_uri_for_last_code_response_type() {
     ));
     let next_query = authorize_redirect_query(&first_response)
         .expect("first authorize redirect should include query");
-    let previous_code =
-        query_parameter(&next_query, "authorization_code").expect("redirect should include code");
+    let previous_code = query_parameter(&next_query, "code").expect("redirect should include code");
     let second_response = send_post_authorize_request(&next_query);
     let code = redirect_code(&second_response).expect("final redirect should include code");
     let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
@@ -330,16 +329,14 @@ fn redirects_back_to_authorize_until_final_code_response_type() {
     ));
     let second_query = authorize_redirect_query(&first_response)
         .expect("first authorize redirect should include query");
-    let first_code =
-        query_parameter(&second_query, "authorization_code").expect("redirect should include code");
+    let first_code = query_parameter(&second_query, "code").expect("redirect should include code");
 
     assert!(second_query.contains("response_type=code%20code"));
 
     let second_response = send_post_authorize_request(&second_query);
     let third_query = authorize_redirect_query(&second_response)
         .expect("second authorize redirect should include query");
-    let second_code =
-        query_parameter(&third_query, "authorization_code").expect("redirect should include code");
+    let second_code = query_parameter(&third_query, "code").expect("redirect should include code");
     let second_payload =
         kagome::resources::authorization_code::decode_cose_payload(&second_code).unwrap();
 

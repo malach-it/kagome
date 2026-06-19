@@ -72,11 +72,7 @@ pub fn authorize_redirect_response(
 ) -> String {
     let mut query_params = query_params.to_vec();
     set_query_parameter(&mut query_params, "response_type", response_type);
-    set_query_parameter(
-        &mut query_params,
-        "authorization_code",
-        &authorization_code.value,
-    );
+    set_query_parameter(&mut query_params, "code", &authorization_code.value);
     let location = authorize_action(&query_params);
 
     format!(
