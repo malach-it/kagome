@@ -2,12 +2,16 @@ use crate::{
     errors::OAuthError,
     handlers::responses::{
         access_token_redirect_response, authorize_redirect_response,
-        code_access_token_redirect_response, code_redirect_response, login_page_response,
+        code_access_token_redirect_response, code_id_token_access_token_redirect_response,
+        code_id_token_redirect_response, code_redirect_response, id_token_redirect_response,
+        login_page_response,
     },
     resources::{
         access_token::{self, AccessToken},
         authorization_code::{self, AuthorizationCode},
-        client_credentials, metadata_policy, resource_owner,
+        client_credentials,
+        id_token::{self, IdToken},
+        metadata_policy, resource_owner,
         response_type::{self, ResponseType},
     },
     unit::{KagomeRequest, parse_query_parameter, parse_request_parameter},
@@ -32,6 +36,7 @@ pub struct AuthorizeLoginRequest<'a> {
 pub struct AuthorizeLoginResponse {
     pub access_token: Option<AccessToken>,
     pub authorization_code: Option<AuthorizationCode>,
+    pub id_token: Option<IdToken>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub redirect_uri: Option<String>,
@@ -59,6 +64,7 @@ pub struct AuthorizeCodeRequest<'a> {
 pub struct AuthorizeCodeResponse {
     pub access_token: Option<AccessToken>,
     pub authorization_code: Option<AuthorizationCode>,
+    pub id_token: Option<IdToken>,
     pub previous_authorization_code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
@@ -89,6 +95,38 @@ impl<'a> AuthorizeLoginRequest<'a> {
     }
 
     pub fn to_response(&self) -> Result<String, OAuthError> {
+        if let (Some(authorization_code), Some(id_token), Some(access_token)) = (
+            self.response.authorization_code.as_ref(),
+            self.response.id_token.as_ref(),
+            self.response.access_token.as_ref(),
+        ) {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(code_id_token_access_token_redirect_response(
+                redirect_uri,
+                authorization_code,
+                id_token,
+                access_token,
+            ));
+        }
+
+        if let (Some(authorization_code), Some(id_token)) = (
+            self.response.authorization_code.as_ref(),
+            self.response.id_token.as_ref(),
+        ) {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(code_id_token_redirect_response(
+                redirect_uri,
+                authorization_code,
+                id_token,
+            ));
+        }
+
         if let (Some(authorization_code), Some(access_token)) = (
             self.response.authorization_code.as_ref(),
             self.response.access_token.as_ref(),
@@ -110,6 +148,14 @@ impl<'a> AuthorizeLoginRequest<'a> {
             })?;
 
             return Ok(access_token_redirect_response(redirect_uri, access_token));
+        }
+
+        if let Some(id_token) = self.response.id_token.as_ref() {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(id_token_redirect_response(redirect_uri, id_token));
         }
 
         let Some(authorization_code) = self.response.authorization_code.as_ref() else {
@@ -137,6 +183,7 @@ impl AuthorizeLoginResponse {
         Self {
             access_token: None,
             authorization_code: None,
+            id_token: None,
             client_id: None,
             client_secret: None,
             redirect_uri: None,
@@ -165,6 +212,38 @@ impl<'a> AuthorizeCodeRequest<'a> {
     }
 
     pub fn to_response(&self) -> Result<String, OAuthError> {
+        if let (Some(authorization_code), Some(id_token), Some(access_token)) = (
+            self.response.authorization_code.as_ref(),
+            self.response.id_token.as_ref(),
+            self.response.access_token.as_ref(),
+        ) {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(code_id_token_access_token_redirect_response(
+                redirect_uri,
+                authorization_code,
+                id_token,
+                access_token,
+            ));
+        }
+
+        if let (Some(authorization_code), Some(id_token)) = (
+            self.response.authorization_code.as_ref(),
+            self.response.id_token.as_ref(),
+        ) {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(code_id_token_redirect_response(
+                redirect_uri,
+                authorization_code,
+                id_token,
+            ));
+        }
+
         if let (Some(authorization_code), Some(access_token)) = (
             self.response.authorization_code.as_ref(),
             self.response.access_token.as_ref(),
@@ -186,6 +265,14 @@ impl<'a> AuthorizeCodeRequest<'a> {
             })?;
 
             return Ok(access_token_redirect_response(redirect_uri, access_token));
+        }
+
+        if let Some(id_token) = self.response.id_token.as_ref() {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(id_token_redirect_response(redirect_uri, id_token));
         }
 
         let authorization_code = self.response.authorization_code.as_ref().ok_or_else(|| {
@@ -213,6 +300,7 @@ impl AuthorizeCodeResponse {
         Self {
             access_token: None,
             authorization_code: None,
+            id_token: None,
             previous_authorization_code: None,
             client_id: None,
             client_secret: None,
@@ -504,6 +592,34 @@ impl<'a> access_token::Generate for AuthorizeLoginRequest<'a> {
 
     fn add_access_token(&mut self, access_token: AccessToken) {
         self.response.access_token = Some(access_token);
+    }
+}
+
+impl<'a> id_token::Generate for AuthorizeCodeRequest<'a> {
+    fn client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
+    fn username(&self) -> Option<&str> {
+        self.response.username.as_deref()
+    }
+
+    fn add_generated_id_token(&mut self, id_token: IdToken) {
+        self.response.id_token = Some(id_token);
+    }
+}
+
+impl<'a> id_token::Generate for AuthorizeLoginRequest<'a> {
+    fn client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
+    fn username(&self) -> Option<&str> {
+        self.response.username.as_deref()
+    }
+
+    fn add_generated_id_token(&mut self, id_token: IdToken) {
+        self.response.id_token = Some(id_token);
     }
 }
 

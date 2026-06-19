@@ -86,6 +86,44 @@ fn redirects_to_client_redirect_uri_with_access_token_for_post_authorize_token_r
 }
 
 #[test]
+fn redirects_to_client_redirect_uri_with_id_token_for_post_authorize_id_token_response_type() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=id_token&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let id_token = redirect_fragment_parameter(&response, "id_token")
+        .expect("redirect should include id token");
+    let expires_in =
+        redirect_fragment_parameter(&response, "expires_in").expect("redirect should include ttl");
+    let payload = decode_id_token_payload(&id_token);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback#id_token="));
+    assert_eq!(
+        expires_in,
+        kagome::resources::id_token::ID_TOKEN_TTL_SECONDS.to_string()
+    );
+    assert_eq!(payload.client_id, "client_id");
+    assert_eq!(payload.username, "username");
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_with_id_token_for_client_id_resource_owner_credentials() {
+    let response = send_authorize_request(&format!(
+        "response_type=id_token&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let id_token = redirect_fragment_parameter(&response, "id_token")
+        .expect("redirect should include id token");
+    let payload = decode_id_token_payload(&id_token);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback#id_token="));
+    assert_eq!(payload.client_id, "other_username@example.com");
+    assert_eq!(payload.username, "other_username");
+}
+
+#[test]
 fn redirects_to_client_redirect_uri_with_code_and_access_token_for_post_authorize_code_token_response_type()
  {
     let response = send_post_authorize_request(&format!(
@@ -112,6 +150,53 @@ fn redirects_to_client_redirect_uri_with_code_and_access_token_for_post_authoriz
 }
 
 #[test]
+fn redirects_to_client_redirect_uri_with_code_and_id_token_for_post_authorize_code_id_token_response_type()
+ {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code+id_token&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("redirect should include code");
+    let id_token = redirect_fragment_parameter(&response, "id_token")
+        .expect("redirect should include id token");
+    let code_payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+    let token_payload = decode_id_token_payload(&id_token);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert!(response.contains("#id_token="));
+    assert_eq!(code_payload.client_id, "client_id");
+    assert_eq!(token_payload.client_id, "client_id");
+    assert_eq!(token_payload.username, "username");
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_with_code_id_token_and_access_token_for_post_authorize_code_id_token_token_response_type()
+ {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code+id_token+token&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("redirect should include code");
+    let id_token = redirect_fragment_parameter(&response, "id_token")
+        .expect("redirect should include id token");
+    let access_token = redirect_fragment_parameter(&response, "access_token")
+        .expect("redirect should include token");
+    let code_payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+    let id_token_payload = decode_id_token_payload(&id_token);
+    let access_token_payload = decode_access_token_payload(&access_token);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert!(response.contains("#access_token="));
+    assert!(response.contains("&id_token="));
+    assert_eq!(code_payload.client_id, "client_id");
+    assert_eq!(id_token_payload.client_id, "client_id");
+    assert_eq!(id_token_payload.username, "username");
+    assert_eq!(access_token_payload.client_id, "client_id");
+}
+
+#[test]
 fn redirects_to_client_redirect_uri_with_code_and_access_token_for_get_authorize_code_token_response_type_with_client_id_resource_owner_credentials()
  {
     let response = send_authorize_request(&format!(
@@ -129,6 +214,53 @@ fn redirects_to_client_redirect_uri_with_code_and_access_token_for_get_authorize
     assert!(response.contains("#access_token="));
     assert_eq!(code_payload.client_id, "other_username@example.com");
     assert_eq!(token_payload.client_id, "other_username@example.com");
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_with_code_and_id_token_for_get_authorize_code_id_token_response_type_with_client_id_resource_owner_credentials()
+ {
+    let response = send_authorize_request(&format!(
+        "response_type=code+id_token&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("redirect should include code");
+    let id_token = redirect_fragment_parameter(&response, "id_token")
+        .expect("redirect should include id token");
+    let code_payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+    let token_payload = decode_id_token_payload(&id_token);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert!(response.contains("#id_token="));
+    assert_eq!(code_payload.client_id, "other_username@example.com");
+    assert_eq!(token_payload.client_id, "other_username@example.com");
+    assert_eq!(token_payload.username, "other_username");
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_with_code_id_token_and_access_token_for_get_authorize_code_id_token_token_response_type_with_client_id_resource_owner_credentials()
+ {
+    let response = send_authorize_request(&format!(
+        "response_type=code+id_token+token&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("redirect should include code");
+    let id_token = redirect_fragment_parameter(&response, "id_token")
+        .expect("redirect should include id token");
+    let access_token = redirect_fragment_parameter(&response, "access_token")
+        .expect("redirect should include token");
+    let code_payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+    let id_token_payload = decode_id_token_payload(&id_token);
+    let access_token_payload = decode_access_token_payload(&access_token);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert!(response.contains("#access_token="));
+    assert!(response.contains("&id_token="));
+    assert_eq!(code_payload.client_id, "other_username@example.com");
+    assert_eq!(id_token_payload.client_id, "other_username@example.com");
+    assert_eq!(id_token_payload.username, "other_username");
+    assert_eq!(access_token_payload.client_id, "other_username@example.com");
 }
 
 #[test]
@@ -377,7 +509,7 @@ fn redirects_oauth_error_for_missing_response_type_with_client_id_resource_owner
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token\r\n"
+        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token\r\n"
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
@@ -494,7 +626,10 @@ fn returns_oauth_error_for_missing_authorize_response_type() {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
     assert!(response.contains("<title>kagome login</title>"));
-    assert!(response.contains("<p role=\"alert\">response_type must be one of: code, token</p>"));
+    assert!(
+        response
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
+    );
     assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
     assert!(response.contains("client_id=client_id"));
     assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
@@ -509,7 +644,7 @@ fn redirects_oauth_error_to_request_redirect_uri_for_query_format() {
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token\r\n"
+        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token\r\n"
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
@@ -524,7 +659,10 @@ fn returns_oauth_error_for_unsupported_authorize_response_type() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">response_type must be one of: code, token</p>"));
+    assert!(
+        response
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
+    );
 }
 
 #[test]
@@ -536,7 +674,10 @@ fn returns_oauth_error_when_token_authorize_response_type_is_not_final() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">response_type must be one of: code, token</p>"));
+    assert!(
+        response
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
+    );
 }
 
 #[test]
@@ -548,7 +689,25 @@ fn returns_oauth_error_when_token_authorize_response_type_is_in_middle_of_chain(
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">response_type must be one of: code, token</p>"));
+    assert!(
+        response
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
+    );
+}
+
+#[test]
+fn returns_oauth_error_when_id_token_authorize_response_type_is_not_final() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=id_token+code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(
+        response
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
+    );
 }
 
 #[test]
@@ -763,6 +922,20 @@ fn decode_access_token_payload(
     jsonwebtoken::decode::<kagome::resources::access_token::AccessTokenJwtPayload>(
         access_token,
         &jsonwebtoken::DecodingKey::from_secret(kagome::resources::access_token::SECRET.as_bytes()),
+        &validation,
+    )
+    .unwrap()
+    .claims
+}
+
+fn decode_id_token_payload(id_token: &str) -> kagome::resources::id_token::IdTokenJwtPayload {
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS512);
+    validation.validate_exp = false;
+    validation.required_spec_claims.clear();
+
+    jsonwebtoken::decode::<kagome::resources::id_token::IdTokenJwtPayload>(
+        id_token,
+        &jsonwebtoken::DecodingKey::from_secret(kagome::resources::id_token::SECRET.as_bytes()),
         &validation,
     )
     .unwrap()

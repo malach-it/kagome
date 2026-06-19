@@ -6,6 +6,7 @@ use crate::{
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
+        id_token::IdToken,
     },
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -82,6 +83,23 @@ pub fn access_token_redirect_response(redirect_uri: &str, access_token: &AccessT
     )
 }
 
+pub fn id_token_redirect_response(redirect_uri: &str, id_token: &IdToken) -> String {
+    let location = append_fragment_parameter(
+        &append_fragment_parameter(
+            redirect_uri,
+            "id_token",
+            &percent_encode_query_value(&id_token.value),
+        ),
+        "expires_in",
+        &id_token.expires_in.to_string(),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
 pub fn code_access_token_redirect_response(
     redirect_uri: &str,
     authorization_code: &AuthorizationCode,
@@ -96,6 +114,61 @@ pub fn code_access_token_redirect_response(
             ),
             "access_token",
             &percent_encode_query_value(&access_token.value),
+        ),
+        "expires_in",
+        &access_token.expires_in.to_string(),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
+pub fn code_id_token_redirect_response(
+    redirect_uri: &str,
+    authorization_code: &AuthorizationCode,
+    id_token: &IdToken,
+) -> String {
+    let location = append_fragment_parameter(
+        &append_fragment_parameter(
+            &append_query_parameter(
+                redirect_uri,
+                "code",
+                &percent_encode_query_value(&authorization_code.value),
+            ),
+            "id_token",
+            &percent_encode_query_value(&id_token.value),
+        ),
+        "expires_in",
+        &id_token.expires_in.to_string(),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
+pub fn code_id_token_access_token_redirect_response(
+    redirect_uri: &str,
+    authorization_code: &AuthorizationCode,
+    id_token: &IdToken,
+    access_token: &AccessToken,
+) -> String {
+    let location = append_fragment_parameter(
+        &append_fragment_parameter(
+            &append_fragment_parameter(
+                &append_query_parameter(
+                    redirect_uri,
+                    "code",
+                    &percent_encode_query_value(&authorization_code.value),
+                ),
+                "access_token",
+                &percent_encode_query_value(&access_token.value),
+            ),
+            "id_token",
+            &percent_encode_query_value(&id_token.value),
         ),
         "expires_in",
         &access_token.expires_in.to_string(),

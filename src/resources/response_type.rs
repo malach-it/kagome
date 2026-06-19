@@ -1,10 +1,11 @@
 use crate::errors::OAuthError;
 
-pub const SUPPORTED_RESPONSE_TYPES: [&str; 2] = ["code", "token"];
+pub const SUPPORTED_RESPONSE_TYPES: [&str; 3] = ["code", "token", "id_token"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResponseType {
     Code,
+    IdToken,
     Token,
 }
 
@@ -12,6 +13,7 @@ impl ResponseType {
     pub fn as_str(self) -> &'static str {
         match self {
             ResponseType::Code => "code",
+            ResponseType::IdToken => "id_token",
             ResponseType::Token => "token",
         }
     }
@@ -47,6 +49,7 @@ fn parse(response_type: Option<&str>) -> Result<Vec<ResponseType>, OAuthError> {
         .split_whitespace()
         .map(|response_type| match response_type {
             "code" => Ok(ResponseType::Code),
+            "id_token" => Ok(ResponseType::IdToken),
             "token" => Ok(ResponseType::Token),
             _ => Err(OAuthError::unsupported_response_type(
                 &SUPPORTED_RESPONSE_TYPES,
@@ -60,19 +63,42 @@ fn parse(response_type: Option<&str>) -> Result<Vec<ResponseType>, OAuthError> {
         ));
     }
 
-    validate_token_response_type_is_final(&response_types)?;
+    validate_final_response_type_is_final(&response_types)?;
 
     Ok(response_types)
 }
 
-fn validate_token_response_type_is_final(
+fn validate_final_response_type_is_final(
     response_types: &[ResponseType],
 ) -> Result<(), OAuthError> {
     if response_types
         .iter()
-        .rev()
-        .skip(1)
-        .any(|response_type| *response_type == ResponseType::Token)
+        .enumerate()
+        .any(|(index, response_type)| {
+            *response_type == ResponseType::Token && index + 1 != response_types.len()
+        })
+    {
+        return Err(OAuthError::unsupported_response_type(
+            &SUPPORTED_RESPONSE_TYPES,
+        ));
+    }
+
+    let is_code_id_token_token_response_type = matches!(
+        response_types,
+        [
+            ResponseType::Code,
+            ResponseType::IdToken,
+            ResponseType::Token
+        ]
+    );
+
+    if !is_code_id_token_token_response_type
+        && response_types
+            .iter()
+            .enumerate()
+            .any(|(index, response_type)| {
+                *response_type == ResponseType::IdToken && index + 1 != response_types.len()
+            })
     {
         return Err(OAuthError::unsupported_response_type(
             &SUPPORTED_RESPONSE_TYPES,

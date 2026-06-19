@@ -1,7 +1,8 @@
 use crate::{
     errors::OAuthError,
     resources::{
-        access_token, authorization_code, client_credentials, metadata_policy, resource_owner,
+        access_token, authorization_code, client_credentials, id_token, metadata_policy,
+        resource_owner,
         response_type::{self, ResponseType},
     },
     unit::KagomeRequest,
@@ -98,25 +99,46 @@ impl GenerateAuthorizeResponse for AuthorizeCodeRequest<'_> {
 
 fn generate_response<T>(authorize_request: T) -> Result<T, OAuthError>
 where
-    T: GenerateAuthorizeResponse + access_token::Generate + authorization_code::Generate,
+    T: GenerateAuthorizeResponse
+        + access_token::Generate
+        + authorization_code::Generate
+        + id_token::Generate,
 {
     match authorize_request.response_types() {
+        [
+            ResponseType::Code,
+            ResponseType::IdToken,
+            ResponseType::Token,
+        ] if authorize_request.has_valid_resource_owner() => {
+            authorization_code::generate(authorize_request)
+                .and_then(id_token::generate)
+                .and_then(access_token::generate)
+        }
         [ResponseType::Code, ResponseType::Token]
             if authorize_request.has_valid_resource_owner() =>
         {
             authorization_code::generate(authorize_request).and_then(access_token::generate)
         }
+        [ResponseType::Code, ResponseType::IdToken]
+            if authorize_request.has_valid_resource_owner() =>
+        {
+            authorization_code::generate(authorize_request).and_then(id_token::generate)
+        }
         [ResponseType::Token] if authorize_request.has_valid_resource_owner() => {
             access_token::generate(authorize_request)
         }
         [ResponseType::Token] => Err(OAuthError::missing_username()),
+        [ResponseType::IdToken] if authorize_request.has_valid_resource_owner() => {
+            id_token::generate(authorize_request)
+        }
+        [ResponseType::IdToken] => Err(OAuthError::missing_username()),
         [ResponseType::Code, ..] => authorization_code::generate(authorize_request),
         [] => Err(OAuthError::unsupported_response_type(
             &response_type::SUPPORTED_RESPONSE_TYPES,
         )),
-        [ResponseType::Token, ..] => Err(OAuthError::unsupported_response_type(
-            &response_type::SUPPORTED_RESPONSE_TYPES,
-        )),
+        [ResponseType::IdToken, ..] | [ResponseType::Token, ..] => Err(
+            OAuthError::unsupported_response_type(&response_type::SUPPORTED_RESPONSE_TYPES),
+        ),
     }
 }
 
