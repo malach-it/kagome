@@ -1,16 +1,18 @@
 use crate::errors::OAuthError;
 
-pub const SUPPORTED_RESPONSE_TYPES: [&str; 1] = ["code"];
+pub const SUPPORTED_RESPONSE_TYPES: [&str; 2] = ["code", "token"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResponseType {
     Code,
+    Token,
 }
 
 impl ResponseType {
     pub fn as_str(self) -> &'static str {
         match self {
             ResponseType::Code => "code",
+            ResponseType::Token => "token",
         }
     }
 }
@@ -45,17 +47,37 @@ fn parse(response_type: Option<&str>) -> Result<Vec<ResponseType>, OAuthError> {
         .split_whitespace()
         .map(|response_type| match response_type {
             "code" => Ok(ResponseType::Code),
+            "token" => Ok(ResponseType::Token),
             _ => Err(OAuthError::unsupported_response_type(
                 &SUPPORTED_RESPONSE_TYPES,
             )),
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    if !response_types.is_empty() {
-        return Ok(response_types);
+    if response_types.is_empty() {
+        return Err(OAuthError::unsupported_response_type(
+            &SUPPORTED_RESPONSE_TYPES,
+        ));
     }
 
-    Err(OAuthError::unsupported_response_type(
-        &SUPPORTED_RESPONSE_TYPES,
-    ))
+    validate_token_response_type_is_final(&response_types)?;
+
+    Ok(response_types)
+}
+
+fn validate_token_response_type_is_final(
+    response_types: &[ResponseType],
+) -> Result<(), OAuthError> {
+    if response_types
+        .iter()
+        .rev()
+        .skip(1)
+        .any(|response_type| *response_type == ResponseType::Token)
+    {
+        return Err(OAuthError::unsupported_response_type(
+            &SUPPORTED_RESPONSE_TYPES,
+        ));
+    }
+
+    Ok(())
 }

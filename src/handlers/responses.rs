@@ -65,6 +65,48 @@ pub fn code_redirect_response(
     )
 }
 
+pub fn access_token_redirect_response(redirect_uri: &str, access_token: &AccessToken) -> String {
+    let location = append_fragment_parameter(
+        &append_fragment_parameter(
+            redirect_uri,
+            "access_token",
+            &percent_encode_query_value(&access_token.value),
+        ),
+        "expires_in",
+        &access_token.expires_in.to_string(),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
+pub fn code_access_token_redirect_response(
+    redirect_uri: &str,
+    authorization_code: &AuthorizationCode,
+    access_token: &AccessToken,
+) -> String {
+    let location = append_fragment_parameter(
+        &append_fragment_parameter(
+            &append_query_parameter(
+                redirect_uri,
+                "code",
+                &percent_encode_query_value(&authorization_code.value),
+            ),
+            "access_token",
+            &percent_encode_query_value(&access_token.value),
+        ),
+        "expires_in",
+        &access_token.expires_in.to_string(),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
 pub fn authorize_redirect_response(
     query_params: &[(String, String)],
     response_type: &str,
@@ -391,6 +433,12 @@ fn http_json_response(response_body: &str) -> String {
 
 fn append_query_parameter(uri: &str, name: &str, encoded_value: &str) -> String {
     let separator = if uri.contains('?') { '&' } else { '?' };
+
+    format!("{uri}{separator}{name}={encoded_value}")
+}
+
+fn append_fragment_parameter(uri: &str, name: &str, encoded_value: &str) -> String {
+    let separator = if uri.contains('#') { '&' } else { '#' };
 
     format!("{uri}{separator}{name}={encoded_value}")
 }

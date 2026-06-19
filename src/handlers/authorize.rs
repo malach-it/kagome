@@ -1,7 +1,8 @@
 use crate::{
     errors::OAuthError,
     resources::{
-        authorization_code, client_credentials, metadata_policy, resource_owner, response_type,
+        access_token, authorization_code, client_credentials, metadata_policy, resource_owner,
+        response_type::{self, ResponseType},
     },
     unit::KagomeRequest,
 };
@@ -25,7 +26,7 @@ fn handle_authorize(request: &KagomeRequest) -> String {
 
     match authorize_request.and_then(resource_owner::validate_optional) {
         Ok(authorize_request) if authorize_request.has_resource_owner() => {
-            match authorization_code::generate(authorize_request).and_then(logged_response) {
+            match generate_response(authorize_request).and_then(logged_response) {
                 Ok(response) => response,
                 Err(error) => {
                     log_authorize_failure(&error);
@@ -52,7 +53,7 @@ fn handle_authenticate(request: &KagomeRequest) -> String {
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate)
         .and_then(resource_owner::validate)
-        .and_then(authorization_code::generate)
+        .and_then(generate_response)
         .and_then(logged_response)
     {
         Ok(response) => response,
@@ -68,6 +69,55 @@ where
     T: response_type::Validate + client_credentials::Validate,
 {
     response_type::validate(authorize_request).and_then(client_credentials::validate)
+}
+
+trait GenerateAuthorizeResponse {
+    fn response_types(&self) -> &[ResponseType];
+    fn has_valid_resource_owner(&self) -> bool;
+}
+
+impl GenerateAuthorizeResponse for AuthorizeLoginRequest<'_> {
+    fn response_types(&self) -> &[ResponseType] {
+        &self.response.response_types
+    }
+
+    fn has_valid_resource_owner(&self) -> bool {
+        self.response.username.is_some()
+    }
+}
+
+impl GenerateAuthorizeResponse for AuthorizeCodeRequest<'_> {
+    fn response_types(&self) -> &[ResponseType] {
+        &self.response.response_types
+    }
+
+    fn has_valid_resource_owner(&self) -> bool {
+        self.response.username.is_some()
+    }
+}
+
+fn generate_response<T>(authorize_request: T) -> Result<T, OAuthError>
+where
+    T: GenerateAuthorizeResponse + access_token::Generate + authorization_code::Generate,
+{
+    match authorize_request.response_types() {
+        [ResponseType::Code, ResponseType::Token]
+            if authorize_request.has_valid_resource_owner() =>
+        {
+            authorization_code::generate(authorize_request).and_then(access_token::generate)
+        }
+        [ResponseType::Token] if authorize_request.has_valid_resource_owner() => {
+            access_token::generate(authorize_request)
+        }
+        [ResponseType::Token] => Err(OAuthError::missing_username()),
+        [ResponseType::Code, ..] => authorization_code::generate(authorize_request),
+        [] => Err(OAuthError::unsupported_response_type(
+            &response_type::SUPPORTED_RESPONSE_TYPES,
+        )),
+        [ResponseType::Token, ..] => Err(OAuthError::unsupported_response_type(
+            &response_type::SUPPORTED_RESPONSE_TYPES,
+        )),
+    }
 }
 
 fn log_authorize_failure(error: &OAuthError) {
