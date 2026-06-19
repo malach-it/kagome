@@ -146,42 +146,29 @@ fn ssh_keys_created_response(
     stored_ssh_keys: &StoredSshKeys,
     payload: &AuthorizationCodeCosePayload,
 ) -> String {
-    let ssh_command = ssh_command(stored_ssh_keys, payload)
-        .map(|command| format!("ssh command: {command}\n"))
-        .unwrap_or_default();
-    let body = format!(
-        "temporary ssh keys have been created\nprivate key: {}\npublic key: {}\ncertificate: {}\n{}",
-        stored_ssh_keys.private_key_path.display(),
-        stored_ssh_keys.public_key_path.display(),
-        stored_ssh_keys.certificate_path.display(),
-        ssh_command
-    );
+    let body = ssh_keys_created_body(stored_ssh_keys, payload);
 
     format!(
-        "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
         body.len(),
         body
     )
 }
 
-fn ssh_command(
+fn ssh_keys_created_body(
     stored_ssh_keys: &StoredSshKeys,
-    payload: &AuthorizationCodeCosePayload,
-) -> Option<String> {
-    let username = payload.username.as_deref()?;
-    let host = ssh_host_from_client_id(&payload.client_id)?;
+    _payload: &AuthorizationCodeCosePayload,
+) -> String {
+    let private_key_path = stored_ssh_keys.private_key_path.display().to_string();
+    let public_key_path = stored_ssh_keys.public_key_path.display().to_string();
+    let certificate_path = stored_ssh_keys.certificate_path.display().to_string();
 
-    Some(format!(
-        "ssh -i {} {username}@{host}",
-        stored_ssh_keys.private_key_path.display()
-    ))
-}
-
-fn ssh_host_from_client_id(client_id: &str) -> Option<&str> {
-    let (_, host) = client_id.split_once('@')?;
-    let host = host.split_once(':').map_or(host, |(host, _)| host);
-
-    (!host.is_empty()).then_some(host)
+    format!(
+        "<!doctype html><html><head><title>kagome ssh keys</title></head><body><main><h1>temporary ssh keys have been created</h1><p>private key: <code>{}</code></p><p>public key: <code>{}</code></p><p>certificate: <code>{}</code></p></main></body></html>",
+        escape_html(&private_key_path),
+        escape_html(&public_key_path),
+        escape_html(&certificate_path)
+    )
 }
 
 fn timestamped_ssh_key_filename() -> String {
@@ -216,6 +203,20 @@ fn storage_error_response(message: &str) -> String {
         message.len(),
         message
     )
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|character| match character {
+            '&' => "&amp;".chars().collect::<Vec<_>>(),
+            '<' => "&lt;".chars().collect(),
+            '>' => "&gt;".chars().collect(),
+            '"' => "&quot;".chars().collect(),
+            '\'' => "&#39;".chars().collect(),
+            _ => vec![character],
+        })
+        .collect()
 }
 
 fn form_encode(value: &str) -> String {

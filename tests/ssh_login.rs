@@ -48,15 +48,22 @@ fn oauth_callback_stores_ssh_keys_when_path_is_configured() {
     let certificate = fs::read_to_string(&certificate_path).expect("certificate should be stored");
 
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/plain\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
     assert!(response.contains("temporary ssh keys have been created"));
-    assert!(response.contains(&format!("private key: {}", private_key_path.display())));
-    assert!(response.contains(&format!("public key: {}", public_key_path.display())));
-    assert!(response.contains(&format!("certificate: {}", certificate_path.display())));
     assert!(response.contains(&format!(
-        "ssh command: ssh -i {} username@example.com",
+        "private key: <code>{}</code>",
         private_key_path.display()
     )));
+    assert!(response.contains(&format!(
+        "public key: <code>{}</code>",
+        public_key_path.display()
+    )));
+    assert!(response.contains(&format!(
+        "certificate: <code>{}</code>",
+        certificate_path.display()
+    )));
+    assert!(!response.contains("name=\"host\""));
+    assert!(!response.contains("ssh command:"));
     assert_eq!(
         public_key_path.file_name().and_then(|name| name.to_str()),
         private_key_path
@@ -83,7 +90,7 @@ fn oauth_callback_stores_ssh_keys_when_path_is_configured() {
 }
 
 #[test]
-fn oauth_callback_uses_client_id_host_without_port_in_ssh_command() {
+fn oauth_callback_does_not_render_host_prompt() {
     let code = valid_authorization_code("username@localhost:4000", "username");
     let ssh_keys_path = temporary_ssh_keys_path();
     let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path(
@@ -93,13 +100,10 @@ fn oauth_callback_uses_client_id_host_without_port_in_ssh_command() {
         ),
         Some(&ssh_keys_path),
     );
-    let (private_key_path, _, _) = stored_ssh_key_paths(&ssh_keys_path);
 
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains(&format!(
-        "ssh command: ssh -i {} username@localhost",
-        private_key_path.display()
-    )));
+    assert!(!response.contains("name=\"host\""));
+    assert!(!response.contains("ssh-command"));
 
     let _ = fs::remove_dir_all(&ssh_keys_path);
 }
