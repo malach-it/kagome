@@ -100,6 +100,31 @@ pub fn id_token_redirect_response(redirect_uri: &str, id_token: &IdToken) -> Str
     )
 }
 
+pub fn id_token_access_token_redirect_response(
+    redirect_uri: &str,
+    id_token: &IdToken,
+    access_token: &AccessToken,
+) -> String {
+    let location = append_fragment_parameter(
+        &append_fragment_parameter(
+            &append_fragment_parameter(
+                redirect_uri,
+                "id_token",
+                &percent_encode_query_value(&id_token.value),
+            ),
+            "access_token",
+            &percent_encode_query_value(&access_token.value),
+        ),
+        "expires_in",
+        &access_token.expires_in.to_string(),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
 pub fn code_access_token_redirect_response(
     redirect_uri: &str,
     authorization_code: &AuthorizationCode,

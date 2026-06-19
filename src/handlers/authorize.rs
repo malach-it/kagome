@@ -124,6 +124,12 @@ where
         {
             authorization_code::generate(authorize_request).and_then(id_token::generate)
         }
+        [ResponseType::IdToken, ResponseType::Token]
+            if authorize_request.has_valid_resource_owner() =>
+        {
+            id_token::generate(authorize_request).and_then(access_token::generate)
+        }
+        [ResponseType::IdToken, ResponseType::Token] => Err(OAuthError::missing_username()),
         [ResponseType::Token] if authorize_request.has_valid_resource_owner() => {
             access_token::generate(authorize_request)
         }

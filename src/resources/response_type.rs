@@ -91,8 +91,11 @@ fn validate_final_response_type_is_final(
             ResponseType::Token
         ]
     );
+    let is_id_token_token_response_type =
+        matches!(response_types, [ResponseType::IdToken, ResponseType::Token]);
 
     if !is_code_id_token_token_response_type
+        && !is_id_token_token_response_type
         && response_types
             .iter()
             .enumerate()

@@ -3,8 +3,8 @@ use crate::{
     handlers::responses::{
         access_token_redirect_response, authorize_redirect_response,
         code_access_token_redirect_response, code_id_token_access_token_redirect_response,
-        code_id_token_redirect_response, code_redirect_response, id_token_redirect_response,
-        login_page_response,
+        code_id_token_redirect_response, code_redirect_response,
+        id_token_access_token_redirect_response, id_token_redirect_response, login_page_response,
     },
     resources::{
         access_token::{self, AccessToken},
@@ -142,6 +142,21 @@ impl<'a> AuthorizeLoginRequest<'a> {
             ));
         }
 
+        if let (Some(id_token), Some(access_token)) = (
+            self.response.id_token.as_ref(),
+            self.response.access_token.as_ref(),
+        ) {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(id_token_access_token_redirect_response(
+                redirect_uri,
+                id_token,
+                access_token,
+            ));
+        }
+
         if let Some(access_token) = self.response.access_token.as_ref() {
             let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
                 OAuthError::invalid_token_response("authorize response requires redirect_uri")
@@ -255,6 +270,21 @@ impl<'a> AuthorizeCodeRequest<'a> {
             return Ok(code_access_token_redirect_response(
                 redirect_uri,
                 authorization_code,
+                access_token,
+            ));
+        }
+
+        if let (Some(id_token), Some(access_token)) = (
+            self.response.id_token.as_ref(),
+            self.response.access_token.as_ref(),
+        ) {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(id_token_access_token_redirect_response(
+                redirect_uri,
+                id_token,
                 access_token,
             ));
         }

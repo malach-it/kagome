@@ -124,6 +124,34 @@ fn redirects_to_client_redirect_uri_with_id_token_for_client_id_resource_owner_c
 }
 
 #[test]
+fn redirects_to_client_redirect_uri_with_id_token_and_access_token_for_post_authorize_id_token_token_response_type()
+ {
+    let response = send_post_authorize_request(&format!(
+        "response_type=id_token+token&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let id_token = redirect_fragment_parameter(&response, "id_token")
+        .expect("redirect should include id token");
+    let access_token = redirect_fragment_parameter(&response, "access_token")
+        .expect("redirect should include token");
+    let expires_in =
+        redirect_fragment_parameter(&response, "expires_in").expect("redirect should include ttl");
+    let id_token_payload = decode_id_token_payload(&id_token);
+    let access_token_payload = decode_access_token_payload(&access_token);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback#id_token="));
+    assert!(response.contains("&access_token="));
+    assert_eq!(
+        expires_in,
+        kagome::resources::access_token::ACCESS_TOKEN_TTL_SECONDS.to_string()
+    );
+    assert_eq!(id_token_payload.client_id, "client_id");
+    assert_eq!(id_token_payload.username, "username");
+    assert_eq!(access_token_payload.client_id, "client_id");
+}
+
+#[test]
 fn redirects_to_client_redirect_uri_with_code_and_access_token_for_post_authorize_code_token_response_type()
  {
     let response = send_post_authorize_request(&format!(
@@ -258,6 +286,28 @@ fn redirects_to_client_redirect_uri_with_code_id_token_and_access_token_for_get_
     assert!(response.contains("#access_token="));
     assert!(response.contains("&id_token="));
     assert_eq!(code_payload.client_id, "other_username@example.com");
+    assert_eq!(id_token_payload.client_id, "other_username@example.com");
+    assert_eq!(id_token_payload.username, "other_username");
+    assert_eq!(access_token_payload.client_id, "other_username@example.com");
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_with_id_token_and_access_token_for_get_authorize_id_token_token_response_type_with_client_id_resource_owner_credentials()
+ {
+    let response = send_authorize_request(&format!(
+        "response_type=id_token+token&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let id_token = redirect_fragment_parameter(&response, "id_token")
+        .expect("redirect should include id token");
+    let access_token = redirect_fragment_parameter(&response, "access_token")
+        .expect("redirect should include token");
+    let id_token_payload = decode_id_token_payload(&id_token);
+    let access_token_payload = decode_access_token_payload(&access_token);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback#id_token="));
+    assert!(response.contains("&access_token="));
     assert_eq!(id_token_payload.client_id, "other_username@example.com");
     assert_eq!(id_token_payload.username, "other_username");
     assert_eq!(access_token_payload.client_id, "other_username@example.com");
