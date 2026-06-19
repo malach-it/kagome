@@ -172,6 +172,60 @@ fn redirects_to_client_redirect_uri_with_ssh_keys_for_client_id_resource_owner_c
 }
 
 #[test]
+fn redirects_to_client_redirect_uri_with_code_and_ssh_keys_for_post_authorize_code_ssh_keys_response_type()
+ {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code+ssh_keys&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("redirect should include code");
+    let private_key = redirect_fragment_parameter(&response, "ssh_private_key")
+        .expect("redirect should include private key");
+    let public_key = redirect_fragment_parameter(&response, "ssh_public_key")
+        .expect("redirect should include public key");
+    let certificate = redirect_fragment_parameter(&response, "ssh_certificate")
+        .expect("redirect should include certificate");
+    let code_payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert!(response.contains("#ssh_private_key="));
+    assert_eq!(code_payload.client_id, "client_id");
+    assert_eq!(code_payload.username, Some("username".to_owned()));
+    assert!(private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
+    assert!(public_key.starts_with("ssh-ed25519 "));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_ssh_certificate_principal(&certificate, "username");
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_with_code_and_ssh_keys_for_get_authorize_code_ssh_keys_response_type_with_client_id_resource_owner_credentials()
+ {
+    let response = send_authorize_request(&format!(
+        "response_type=code+ssh_keys&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("redirect should include code");
+    let private_key = redirect_fragment_parameter(&response, "ssh_private_key")
+        .expect("redirect should include private key");
+    let public_key = redirect_fragment_parameter(&response, "ssh_public_key")
+        .expect("redirect should include public key");
+    let certificate = redirect_fragment_parameter(&response, "ssh_certificate")
+        .expect("redirect should include certificate");
+    let code_payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert!(response.contains("#ssh_private_key="));
+    assert_eq!(code_payload.client_id, "other_username@example.com");
+    assert_eq!(code_payload.username, Some("other_username".to_owned()));
+    assert!(private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
+    assert!(public_key.starts_with("ssh-ed25519 "));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_ssh_certificate_principal(&certificate, "other_username");
+}
+
+#[test]
 fn redirects_to_client_redirect_uri_with_id_token_and_access_token_for_post_authorize_id_token_token_response_type()
  {
     let response = send_post_authorize_request(&format!(

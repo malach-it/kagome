@@ -146,6 +146,35 @@ pub fn ssh_keys_redirect_response(redirect_uri: &str, ssh_keys: &SshKeys) -> Str
     )
 }
 
+pub fn code_ssh_keys_redirect_response(
+    redirect_uri: &str,
+    authorization_code: &AuthorizationCode,
+    ssh_keys: &SshKeys,
+) -> String {
+    let location = append_fragment_parameter(
+        &append_fragment_parameter(
+            &append_fragment_parameter(
+                &append_query_parameter(
+                    redirect_uri,
+                    "code",
+                    &percent_encode_query_value(&authorization_code.value),
+                ),
+                "ssh_private_key",
+                &percent_encode_query_value(&ssh_keys.private_key),
+            ),
+            "ssh_public_key",
+            &percent_encode_query_value(&ssh_keys.public_key),
+        ),
+        "ssh_certificate",
+        &percent_encode_query_value(&ssh_keys.certificate),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
 pub fn code_access_token_redirect_response(
     redirect_uri: &str,
     authorization_code: &AuthorizationCode,

@@ -126,6 +126,11 @@ where
         {
             authorization_code::generate(authorize_request).and_then(id_token::generate)
         }
+        [ResponseType::Code, ResponseType::SshKeys]
+            if authorize_request.has_valid_resource_owner() =>
+        {
+            authorization_code::generate(authorize_request).and_then(ssh_keys::generate)
+        }
         [ResponseType::IdToken, ResponseType::Token]
             if authorize_request.has_valid_resource_owner() =>
         {

@@ -3,7 +3,7 @@ use crate::{
     handlers::responses::{
         access_token_redirect_response, authorize_redirect_response,
         code_access_token_redirect_response, code_id_token_access_token_redirect_response,
-        code_id_token_redirect_response, code_redirect_response,
+        code_id_token_redirect_response, code_redirect_response, code_ssh_keys_redirect_response,
         id_token_access_token_redirect_response, id_token_redirect_response, login_page_response,
         ssh_keys_redirect_response,
     },
@@ -116,6 +116,21 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 redirect_uri,
                 authorization_code,
                 access_token,
+            ));
+        }
+
+        if let (Some(authorization_code), Some(ssh_keys)) = (
+            self.response.authorization_code.as_ref(),
+            self.response.ssh_keys.as_ref(),
+        ) {
+            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(code_ssh_keys_redirect_response(
+                redirect_uri,
+                authorization_code,
+                ssh_keys,
             ));
         }
 
