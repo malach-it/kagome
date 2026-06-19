@@ -53,10 +53,11 @@ pub fn authorization_code_response(authorization_code: &AuthorizationCode) -> St
 
 pub fn ssh_keys_response(ssh_keys: &SshKeys) -> String {
     let response_body = format!(
-        "{{\"ssh_private_key\":\"{}\",\"ssh_public_key\":\"{}\",\"ssh_certificate\":\"{}\"}}",
+        "{{\"ssh_private_key\":\"{}\",\"ssh_public_key\":\"{}\",\"ssh_certificate\":\"{}\",\"expires_in\":{}}}",
         escape_json(&ssh_keys.private_key),
         escape_json(&ssh_keys.public_key),
-        escape_json(&ssh_keys.certificate)
+        escape_json(&ssh_keys.certificate),
+        ssh_keys.expires_in
     );
 
     http_json_response(&response_body)
@@ -141,15 +142,19 @@ pub fn ssh_keys_redirect_response(redirect_uri: &str, ssh_keys: &SshKeys) -> Str
     let location = append_fragment_parameter(
         &append_fragment_parameter(
             &append_fragment_parameter(
-                redirect_uri,
-                "ssh_private_key",
-                &percent_encode_query_value(&ssh_keys.private_key),
+                &append_fragment_parameter(
+                    redirect_uri,
+                    "ssh_private_key",
+                    &percent_encode_query_value(&ssh_keys.private_key),
+                ),
+                "ssh_public_key",
+                &percent_encode_query_value(&ssh_keys.public_key),
             ),
-            "ssh_public_key",
-            &percent_encode_query_value(&ssh_keys.public_key),
+            "ssh_certificate",
+            &percent_encode_query_value(&ssh_keys.certificate),
         ),
-        "ssh_certificate",
-        &percent_encode_query_value(&ssh_keys.certificate),
+        "expires_in",
+        &ssh_keys.expires_in.to_string(),
     );
 
     format!(
@@ -166,19 +171,23 @@ pub fn code_ssh_keys_redirect_response(
     let location = append_fragment_parameter(
         &append_fragment_parameter(
             &append_fragment_parameter(
-                &append_query_parameter(
-                    redirect_uri,
-                    "code",
-                    &percent_encode_query_value(&authorization_code.value),
+                &append_fragment_parameter(
+                    &append_query_parameter(
+                        redirect_uri,
+                        "code",
+                        &percent_encode_query_value(&authorization_code.value),
+                    ),
+                    "ssh_private_key",
+                    &percent_encode_query_value(&ssh_keys.private_key),
                 ),
-                "ssh_private_key",
-                &percent_encode_query_value(&ssh_keys.private_key),
+                "ssh_public_key",
+                &percent_encode_query_value(&ssh_keys.public_key),
             ),
-            "ssh_public_key",
-            &percent_encode_query_value(&ssh_keys.public_key),
+            "ssh_certificate",
+            &percent_encode_query_value(&ssh_keys.certificate),
         ),
-        "ssh_certificate",
-        &percent_encode_query_value(&ssh_keys.certificate),
+        "expires_in",
+        &ssh_keys.expires_in.to_string(),
     );
 
     format!(

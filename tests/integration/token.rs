@@ -157,6 +157,10 @@ fn returns_ssh_keys_response_for_form_ssh_keys_grant_type() {
     assert!(response.contains("\"ssh_private_key\":\""));
     assert!(response.contains("\"ssh_public_key\":\"ssh-ed25519 "));
     assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert!(response.contains(&format!(
+        "\"expires_in\":{}",
+        kagome::resources::ssh_keys::SSH_KEYS_TTL_SECONDS
+    )));
     assert_ssh_certificate_principal(&certificate, "username");
     assert!(!response.contains("\"access_token\""));
     assert!(!response.contains("\"authorization_code\""));
@@ -178,6 +182,10 @@ fn returns_ssh_keys_response_for_json_ssh_keys_grant_type() {
     assert!(response.contains("\"ssh_private_key\":\""));
     assert!(response.contains("\"ssh_public_key\":\"ssh-ed25519 "));
     assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert!(response.contains(&format!(
+        "\"expires_in\":{}",
+        kagome::resources::ssh_keys::SSH_KEYS_TTL_SECONDS
+    )));
     assert_ssh_certificate_principal(&certificate, "other_username");
     assert!(!response.contains("\"access_token\""));
     assert!(!response.contains("\"authorization_code\""));
@@ -586,10 +594,19 @@ fn assert_ssh_certificate_principal(certificate: &str, principal: &str) {
     let _ = fs::remove_file(&certificate_path);
 
     assert!(output.status.success());
+    let certificate_details = String::from_utf8_lossy(&output.stdout);
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains(&format!("        {principal}\n")),
+        certificate_details.contains(&format!("        {principal}\n")),
         "certificate did not contain principal {principal}: {}",
-        String::from_utf8_lossy(&output.stdout)
+        certificate_details
+    );
+    assert!(
+        certificate_details.contains("Valid: from ") && certificate_details.contains(" to "),
+        "certificate did not include finite validity: {certificate_details}"
+    );
+    assert!(
+        !certificate_details.contains("forever"),
+        "certificate should not be valid forever: {certificate_details}"
     );
 }
 

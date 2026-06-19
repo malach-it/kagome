@@ -7,11 +7,14 @@ use std::{
 
 use crate::{ca, errors::OAuthError};
 
+pub const SSH_KEYS_TTL_SECONDS: u64 = 3600;
+
 #[derive(Debug)]
 pub struct SshKeys {
     pub private_key: String,
     pub public_key: String,
     pub certificate: String,
+    pub expires_in: u64,
 }
 
 pub trait Generate {
@@ -65,6 +68,7 @@ pub fn generate_with_keygen(
             private_key: fs::read_to_string(&key_path)?,
             public_key: fs::read_to_string(&public_key_path)?,
             certificate: fs::read_to_string(&certificate_path)?,
+            expires_in: SSH_KEYS_TTL_SECONDS,
         })
     });
 
@@ -99,6 +103,8 @@ fn generate_and_sign_keys(
             .arg(format!("{username}@{client_id}"))
             .arg("-n")
             .arg(username)
+            .arg("-V")
+            .arg(format!("+{SSH_KEYS_TTL_SECONDS}s"))
             .arg(public_key_path),
     )
 }

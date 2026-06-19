@@ -141,12 +141,18 @@ fn redirects_to_client_redirect_uri_with_ssh_keys_for_post_authorize_ssh_keys_re
         .expect("redirect should include public key");
     let certificate = redirect_fragment_parameter(&response, "ssh_certificate")
         .expect("redirect should include certificate");
+    let expires_in =
+        redirect_fragment_parameter(&response, "expires_in").expect("redirect should include ttl");
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://client.example.com/callback#ssh_private_key="));
     assert!(private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
     assert!(public_key.starts_with("ssh-ed25519 "));
     assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_eq!(
+        expires_in,
+        kagome::resources::ssh_keys::SSH_KEYS_TTL_SECONDS.to_string()
+    );
     assert_ssh_certificate_principal(&certificate, "username");
 }
 
@@ -162,12 +168,18 @@ fn redirects_to_client_redirect_uri_with_ssh_keys_for_client_id_resource_owner_c
         .expect("redirect should include public key");
     let certificate = redirect_fragment_parameter(&response, "ssh_certificate")
         .expect("redirect should include certificate");
+    let expires_in =
+        redirect_fragment_parameter(&response, "expires_in").expect("redirect should include ttl");
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://client.example.com/callback#ssh_private_key="));
     assert!(private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
     assert!(public_key.starts_with("ssh-ed25519 "));
     assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_eq!(
+        expires_in,
+        kagome::resources::ssh_keys::SSH_KEYS_TTL_SECONDS.to_string()
+    );
     assert_ssh_certificate_principal(&certificate, "other_username");
 }
 
@@ -185,6 +197,8 @@ fn redirects_to_client_redirect_uri_with_code_and_ssh_keys_for_post_authorize_co
         .expect("redirect should include public key");
     let certificate = redirect_fragment_parameter(&response, "ssh_certificate")
         .expect("redirect should include certificate");
+    let expires_in =
+        redirect_fragment_parameter(&response, "expires_in").expect("redirect should include ttl");
     let code_payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
@@ -195,6 +209,10 @@ fn redirects_to_client_redirect_uri_with_code_and_ssh_keys_for_post_authorize_co
     assert!(private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
     assert!(public_key.starts_with("ssh-ed25519 "));
     assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_eq!(
+        expires_in,
+        kagome::resources::ssh_keys::SSH_KEYS_TTL_SECONDS.to_string()
+    );
     assert_ssh_certificate_principal(&certificate, "username");
 }
 
@@ -212,6 +230,8 @@ fn redirects_to_client_redirect_uri_with_code_and_ssh_keys_for_get_authorize_cod
         .expect("redirect should include public key");
     let certificate = redirect_fragment_parameter(&response, "ssh_certificate")
         .expect("redirect should include certificate");
+    let expires_in =
+        redirect_fragment_parameter(&response, "expires_in").expect("redirect should include ttl");
     let code_payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
@@ -222,6 +242,10 @@ fn redirects_to_client_redirect_uri_with_code_and_ssh_keys_for_get_authorize_cod
     assert!(private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
     assert!(public_key.starts_with("ssh-ed25519 "));
     assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_eq!(
+        expires_in,
+        kagome::resources::ssh_keys::SSH_KEYS_TTL_SECONDS.to_string()
+    );
     assert_ssh_certificate_principal(&certificate, "other_username");
 }
 
@@ -1165,10 +1189,19 @@ fn assert_ssh_certificate_principal(certificate: &str, principal: &str) {
     let _ = fs::remove_file(&certificate_path);
 
     assert!(output.status.success());
+    let certificate_details = String::from_utf8_lossy(&output.stdout);
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains(&format!("        {principal}\n")),
+        certificate_details.contains(&format!("        {principal}\n")),
         "certificate did not contain principal {principal}: {}",
-        String::from_utf8_lossy(&output.stdout)
+        certificate_details
+    );
+    assert!(
+        certificate_details.contains("Valid: from ") && certificate_details.contains(" to "),
+        "certificate did not include finite validity: {certificate_details}"
+    );
+    assert!(
+        !certificate_details.contains("forever"),
+        "certificate should not be valid forever: {certificate_details}"
     );
 }
 
