@@ -3,9 +3,8 @@ use super::server::send_request;
 #[test]
 fn returns_login_page_for_authorize_get_request() {
     let response = send_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
-        valid_redirect_uri(),
-        valid_id_token()
+        "response_type=code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
     ));
 
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
@@ -23,9 +22,8 @@ fn returns_login_page_for_authorize_get_request() {
 #[test]
 fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
     let response = send_post_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
-        valid_redirect_uri(),
-        valid_id_token()
+        "response_type=code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
     ));
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
@@ -36,16 +34,15 @@ fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
 
 #[test]
 fn returns_encrypted_code_containing_authorize_request_claims() {
-    let id_token = valid_id_token();
     let response = send_post_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}&id_token={id_token}",
+        "response_type=code&client_id=client_id&redirect_uri={}",
         valid_redirect_uri()
     ));
     let code = redirect_code(&response).expect("authorize redirect should include code");
     let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
 
     assert_eq!(payload.client_id, "client_id");
-    assert_eq!(payload.id_token, Some(id_token));
+    assert_eq!(payload.id_token, None);
     assert_eq!(payload.previous_code, None);
     assert_eq!(
         payload.exp,
@@ -67,18 +64,6 @@ fn returns_oauth_error_for_missing_authorize_response_type() {
     assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
     assert!(response.contains("client_id=client_id"));
     assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
-}
-
-#[test]
-fn returns_login_page_for_authorize_get_request_without_id_token() {
-    let response = send_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}",
-        valid_redirect_uri()
-    ));
-
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<title>kagome login</title>"));
 }
 
 #[test]
@@ -115,17 +100,6 @@ fn returns_oauth_error_for_invalid_authorize_client_id() {
 }
 
 #[test]
-fn redirects_for_missing_authorize_id_token() {
-    let response = send_post_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}",
-        valid_redirect_uri()
-    ));
-
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains("location: https://client.example.com/callback?code="));
-}
-
-#[test]
 fn returns_encrypted_code_without_id_token_for_authenticate_request() {
     let response = send_post_authorize_request(&format!(
         "response_type=code&client_id=client_id&redirect_uri={}",
@@ -136,17 +110,6 @@ fn returns_encrypted_code_without_id_token_for_authenticate_request() {
 
     assert_eq!(payload.client_id, "client_id");
     assert_eq!(payload.id_token, None);
-}
-
-#[test]
-fn redirects_for_invalid_authorize_id_token() {
-    let response = send_post_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}&id_token=app",
-        valid_redirect_uri()
-    ));
-
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains("location: https://client.example.com/callback?code="));
 }
 
 #[test]
@@ -183,9 +146,8 @@ fn returns_oauth_error_for_invalid_authorize_redirect_uri() {
 fn returns_oauth_error_for_missing_authorize_username() {
     let response = send_post_authorize_request_with_body(
         &format!(
-            "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
-            valid_redirect_uri(),
-            valid_id_token()
+            "response_type=code&client_id=client_id&redirect_uri={}",
+            valid_redirect_uri()
         ),
         "password=password",
     );
@@ -199,9 +161,8 @@ fn returns_oauth_error_for_missing_authorize_username() {
 fn returns_oauth_error_for_invalid_authorize_username() {
     let response = send_post_authorize_request_with_body(
         &format!(
-            "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
-            valid_redirect_uri(),
-            valid_id_token()
+            "response_type=code&client_id=client_id&redirect_uri={}",
+            valid_redirect_uri()
         ),
         "username=app&password=password",
     );
@@ -215,9 +176,8 @@ fn returns_oauth_error_for_invalid_authorize_username() {
 fn returns_oauth_error_for_missing_authorize_password() {
     let response = send_post_authorize_request_with_body(
         &format!(
-            "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
-            valid_redirect_uri(),
-            valid_id_token()
+            "response_type=code&client_id=client_id&redirect_uri={}",
+            valid_redirect_uri()
         ),
         "username=username",
     );
@@ -231,9 +191,8 @@ fn returns_oauth_error_for_missing_authorize_password() {
 fn returns_oauth_error_for_invalid_authorize_password() {
     let response = send_post_authorize_request_with_body(
         &format!(
-            "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
-            valid_redirect_uri(),
-            valid_id_token()
+            "response_type=code&client_id=client_id&redirect_uri={}",
+            valid_redirect_uri()
         ),
         "username=username&password=app",
     );
@@ -317,42 +276,5 @@ fn decode_hex_digit(digit: u8) -> Option<u8> {
         b'a'..=b'f' => Some(digit - b'a' + 10),
         b'A'..=b'F' => Some(digit - b'A' + 10),
         _ => None,
-    }
-}
-
-fn valid_id_token() -> String {
-    #[derive(serde::Serialize)]
-    struct Claims {
-        iat: u64,
-        exp: u64,
-    }
-
-    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
-    header.jwk = Some(jwk());
-    let now = jsonwebtoken::get_current_timestamp();
-
-    jsonwebtoken::encode(
-        &header,
-        &Claims {
-            iat: now,
-            exp: now + 3600,
-        },
-        &jsonwebtoken::EncodingKey::from_secret(b"secret"),
-    )
-    .unwrap()
-}
-
-fn jwk() -> jsonwebtoken::jwk::Jwk {
-    jsonwebtoken::jwk::Jwk {
-        common: jsonwebtoken::jwk::CommonParameters {
-            key_algorithm: Some(jsonwebtoken::jwk::KeyAlgorithm::HS256),
-            ..Default::default()
-        },
-        algorithm: jsonwebtoken::jwk::AlgorithmParameters::OctetKey(
-            jsonwebtoken::jwk::OctetKeyParameters {
-                key_type: jsonwebtoken::jwk::OctetKeyType::Octet,
-                value: "c2VjcmV0".to_owned(),
-            },
-        ),
     }
 }

@@ -3,7 +3,7 @@ use crate::{
     handlers::responses::{code_redirect_response, login_page_response},
     resources::{
         authorization_code::{self, AuthorizationCode},
-        client_credentials, id_token, resource_owner,
+        client_credentials, resource_owner,
         response_type::{self, ResponseType},
     },
     unit::{KagomeRequest, parse_query_parameter, parse_request_parameter},
@@ -17,7 +17,6 @@ pub struct AuthorizeLoginRequest<'a> {
     pub response_type: Option<String>,
     pub client_id: Option<String>,
     pub redirect_uri: Option<String>,
-    pub id_token: Option<String>,
 }
 
 #[derive(Debug)]
@@ -25,7 +24,6 @@ pub struct AuthorizeLoginResponse {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub redirect_uri: Option<String>,
-    pub id_token: Option<String>,
     pub response_type: Option<ResponseType>,
 }
 
@@ -36,7 +34,6 @@ pub struct AuthorizeCodeRequest<'a> {
     pub response_type: Option<String>,
     pub client_id: Option<String>,
     pub redirect_uri: Option<String>,
-    pub id_token: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -47,7 +44,6 @@ pub struct AuthorizeCodeResponse {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub redirect_uri: Option<String>,
-    pub id_token: Option<String>,
     pub username: Option<String>,
     pub response_type: Option<ResponseType>,
 }
@@ -61,7 +57,6 @@ impl<'a> AuthorizeLoginRequest<'a> {
             response_type: parse_query_parameter(request, "response_type"),
             client_id: parse_query_parameter(request, "client_id"),
             redirect_uri: parse_query_parameter(request, "redirect_uri"),
-            id_token: parse_query_parameter(request, "id_token"),
         }
     }
 
@@ -76,7 +71,6 @@ impl AuthorizeLoginResponse {
             client_id: None,
             client_secret: None,
             redirect_uri: None,
-            id_token: None,
             response_type: None,
         }
     }
@@ -90,7 +84,6 @@ impl<'a> AuthorizeCodeRequest<'a> {
             response_type: parse_query_parameter(request, "response_type"),
             client_id: parse_query_parameter(request, "client_id"),
             redirect_uri: parse_query_parameter(request, "redirect_uri"),
-            id_token: parse_query_parameter(request, "id_token"),
             username: parse_request_parameter(request, "username"),
             password: parse_request_parameter(request, "password"),
         }
@@ -115,7 +108,6 @@ impl AuthorizeCodeResponse {
             client_id: None,
             client_secret: None,
             redirect_uri: None,
-            id_token: None,
             username: None,
             response_type: None,
         }
@@ -196,16 +188,6 @@ impl<'a> client_credentials::Validate for AuthorizeCodeRequest<'a> {
     }
 }
 
-impl<'a> id_token::Validate for AuthorizeLoginRequest<'a> {
-    fn request_id_token(&self) -> Option<&str> {
-        self.id_token.as_deref()
-    }
-
-    fn add_id_token(&mut self, id_token: &str) {
-        self.response.id_token = Some(id_token.to_owned());
-    }
-}
-
 impl<'a> resource_owner::Validate for AuthorizeCodeRequest<'a> {
     fn request_username(&self) -> Option<&str> {
         self.username.as_deref()
@@ -230,10 +212,7 @@ impl<'a> authorization_code::Generate for AuthorizeCodeRequest<'a> {
     }
 
     fn id_token(&self) -> Option<&str> {
-        self.response
-            .id_token
-            .as_deref()
-            .or(self.id_token.as_deref())
+        None
     }
 
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode) {

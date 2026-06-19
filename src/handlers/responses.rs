@@ -121,10 +121,6 @@ impl ResponseLog for AuthorizeCodeRequest<'_> {
                 ),
                 ("request.client_id", optional_str(self.client_id.as_deref())),
                 (
-                    "request.id_token",
-                    redacted_optional(self.id_token.as_deref()),
-                ),
-                (
                     "response.code",
                     optional_str(
                         authorization_code
