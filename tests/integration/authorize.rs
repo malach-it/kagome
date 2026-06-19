@@ -20,6 +20,38 @@ fn returns_login_page_for_authorize_get_request() {
 }
 
 #[test]
+fn returns_login_page_for_authorize_get_request_with_metadata_policy() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&metadata_policy=%22profile%22",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
+    assert!(response.contains("metadata_policy=%22profile%22"));
+}
+
+#[test]
+fn returns_login_page_for_authorize_get_request_with_metadata_policy_username_superset() {
+    let first_response = send_post_authorize_request(&format!(
+        "response_type=code+code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let next_query = authorize_redirect_query(&first_response)
+        .expect("first authorize redirect should include query");
+    let response = send_authorize_request(&format!(
+        "{next_query}&metadata_policy=%7B%22username%22%3A%7B%22superset_of%22%3A%5B%22username%22%5D%7D%7D"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains(
+        "metadata_policy=%7B%22username%22%3A%7B%22superset_of%22%3A%5B%22username%22%5D%7D%7D"
+    ));
+}
+
+#[test]
 fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
     let response = send_post_authorize_request(&format!(
         "response_type=code&client_id=client_id&redirect_uri={}",
@@ -30,6 +62,41 @@ fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
     assert!(response.contains("location: https://client.example.com/callback?code="));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_for_other_resource_owner() {
+    let response = send_post_authorize_request_with_body(
+        &format!(
+            "response_type=code&client_id=client_id&redirect_uri={}",
+            valid_redirect_uri()
+        ),
+        "username=other_username&password=other_password",
+    );
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(payload.username, Some("other_username".to_owned()));
+}
+
+#[test]
+fn authenticates_resource_owner_from_client_id_credentials() {
+    let second_response = send_post_authorize_request_with_body(
+        &format!(
+            "response_type=code&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+            valid_redirect_uri()
+        ),
+        "",
+    );
+    let code = redirect_code(&second_response).expect("final redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(second_response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(second_response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(payload.client_id, "other_username@example.com");
+    assert_eq!(payload.username, Some("other_username".to_owned()));
 }
 
 #[test]
@@ -66,6 +133,105 @@ fn returns_login_page_for_authorize_get_request_with_authorization_code() {
 }
 
 #[test]
+fn redirects_for_authorize_get_request_with_client_id_resource_owner_credentials() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(payload.client_id, "other_username@example.com");
+    assert_eq!(payload.username, Some("other_username".to_owned()));
+}
+
+#[test]
+fn redirects_for_initial_authorize_get_request_with_client_id_resource_owner_credentials() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(payload.client_id, "other_username@example.com");
+    assert_eq!(payload.username, Some("other_username".to_owned()));
+}
+
+#[test]
+fn returns_login_page_for_authorize_get_request_with_missing_client_id_resource_owner_password() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=other_username%3A%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+    assert!(!response.contains("<p role=\"alert\">password is required</p>"));
+}
+
+#[test]
+fn returns_login_page_for_authorize_get_request_with_username_host_client_id() {
+    let response = send_request(&format!(
+        "GET /authorize?response_type=code&client_id=username%40localhost%3A4000&redirect_uri={} HTTP/1.1\r\nhost: localhost:4000\r\n\r\n",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+    assert!(
+        response
+            .contains("name=\"username\" autocomplete=\"username\" value=\"username\" disabled")
+    );
+    assert!(response.contains("type=\"hidden\" name=\"username\" value=\"username\""));
+    assert!(!response.contains("client_id is invalid"));
+}
+
+#[test]
+fn redirects_for_authorize_post_request_with_matching_username_host_client_id() {
+    let response = send_post_authorize_request_with_body(
+        &format!(
+            "response_type=code&client_id=username%40example.com&redirect_uri={}",
+            valid_redirect_uri()
+        ),
+        "username=username&password=password",
+    );
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(payload.client_id, "username@example.com");
+    assert_eq!(payload.username, Some("username".to_owned()));
+}
+
+#[test]
+fn returns_oauth_error_for_authorize_post_request_with_mismatched_username_host_client_id() {
+    let response = send_post_authorize_request_with_body(
+        &format!(
+            "response_type=code&client_id=username%40example.com&redirect_uri={}",
+            valid_redirect_uri()
+        ),
+        "username=other_username&password=other_password",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">username must be one of: username</p>"));
+    assert!(
+        response
+            .contains("name=\"username\" autocomplete=\"username\" value=\"username\" disabled")
+    );
+    assert!(response.contains("type=\"hidden\" name=\"username\" value=\"username\""));
+}
+
+#[test]
 fn returns_oauth_error_for_invalid_authorize_get_authorization_code() {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=client_id&redirect_uri={}&authorization_code=app",
@@ -77,6 +243,36 @@ fn returns_oauth_error_for_invalid_authorize_get_authorization_code() {
     assert!(response.contains("<p role=\"alert\">authorization_code must be a cose_encrypt0</p>"));
     assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
     assert!(response.contains("authorization_code=app"));
+}
+
+#[test]
+fn returns_oauth_error_for_authorize_get_client_id_resource_owner_credentials() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=other_username%3Aapp%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains(
+        "location: https://client.example.com/callback?error=invalid_grant&error_description=password%20is%20invalid\r\n"
+    ));
+    assert!(response.contains("content-length: 0\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+}
+
+#[test]
+fn redirects_oauth_error_for_authorize_get_client_id_resource_owner_username() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=app%3Apassword%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains(
+        "location: https://client.example.com/callback?error=invalid_grant&error_description=username%20must%20be%20one%20of%3A%20username%2C%20other_username\r\n"
+    ));
+    assert!(response.contains("content-length: 0\r\n"));
+    assert!(response.contains("connection: close\r\n"));
 }
 
 #[test]
@@ -130,6 +326,7 @@ fn redirects_back_to_authorize_until_final_code_response_type() {
 
     assert!(third_response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(third_response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(final_payload.client_id, "client_id");
     assert_eq!(final_payload.username, Some("username".to_owned()));
     assert_eq!(final_payload.previous_code, Some(second_code));
 }
@@ -170,6 +367,21 @@ fn returns_oauth_error_for_missing_authorize_response_type() {
 }
 
 #[test]
+fn redirects_oauth_error_to_request_redirect_uri_for_query_format() {
+    let response = send_post_authorize_request(&format!(
+        "client_id=client_id&redirect_uri={}&format=query",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains(
+        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code\r\n"
+    ));
+    assert!(response.contains("content-length: 0\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+}
+
+#[test]
 fn returns_oauth_error_for_unsupported_authorize_response_type() {
     let response = send_post_authorize_request(&format!(
         "response_type=token&client_id=client_id&redirect_uri={}",
@@ -179,6 +391,40 @@ fn returns_oauth_error_for_unsupported_authorize_response_type() {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
     assert!(response.contains("<p role=\"alert\">response_type must be one of: code</p>"));
+}
+
+#[test]
+fn returns_oauth_error_for_invalid_authorize_metadata_policy() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&metadata_policy=%7B%7D",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(
+        response.contains("<p role=\"alert\">metadata_policy must be a json string or object</p>")
+    );
+    assert!(response.contains("metadata_policy=%7B%7D"));
+}
+
+#[test]
+fn returns_oauth_error_for_authorize_metadata_policy_username_superset_mismatch() {
+    let first_response = send_post_authorize_request(&format!(
+        "response_type=code+code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let next_query = authorize_redirect_query(&first_response)
+        .expect("first authorize redirect should include query");
+    let response = send_post_authorize_request(&format!(
+        "{next_query}&metadata_policy=%7B%22username%22%3A%7B%22superset_of%22%3A%5B%22admin%22%5D%7D%7D"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains(
+        "<p role=\"alert\">metadata_policy username superset_of must be contained in authorization_code chain usernames</p>"
+    ));
 }
 
 #[test]
@@ -199,7 +445,7 @@ fn returns_oauth_error_for_invalid_authorize_client_id() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">client_id must be: client_id</p>"));
+    assert!(response.contains("<p role=\"alert\">client_id is invalid</p>"));
 }
 
 #[test]
@@ -273,7 +519,10 @@ fn returns_oauth_error_for_invalid_authorize_username() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">username must be: username</p>"));
+    assert!(
+        response
+            .contains("<p role=\"alert\">username must be one of: username, other_username</p>")
+    );
 }
 
 #[test]
@@ -303,7 +552,7 @@ fn returns_oauth_error_for_invalid_authorize_password() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">password must be: password</p>"));
+    assert!(response.contains("<p role=\"alert\">password is invalid</p>"));
 }
 
 fn send_authorize_request(query: &str) -> String {

@@ -99,6 +99,133 @@ mod resources {
         }
     }
 
+    mod metadata_policy {
+        #[derive(Debug)]
+        struct Request {
+            metadata_policy: Option<String>,
+            authorization_code: Option<String>,
+            client_id: Option<String>,
+            response: Response,
+        }
+
+        #[derive(Debug)]
+        struct Response {
+            metadata_policy: Option<kagome::resources::metadata_policy::MetadataPolicy>,
+        }
+
+        impl Request {
+            fn new(metadata_policy: Option<&str>) -> Self {
+                Self {
+                    metadata_policy: metadata_policy.map(str::to_owned),
+                    authorization_code: None,
+                    client_id: None,
+                    response: Response {
+                        metadata_policy: None,
+                    },
+                }
+            }
+        }
+
+        impl kagome::resources::metadata_policy::Validate for Request {
+            fn request_metadata_policy(&self) -> Option<&str> {
+                self.metadata_policy.as_deref()
+            }
+
+            fn request_authorization_code(&self) -> Option<&str> {
+                self.authorization_code.as_deref()
+            }
+
+            fn client_id(&self) -> Option<&str> {
+                self.client_id.as_deref()
+            }
+
+            fn add_metadata_policy(
+                &mut self,
+                metadata_policy: kagome::resources::metadata_policy::MetadataPolicy,
+            ) {
+                self.response.metadata_policy = Some(metadata_policy);
+            }
+        }
+
+        #[test]
+        fn validates_json_string_metadata_policy() {
+            let request = Request::new(Some("\"profile\""));
+
+            let request = kagome::resources::metadata_policy::validate(request).unwrap();
+
+            assert_eq!(
+                request.response.metadata_policy,
+                Some(kagome::resources::metadata_policy::MetadataPolicy::String(
+                    "profile".to_owned()
+                ))
+            );
+        }
+
+        #[test]
+        fn validates_username_superset_metadata_policy() {
+            let request = Request::new(Some("{\"username\":{\"superset_of\":[]}}"));
+
+            let request = kagome::resources::metadata_policy::validate(request).unwrap();
+
+            assert_eq!(
+                request.response.metadata_policy,
+                Some(
+                    kagome::resources::metadata_policy::MetadataPolicy::Username {
+                        superset_of: Vec::new()
+                    }
+                )
+            );
+        }
+
+        #[test]
+        fn ignores_missing_metadata_policy() {
+            let request = Request::new(None);
+
+            let request = kagome::resources::metadata_policy::validate(request).unwrap();
+
+            assert_eq!(request.response.metadata_policy, None);
+        }
+
+        #[test]
+        fn returns_oauth_error_for_unsupported_object_metadata_policy() {
+            let request = Request::new(Some("{\"scope\":\"profile\"}"));
+
+            let error = kagome::resources::metadata_policy::validate(request).unwrap_err();
+
+            assert_eq!(error.error, "invalid_request");
+            assert_eq!(
+                error.error_description,
+                "metadata_policy must be a json string or object"
+            );
+        }
+
+        #[test]
+        fn returns_oauth_error_for_invalid_json_metadata_policy() {
+            let request = Request::new(Some("profile"));
+
+            let error = kagome::resources::metadata_policy::validate(request).unwrap_err();
+
+            assert_eq!(error.error, "invalid_request");
+            assert_eq!(
+                error.error_description,
+                "metadata_policy must be a json string or object"
+            );
+        }
+
+        #[test]
+        fn returns_oauth_error_for_username_superset_metadata_policy_mismatch() {
+            let request = Request::new(Some("{\"username\":{\"superset_of\":[\"username\"]}}"));
+
+            let error = kagome::resources::metadata_policy::validate(request).unwrap_err();
+
+            assert_eq!(error.error, "invalid_request");
+            assert_eq!(
+                error.error_description,
+                "metadata_policy username superset_of must be contained in authorization_code chain usernames"
+            );
+        }
+    }
+
     mod authorization_code {
         #[test]
         fn generates_cose_encrypt0_containing_client_id_and_id_token() {
@@ -206,15 +333,14 @@ mod resources {
         }
 
         #[test]
-        fn validates_required_authorization_code_parameter() {
+        fn validates_required_code_parameter_for_authorization_code_grant() {
             let issued_request = token_request(Some("client_id"), Some("id_token"));
             let issued_response = kagome::resources::authorization_code::generate(
                 token_response_with_validated_response(&issued_request, "client_id", "id_token"),
             )
             .unwrap();
-            let request = token_request_with_authorization_code(
+            let request = token_request_with_code(
                 Some("client_id"),
-                Some("id_token"),
                 issued_response
                     .response
                     .authorization_code
@@ -434,6 +560,34 @@ mod resources {
             }
         }
 
+        fn token_request_with_code(
+            client_id: Option<&str>,
+            code: Option<&str>,
+        ) -> kagome::unit::KagomeRequest {
+            let mut parameters = vec![
+                "client_secret=client_secret".to_owned(),
+                "grant_type=authorization_code".to_owned(),
+            ];
+            if let Some(client_id) = client_id {
+                parameters.push(format!("client_id={client_id}"));
+            }
+            if let Some(code) = code {
+                parameters.push(format!("code={code}"));
+            }
+
+            kagome::unit::KagomeRequest {
+                method: "POST".to_owned(),
+                path: "/token".to_owned(),
+                protocol: "HTTP/1.1".to_owned(),
+                headers: vec![kagome::unit::HttpHeader {
+                    name: "content-type".to_owned(),
+                    value: "application/x-www-form-urlencoded".to_owned(),
+                }],
+                query_params: Vec::new(),
+                body: parameters.join("&"),
+            }
+        }
+
         fn token_response_with_validated_response<'a>(
             request: &'a kagome::unit::KagomeRequest,
             client_id: &str,
@@ -509,7 +663,28 @@ mod resources {
                 kagome::resources::client_credentials::validate(token_response).unwrap_err();
 
             assert_eq!(error.error, "invalid_client");
-            assert_eq!(error.error_description, "client_id must be: client_id");
+            assert_eq!(error.error_description, "client_id is invalid");
+        }
+
+        #[test]
+        fn detects_resource_owner_credentials_in_client_id() {
+            assert!(
+                kagome::resources::client_credentials::client_id_resource_owner_credentials(
+                    "username:password@example.com"
+                )
+            );
+
+            assert!(
+                !kagome::resources::client_credentials::client_id_resource_owner_credentials(
+                    "username@example.com"
+                )
+            );
+
+            assert!(
+                !kagome::resources::client_credentials::client_id_resource_owner_credentials(
+                    "username:@example.com"
+                )
+            );
         }
 
         #[test]
@@ -577,17 +752,23 @@ mod resources {
         }
 
         fn authorize_request(redirect_uri: Option<&str>) -> kagome::unit::KagomeRequest {
-            let mut query_params = vec![("client_id".to_owned(), "client_id".to_owned())];
+            let mut request = authorize_request_with_client_id("client_id");
             if let Some(redirect_uri) = redirect_uri {
-                query_params.push(("redirect_uri".to_owned(), redirect_uri.to_owned()));
+                request
+                    .query_params
+                    .push(("redirect_uri".to_owned(), redirect_uri.to_owned()));
             }
 
+            request
+        }
+
+        fn authorize_request_with_client_id(client_id: &str) -> kagome::unit::KagomeRequest {
             kagome::unit::KagomeRequest {
                 method: "GET".to_owned(),
                 path: "/authorize".to_owned(),
                 protocol: "HTTP/1.1".to_owned(),
                 headers: Vec::new(),
-                query_params,
+                query_params: vec![("client_id".to_owned(), client_id.to_owned())],
                 body: String::new(),
             }
         }

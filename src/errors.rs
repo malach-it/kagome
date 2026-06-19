@@ -5,6 +5,30 @@ pub struct OAuthError {
     pub error: String,
     pub error_description: String,
     pub format: String,
+    pub kind: OAuthErrorCode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OAuthErrorCode {
+    UnsupportedResponseType,
+    UnsupportedGrantType,
+    InvalidClientId,
+    MissingClientId,
+    InvalidClientSecret,
+    MissingClientSecret,
+    InvalidUsername,
+    MissingUsername,
+    InvalidPassword,
+    MissingPassword,
+    InvalidRedirectUri,
+    MissingRedirectUri,
+    InvalidMetadataPolicy,
+    InvalidMetadataPolicyUsername,
+    InvalidIdToken,
+    MissingIdToken,
+    InvalidAuthorizationCode,
+    MissingAuthorizationCode,
+    InvalidTokenResponse,
 }
 
 impl OAuthError {
@@ -12,6 +36,7 @@ impl OAuthError {
 
     pub fn unsupported_response_type(supported_response_types: &[&str]) -> Self {
         Self::new(
+            OAuthErrorCode::UnsupportedResponseType,
             "unsupported_response_type",
             format!(
                 "response_type must be one of: {}",
@@ -22,6 +47,7 @@ impl OAuthError {
 
     pub fn unsupported_grant_type(supported_grant_types: &[&str]) -> Self {
         Self::new(
+            OAuthErrorCode::UnsupportedGrantType,
             "unsupported_grant_type",
             format!(
                 "grant_type must be one of: {}",
@@ -30,79 +56,140 @@ impl OAuthError {
         )
     }
 
-    pub fn invalid_client_id(expected_client_id: &str) -> Self {
+    pub fn invalid_client_id() -> Self {
         Self::new(
+            OAuthErrorCode::InvalidClientId,
             "invalid_client",
-            format!("client_id must be: {expected_client_id}"),
+            "client_id is invalid",
         )
     }
 
     pub fn missing_client_id() -> Self {
-        Self::new("invalid_client", "client_id is required")
+        Self::new(
+            OAuthErrorCode::MissingClientId,
+            "invalid_client",
+            "client_id is required",
+        )
     }
 
     pub fn invalid_client_secret(expected_client_secret: &str) -> Self {
         Self::new(
+            OAuthErrorCode::InvalidClientSecret,
             "invalid_client",
             format!("client_secret must be: {expected_client_secret}"),
         )
     }
 
     pub fn missing_client_secret() -> Self {
-        Self::new("invalid_client", "client_secret is required")
+        Self::new(
+            OAuthErrorCode::MissingClientSecret,
+            "invalid_client",
+            "client_secret is required",
+        )
     }
 
-    pub fn invalid_username(expected_username: &str) -> Self {
+    pub fn invalid_username(expected_usernames: &[&str]) -> Self {
         Self::new(
+            OAuthErrorCode::InvalidUsername,
             "invalid_grant",
-            format!("username must be: {expected_username}"),
+            format!("username must be one of: {}", expected_usernames.join(", ")),
         )
     }
 
     pub fn missing_username() -> Self {
-        Self::new("invalid_grant", "username is required")
+        Self::new(
+            OAuthErrorCode::MissingUsername,
+            "invalid_grant",
+            "username is required",
+        )
     }
 
-    pub fn invalid_password(expected_password: &str) -> Self {
+    pub fn invalid_password() -> Self {
         Self::new(
+            OAuthErrorCode::InvalidPassword,
             "invalid_grant",
-            format!("password must be: {expected_password}"),
+            "password is invalid",
         )
     }
 
     pub fn missing_password() -> Self {
-        Self::new("invalid_grant", "password is required")
+        Self::new(
+            OAuthErrorCode::MissingPassword,
+            "invalid_grant",
+            "password is required",
+        )
     }
 
     pub fn invalid_redirect_uri(expected_redirect_uri: &str) -> Self {
         Self::new(
+            OAuthErrorCode::InvalidRedirectUri,
             "invalid_request",
             format!("redirect_uri must be: {expected_redirect_uri}"),
         )
     }
 
     pub fn missing_redirect_uri() -> Self {
-        Self::new("invalid_request", "redirect_uri is required")
+        Self::new(
+            OAuthErrorCode::MissingRedirectUri,
+            "invalid_request",
+            "redirect_uri is required",
+        )
+    }
+
+    pub fn invalid_metadata_policy() -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidMetadataPolicy,
+            "invalid_request",
+            "metadata_policy must be a json string or object",
+        )
+    }
+
+    pub fn invalid_metadata_policy_username() -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidMetadataPolicyUsername,
+            "invalid_request",
+            "metadata_policy username superset_of must be contained in authorization_code chain usernames",
+        )
     }
 
     pub fn invalid_id_token(error_description: impl Into<String>) -> Self {
-        Self::new("invalid_grant", error_description)
+        Self::new(
+            OAuthErrorCode::InvalidIdToken,
+            "invalid_grant",
+            error_description,
+        )
     }
 
     pub fn missing_id_token() -> Self {
-        Self::new("invalid_grant", "id_token is required")
+        Self::new(
+            OAuthErrorCode::MissingIdToken,
+            "invalid_grant",
+            "id_token is required",
+        )
     }
 
     pub fn invalid_authorization_code(error_description: impl Into<String>) -> Self {
-        Self::new("invalid_grant", error_description)
+        Self::new(
+            OAuthErrorCode::InvalidAuthorizationCode,
+            "invalid_grant",
+            error_description,
+        )
     }
 
     pub fn missing_authorization_code() -> Self {
-        Self::new("invalid_grant", "authorization_code is required")
+        Self::new(
+            OAuthErrorCode::MissingAuthorizationCode,
+            "invalid_grant",
+            "authorization_code is required",
+        )
     }
 
     pub fn invalid_token_response(error_description: impl Into<String>) -> Self {
-        Self::new("invalid_token_response", error_description)
+        Self::new(
+            OAuthErrorCode::InvalidTokenResponse,
+            "invalid_token_response",
+            error_description,
+        )
     }
 
     pub fn with_format(mut self, format: impl Into<String>) -> Self {
@@ -110,11 +197,16 @@ impl OAuthError {
         self
     }
 
-    fn new(error: impl Into<String>, error_description: impl Into<String>) -> Self {
+    fn new(
+        kind: OAuthErrorCode,
+        error: impl Into<String>,
+        error_description: impl Into<String>,
+    ) -> Self {
         Self {
             error: error.into(),
             error_description: error_description.into(),
             format: Self::DEFAULT_FORMAT.to_owned(),
+            kind,
         }
     }
 

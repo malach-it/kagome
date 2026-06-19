@@ -58,7 +58,7 @@ impl<'a> CodeChainAuthorizationCodeRequest<'a> {
                     .or(authorization_code_request.response.grant_type),
             },
             request: code_chain_request.request,
-            authorization_code: authorization_code_request.authorization_code,
+            authorization_code: authorization_code_request.code,
             client_id: authorization_code_request
                 .client_id
                 .or(code_chain_request.client_id),

@@ -101,7 +101,7 @@ fn returns_token_response_for_json_code_chain_grant_type() {
 #[test]
 fn returns_token_response_for_form_authorization_code_grant_type() {
     let body = format!(
-        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&authorization_code={}",
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={}",
         valid_authorization_code()
     );
     let response = send_form_token_request(&body);
@@ -119,9 +119,26 @@ fn returns_token_response_for_form_authorization_code_grant_type() {
 }
 
 #[test]
+fn returns_token_response_for_json_authorization_code_grant_type() {
+    let body = format!(
+        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"authorization_code\",\"code\":\"{}\"}}",
+        valid_authorization_code()
+    );
+    let response = send_json_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"token_type\":\"bearer\""));
+    assert!(response.contains("\"access_token\":\""));
+    assert!(response.contains("\"expires_in\":3600"));
+    assert!(!response.contains("\"authorization_code\""));
+}
+
+#[test]
 fn returns_token_response_for_form_code_chain_authorization_code_grant_type() {
     let body = format!(
-        "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code&id_token={}&authorization_code={}",
+        "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code&id_token={}&code={}",
         valid_id_token(),
         valid_authorization_code()
     );
@@ -142,7 +159,7 @@ fn returns_token_response_for_form_code_chain_authorization_code_grant_type() {
 #[test]
 fn returns_token_response_for_json_code_chain_authorization_code_grant_type() {
     let body = format!(
-        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"code_chain authorization_code\",\"id_token\":\"{}\",\"authorization_code\":\"{}\"}}",
+        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"code_chain authorization_code\",\"id_token\":\"{}\",\"code\":\"{}\"}}",
         valid_id_token(),
         valid_authorization_code()
     );
@@ -188,7 +205,7 @@ fn returns_oauth_error_for_missing_authorization_code_grant_type_authorization_c
 #[test]
 fn returns_oauth_error_for_invalid_authorization_code_grant_type_authorization_code() {
     let response = send_form_token_request(
-        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&authorization_code=app",
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code=app",
     );
 
     assert_invalid_authorization_code_response(&response);
@@ -319,7 +336,7 @@ fn assert_invalid_client_id_response(response: &str) {
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"invalid_client\""));
-    assert!(response.contains("\"error_description\":\"client_id must be: client_id\""));
+    assert!(response.contains("\"error_description\":\"client_id is invalid\""));
 }
 
 fn assert_missing_client_id_response(response: &str) {

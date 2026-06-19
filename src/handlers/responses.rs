@@ -87,9 +87,11 @@ pub fn authorize_redirect_response(
 
 pub fn login_page_response(request: &AuthorizeLoginRequest<'_>) -> String {
     let action = authorize_action(&request.request.query_params);
+    let username_inputs = login_username_inputs(&request.request.query_params);
     let response_body = format!(
-        "<!doctype html><html><head><title>kagome login</title></head><body><main><h1>kagome login</h1><form method=\"post\" action=\"{}\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label><button type=\"submit\">sign in</button></form></main></body></html>",
-        escape_html(&action)
+        "<!doctype html><html><head><title>kagome login</title></head><body><main><h1>kagome login</h1><form method=\"post\" action=\"{}\"><label>username {}</label><label>password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label><button type=\"submit\">sign in</button></form></main></body></html>",
+        escape_html(&action),
+        username_inputs
     );
 
     format!(
@@ -100,17 +102,63 @@ pub fn login_page_response(request: &AuthorizeLoginRequest<'_>) -> String {
 }
 
 pub fn login_error_response(query_params: &[(String, String)], error: &OAuthError) -> String {
+    if (error.format == "query" || query_parameter(query_params, "format") == Some("query"))
+        && let Some(redirect_uri) = query_parameter(query_params, "redirect_uri")
+    {
+        return query_error_response(redirect_uri, error);
+    }
+
     let action = authorize_action(query_params);
+    let username_inputs = login_username_inputs(query_params);
     let response_body = format!(
-        "<!doctype html><html><head><title>kagome login</title></head><body><main><h1>kagome login</h1><p role=\"alert\">{}</p><form method=\"post\" action=\"{}\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label><button type=\"submit\">sign in</button></form></main></body></html>",
+        "<!doctype html><html><head><title>kagome login</title></head><body><main><h1>kagome login</h1><p role=\"alert\">{}</p><form method=\"post\" action=\"{}\"><label>username {}</label><label>password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label><button type=\"submit\">sign in</button></form></main></body></html>",
         escape_html(&error.error_description),
-        escape_html(&action)
+        escape_html(&action),
+        username_inputs
     );
 
     format!(
         "HTTP/1.1 400 Bad Request\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
         response_body.len(),
         response_body
+    )
+}
+
+fn login_username_inputs(query_params: &[(String, String)]) -> String {
+    let Some(username) = query_parameter(query_params, "client_id").and_then(client_id_username)
+    else {
+        return "<input name=\"username\" autocomplete=\"username\">".to_owned();
+    };
+    let username = escape_html(username);
+
+    format!(
+        "<input name=\"username\" autocomplete=\"username\" value=\"{username}\" disabled><input type=\"hidden\" name=\"username\" value=\"{username}\">"
+    )
+}
+
+fn client_id_username(client_id: &str) -> Option<&str> {
+    let (credentials, _) = client_id.split_once('@')?;
+    let username = credentials
+        .split_once(':')
+        .map_or(credentials, |(username, _)| username);
+
+    (!username.is_empty()).then_some(username)
+}
+
+fn query_error_response(redirect_uri: &str, error: &OAuthError) -> String {
+    let location = append_query_parameter(
+        &append_query_parameter(
+            redirect_uri,
+            "error",
+            &percent_encode_query_value(&error.error),
+        ),
+        "error_description",
+        &percent_encode_query_value(&error.error_description),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
     )
 }
 
@@ -172,10 +220,7 @@ impl ResponseLog for AuthorizationCodeRequest<'_> {
                     "request.client_secret",
                     redacted_optional(self.client_secret.as_deref()),
                 ),
-                (
-                    "request.authorization_code",
-                    redacted_optional(self.authorization_code.as_deref()),
-                ),
+                ("request.code", redacted_optional(self.code.as_deref())),
                 (
                     "response.access_token",
                     optional_str(access_token.map(|access_token| access_token.value.as_str())),
@@ -383,6 +428,13 @@ fn set_query_parameter(query_params: &mut Vec<(String, String)>, name: &str, val
     } else {
         query_params.push((name.to_owned(), value.to_owned()));
     }
+}
+
+fn query_parameter<'a>(query_params: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    query_params
+        .iter()
+        .find(|(parameter_name, _)| parameter_name == name)
+        .map(|(_, value)| value.as_str())
 }
 
 fn percent_encode_query_value(value: &str) -> String {

@@ -55,6 +55,9 @@ pub trait Generate {
 pub trait Validate {
     fn request_authorization_code(&self) -> Option<&str>;
     fn client_id(&self) -> Option<&str>;
+    fn validate_client_id(&self) -> bool {
+        true
+    }
     fn add_authorization_code(&mut self, authorization_code: &str);
 }
 
@@ -64,7 +67,13 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         .map(str::to_owned)
         .ok_or_else(OAuthError::missing_authorization_code)?;
 
-    validate_request_authorization_code(&authorization_code, request.client_id())?;
+    validate_request_authorization_code(
+        &authorization_code,
+        request
+            .validate_client_id()
+            .then(|| request.client_id())
+            .flatten(),
+    )?;
 
     request.add_authorization_code(&authorization_code);
     Ok(request)
@@ -75,7 +84,13 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         return Ok(request);
     };
 
-    validate_request_authorization_code(&authorization_code, request.client_id())?;
+    validate_request_authorization_code(
+        &authorization_code,
+        request
+            .validate_client_id()
+            .then(|| request.client_id())
+            .flatten(),
+    )?;
 
     request.add_authorization_code(&authorization_code);
     Ok(request)
@@ -122,7 +137,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
 fn validate_request_authorization_code(
     authorization_code: &str,
     client_id: Option<&str>,
-) -> Result<(), OAuthError> {
+) -> Result<AuthorizationCodeCosePayload, OAuthError> {
     let payload = validate_cose_encrypt0(authorization_code)?;
 
     if let Some(client_id) = client_id
@@ -133,7 +148,7 @@ fn validate_request_authorization_code(
         ));
     }
 
-    Ok(())
+    Ok(payload)
 }
 
 fn encode_cose_encrypt0(payload: &AuthorizationCodeCosePayload) -> Result<String, OAuthError> {
@@ -157,6 +172,24 @@ pub fn decode_cose_payload(
 
     ciborium::from_reader(payload.as_slice())
         .map_err(|_| invalid_authorization_code("authorization_code claims are invalid"))
+}
+
+pub fn chain_usernames(
+    authorization_code: Option<&str>,
+    client_id: Option<&str>,
+) -> Result<Vec<String>, OAuthError> {
+    let Some(authorization_code) = authorization_code else {
+        return Ok(Vec::new());
+    };
+
+    let payload = validate_request_authorization_code(authorization_code, client_id)?;
+    let mut usernames = chain_usernames(payload.previous_code.as_deref(), client_id)?;
+
+    if let Some(username) = payload.username {
+        usernames.push(username);
+    }
+
+    Ok(usernames)
 }
 
 fn validate_cose_encrypt0(

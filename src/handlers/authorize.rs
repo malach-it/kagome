@@ -1,6 +1,8 @@
 use crate::{
-    errors::OAuthError,
-    resources::{authorization_code, client_credentials, resource_owner, response_type},
+    errors::{OAuthError, OAuthErrorCode},
+    resources::{
+        authorization_code, client_credentials, metadata_policy, resource_owner, response_type,
+    },
     unit::KagomeRequest,
 };
 
@@ -17,14 +19,30 @@ pub fn handle(request: &KagomeRequest) -> String {
 }
 
 fn handle_authorize(request: &KagomeRequest) -> String {
-    match authorize(AuthorizeLoginRequest::from_request(request))
+    let authorize_request = authorize(AuthorizeLoginRequest::from_request(request))
         .and_then(authorization_code::validate_optional)
-        .and_then(logged_response)
-    {
-        Ok(response) => response,
+        .and_then(metadata_policy::validate);
+
+    match authorize_request.and_then(resource_owner::validate_optional) {
+        Ok(authorize_request) if authorize_request.has_resource_owner() => {
+            match authorization_code::generate(authorize_request).and_then(logged_response) {
+                Ok(response) => response,
+                Err(error) => {
+                    log_authorize_failure(&error);
+                    authorize_error_response(request, error)
+                }
+            }
+        }
+        Ok(authorize_request) => match logged_response(authorize_request) {
+            Ok(response) => response,
+            Err(error) => {
+                log_authorize_failure(&error);
+                authorize_error_response(request, error)
+            }
+        },
         Err(error) => {
             log_authorize_failure(&error);
-            login_error_response(&request.query_params, &error)
+            authorize_error_response(request, error)
         }
     }
 }
@@ -32,6 +50,7 @@ fn handle_authorize(request: &KagomeRequest) -> String {
 fn handle_authenticate(request: &KagomeRequest) -> String {
     match authorize(AuthorizeCodeRequest::from_request(request))
         .and_then(authorization_code::validate_optional)
+        .and_then(metadata_policy::validate)
         .and_then(resource_owner::validate)
         .and_then(authorization_code::generate)
         .and_then(logged_response)
@@ -39,7 +58,7 @@ fn handle_authenticate(request: &KagomeRequest) -> String {
         Ok(response) => response,
         Err(error) => {
             log_authorize_failure(&error);
-            login_error_response(&request.query_params, &error)
+            authorize_error_response(request, error)
         }
     }
 }
@@ -58,6 +77,29 @@ fn log_authorize_failure(error: &OAuthError) {
         error.error,
         error.error_description
     );
+}
+
+fn authorize_error_response(request: &KagomeRequest, mut error: OAuthError) -> String {
+    if request
+        .query_params
+        .iter()
+        .find(|(name, _)| name == "client_id")
+        .is_some_and(|(_, client_id)| {
+            client_credentials::client_id_resource_owner_credentials(client_id)
+        })
+        && resource_owner_credentials_error(&error)
+    {
+        error = error.with_format("query");
+    }
+
+    login_error_response(&request.query_params, &error)
+}
+
+fn resource_owner_credentials_error(error: &OAuthError) -> bool {
+    matches!(
+        error.kind,
+        OAuthErrorCode::InvalidUsername | OAuthErrorCode::InvalidPassword
+    )
 }
 
 fn not_found_response() -> String {

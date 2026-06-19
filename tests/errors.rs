@@ -31,13 +31,13 @@ fn returns_invalid_token_response_oauth_response() {
 
 #[test]
 fn returns_invalid_client_id_oauth_response() {
-    let response = kagome::errors::OAuthError::invalid_client_id("client_id").to_response();
+    let response = kagome::errors::OAuthError::invalid_client_id().to_response();
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"invalid_client\""));
-    assert!(response.contains("\"error_description\":\"client_id must be: client_id\""));
+    assert!(response.contains("\"error_description\":\"client_id is invalid\""));
 }
 
 #[test]
@@ -102,6 +102,7 @@ fn escapes_oauth_error_response_json() {
         error: "invalid_grant".to_owned(),
         error_description: "line one\nline \"two\"".to_owned(),
         format: kagome::errors::OAuthError::DEFAULT_FORMAT.to_owned(),
+        kind: kagome::errors::OAuthErrorCode::InvalidPassword,
     }
     .to_response();
 
@@ -111,7 +112,7 @@ fn escapes_oauth_error_response_json() {
 
 #[test]
 fn uses_custom_oauth_error_response_format() {
-    let response = kagome::errors::OAuthError::invalid_client_id("client_id")
+    let response = kagome::errors::OAuthError::invalid_client_id()
         .with_format("application/oauth-authz-req+jwt")
         .to_response();
 

@@ -15,7 +15,7 @@ use crate::handlers::responses::access_token_response;
 pub struct AuthorizationCodeRequest<'a> {
     pub response: AuthorizationCodeResponse,
     pub request: &'a KagomeRequest,
-    pub authorization_code: Option<String>,
+    pub code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub grant_type: Option<String>,
@@ -35,7 +35,7 @@ impl<'a> AuthorizationCodeRequest<'a> {
         Self {
             response: AuthorizationCodeResponse::empty(),
             request,
-            authorization_code: parse_request_parameter(request, "authorization_code"),
+            code: parse_request_parameter(request, "code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
             grant_type: parse_request_parameter(request, "grant_type"),
@@ -51,7 +51,7 @@ impl<'a> AuthorizationCodeRequest<'a> {
                 ..AuthorizationCodeResponse::empty()
             },
             request,
-            authorization_code: parse_request_parameter(request, "authorization_code"),
+            code: parse_request_parameter(request, "code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
             grant_type: response
@@ -122,7 +122,7 @@ impl<'a> client_credentials::Validate for AuthorizationCodeRequest<'a> {
 
 impl<'a> authorization_code::Validate for AuthorizationCodeRequest<'a> {
     fn request_authorization_code(&self) -> Option<&str> {
-        self.authorization_code.as_deref()
+        self.code.as_deref()
     }
 
     fn client_id(&self) -> Option<&str> {
