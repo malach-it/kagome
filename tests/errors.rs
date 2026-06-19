@@ -101,11 +101,38 @@ fn escapes_oauth_error_response_json() {
     let response = kagome::errors::OAuthError {
         error: "invalid_grant".to_owned(),
         error_description: "line one\nline \"two\"".to_owned(),
+        format: kagome::errors::OAuthError::DEFAULT_FORMAT.to_owned(),
     }
     .to_response();
 
     assert!(response.contains("\"error\":\"invalid_grant\""));
     assert!(response.contains("\"error_description\":\"line one\\nline \\\"two\\\"\""));
+}
+
+#[test]
+fn uses_custom_oauth_error_response_format() {
+    let response = kagome::errors::OAuthError::invalid_client_id("client_id")
+        .with_format("application/oauth-authz-req+jwt")
+        .to_response();
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/oauth-authz-req+jwt\r\n"));
+    assert!(response.contains("\"error\":\"invalid_client\""));
+}
+
+#[test]
+fn uses_login_oauth_error_response_format() {
+    let response = kagome::errors::OAuthError::invalid_token_response("<invalid> token")
+        .with_format("login")
+        .to_response();
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+    assert!(response.contains("<p role=\"alert\">&lt;invalid&gt; token</p>"));
+    assert!(response.contains("<form method=\"post\" action=\"/authorize\">"));
+    assert!(response.contains("name=\"username\""));
+    assert!(response.contains("name=\"password\""));
 }
 
 #[test]

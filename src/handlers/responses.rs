@@ -1,8 +1,8 @@
 use crate::{
     errors::OAuthError,
     requests::{
-        AuthorizationCodeRequest, AuthorizeCodeRequest, ClientCredentialsRequest,
-        CodeChainAuthorizationCodeRequest, CodeChainRequest,
+        AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
+        ClientCredentialsRequest, CodeChainAuthorizationCodeRequest, CodeChainRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -63,6 +63,45 @@ pub fn code_redirect_response(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
         location
     )
+}
+
+pub fn login_page_response(request: &AuthorizeLoginRequest<'_>) -> String {
+    let action = authorize_action(&request.query_params);
+    let response_body = format!(
+        "<!doctype html><html><head><title>kagome login</title></head><body><main><h1>kagome login</h1><form method=\"post\" action=\"{}\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label><button type=\"submit\">sign in</button></form></main></body></html>",
+        escape_html(&action)
+    );
+
+    format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        response_body.len(),
+        response_body
+    )
+}
+
+pub fn login_error_response(query_params: &[(String, String)], error: &OAuthError) -> String {
+    let action = authorize_action(query_params);
+    let response_body = format!(
+        "<!doctype html><html><head><title>kagome login</title></head><body><main><h1>kagome login</h1><p role=\"alert\">{}</p><form method=\"post\" action=\"{}\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label><button type=\"submit\">sign in</button></form></main></body></html>",
+        escape_html(&error.error_description),
+        escape_html(&action)
+    );
+
+    format!(
+        "HTTP/1.1 400 Bad Request\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        response_body.len(),
+        response_body
+    )
+}
+
+impl ResponseLog for AuthorizeLoginRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        log_authorize_success("login", &[("request.method", "GET".to_owned())]);
+    }
 }
 
 impl ResponseLog for AuthorizeCodeRequest<'_> {
@@ -299,6 +338,26 @@ fn append_query_parameter(uri: &str, name: &str, encoded_value: &str) -> String 
     format!("{uri}{separator}{name}={encoded_value}")
 }
 
+fn authorize_action(query_params: &[(String, String)]) -> String {
+    if query_params.is_empty() {
+        return "/authorize".to_owned();
+    }
+
+    let query = query_params
+        .iter()
+        .map(|(name, value)| {
+            format!(
+                "{}={}",
+                percent_encode_query_value(name),
+                percent_encode_query_value(value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+
+    format!("/authorize?{query}")
+}
+
 fn percent_encode_query_value(value: &str) -> String {
     value
         .bytes()
@@ -309,6 +368,20 @@ fn percent_encode_query_value(value: &str) -> String {
             byte => format!("%{byte:02X}").chars().collect(),
         })
         .collect()
+}
+
+fn escape_html(value: &str) -> String {
+    value.chars().fold(String::new(), |mut escaped, character| {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '"' => escaped.push_str("&quot;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            character => escaped.push(character),
+        }
+
+        escaped
+    })
 }
 
 fn escape_json(value: &str) -> String {

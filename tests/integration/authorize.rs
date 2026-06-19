@@ -1,8 +1,28 @@
 use super::server::send_request;
 
 #[test]
-fn redirects_to_client_redirect_uri_for_authorize_code_response_type() {
+fn returns_login_page_for_authorize_get_request() {
     let response = send_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
+        valid_redirect_uri(),
+        valid_id_token()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
+    assert!(response.contains("response_type=code"));
+    assert!(response.contains("client_id=client_id"));
+    assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
+    assert!(response.contains("name=\"username\""));
+    assert!(response.contains("name=\"password\""));
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
+    let response = send_post_authorize_request(&format!(
         "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
         valid_redirect_uri(),
         valid_id_token()
@@ -12,17 +32,12 @@ fn redirects_to_client_redirect_uri_for_authorize_code_response_type() {
     assert!(response.contains("location: https://client.example.com/callback?code="));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
-    assert!(!response.contains("content-type: application/json\r\n"));
-    assert!(!response.contains("\"authorization_code\""));
-    assert!(!response.contains("\"client_id\""));
-    assert!(!response.contains("\"id_token\""));
-    assert!(!response.contains("\"response_type\""));
 }
 
 #[test]
 fn returns_encrypted_code_containing_authorize_request_claims() {
     let id_token = valid_id_token();
-    let response = send_authorize_request(&format!(
+    let response = send_post_authorize_request(&format!(
         "response_type=code&client_id=client_id&redirect_uri={}&id_token={id_token}",
         valid_redirect_uri()
     ));
@@ -30,7 +45,7 @@ fn returns_encrypted_code_containing_authorize_request_claims() {
     let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
 
     assert_eq!(payload.client_id, "client_id");
-    assert_eq!(payload.id_token, id_token);
+    assert_eq!(payload.id_token, Some(id_token));
     assert_eq!(payload.previous_code, None);
     assert_eq!(
         payload.exp,
@@ -40,106 +55,209 @@ fn returns_encrypted_code_containing_authorize_request_claims() {
 
 #[test]
 fn returns_oauth_error_for_missing_authorize_response_type() {
-    let response = send_authorize_request(&format!(
+    let response = send_post_authorize_request(&format!(
         "client_id=client_id&redirect_uri={}",
         valid_redirect_uri()
     ));
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"unsupported_response_type\""));
-    assert!(response.contains("\"error_description\":\"response_type must be one of: code\""));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+    assert!(response.contains("<p role=\"alert\">response_type must be one of: code</p>"));
+    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
+    assert!(response.contains("client_id=client_id"));
+    assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
 }
 
 #[test]
-fn returns_oauth_error_for_unsupported_authorize_response_type() {
-    let response = send_authorize_request(&format!(
-        "response_type=token&client_id=client_id&redirect_uri={}",
-        valid_redirect_uri()
-    ));
-
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"unsupported_response_type\""));
-    assert!(response.contains("\"error_description\":\"response_type must be one of: code\""));
-}
-
-#[test]
-fn returns_oauth_error_for_missing_authorize_client_id() {
-    let response = send_authorize_request("response_type=code");
-
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_client\""));
-    assert!(response.contains("\"error_description\":\"client_id is required\""));
-}
-
-#[test]
-fn returns_oauth_error_for_invalid_authorize_client_id() {
-    let response = send_authorize_request(&format!(
-        "response_type=code&client_id=app&redirect_uri={}",
-        valid_redirect_uri()
-    ));
-
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_client\""));
-    assert!(response.contains("\"error_description\":\"client_id must be: client_id\""));
-}
-
-#[test]
-fn returns_oauth_error_for_missing_authorize_id_token() {
+fn returns_login_page_for_authorize_get_request_without_id_token() {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=client_id&redirect_uri={}",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("\"error_description\":\"id_token is required\""));
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
 }
 
 #[test]
-fn returns_oauth_error_for_invalid_authorize_id_token() {
-    let response = send_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}&id_token=app",
+fn returns_oauth_error_for_unsupported_authorize_response_type() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=token&client_id=client_id&redirect_uri={}",
         valid_redirect_uri()
     ));
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("\"error_description\":\"id_token must be a jwt\""));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">response_type must be one of: code</p>"));
 }
 
 #[test]
-fn returns_not_found_for_non_get_authorize_request() {
+fn returns_oauth_error_for_missing_authorize_client_id() {
+    let response = send_post_authorize_request("response_type=code");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">client_id is required</p>"));
+}
+
+#[test]
+fn returns_oauth_error_for_invalid_authorize_client_id() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=app&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">client_id must be: client_id</p>"));
+}
+
+#[test]
+fn redirects_for_missing_authorize_id_token() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+}
+
+#[test]
+fn returns_encrypted_code_without_id_token_for_authenticate_request() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert_eq!(payload.client_id, "client_id");
+    assert_eq!(payload.id_token, None);
+}
+
+#[test]
+fn redirects_for_invalid_authorize_id_token() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&id_token=app",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+}
+
+#[test]
+fn returns_not_found_for_unsupported_authorize_method() {
     let response =
-        send_request("POST /authorize HTTP/1.1\r\nhost: example.com\r\ncontent-length: 0\r\n\r\n");
+        send_request("PUT /authorize HTTP/1.1\r\nhost: example.com\r\ncontent-length: 0\r\n\r\n");
 
     assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
 }
 
 #[test]
 fn returns_oauth_error_for_missing_authorize_redirect_uri() {
-    let response = send_authorize_request("response_type=code&client_id=client_id");
+    let response = send_post_authorize_request("response_type=code&client_id=client_id");
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_request\""));
-    assert!(response.contains("\"error_description\":\"redirect_uri is required\""));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">redirect_uri is required</p>"));
 }
 
 #[test]
 fn returns_oauth_error_for_invalid_authorize_redirect_uri() {
-    let response = send_authorize_request(
+    let response = send_post_authorize_request(
         "response_type=code&client_id=client_id&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback",
     );
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_request\""));
+    assert!(response.contains("content-type: text/html\r\n"));
     assert!(response.contains(
-        "\"error_description\":\"redirect_uri must be: https://client.example.com/callback\""
+        "<p role=\"alert\">redirect_uri must be: https://client.example.com/callback</p>"
     ));
+}
+
+#[test]
+fn returns_oauth_error_for_missing_authorize_username() {
+    let response = send_post_authorize_request_with_body(
+        &format!(
+            "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
+            valid_redirect_uri(),
+            valid_id_token()
+        ),
+        "password=password",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">username is required</p>"));
+}
+
+#[test]
+fn returns_oauth_error_for_invalid_authorize_username() {
+    let response = send_post_authorize_request_with_body(
+        &format!(
+            "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
+            valid_redirect_uri(),
+            valid_id_token()
+        ),
+        "username=app&password=password",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">username must be: username</p>"));
+}
+
+#[test]
+fn returns_oauth_error_for_missing_authorize_password() {
+    let response = send_post_authorize_request_with_body(
+        &format!(
+            "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
+            valid_redirect_uri(),
+            valid_id_token()
+        ),
+        "username=username",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">password is required</p>"));
+}
+
+#[test]
+fn returns_oauth_error_for_invalid_authorize_password() {
+    let response = send_post_authorize_request_with_body(
+        &format!(
+            "response_type=code&client_id=client_id&redirect_uri={}&id_token={}",
+            valid_redirect_uri(),
+            valid_id_token()
+        ),
+        "username=username&password=app",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">password must be: password</p>"));
 }
 
 fn send_authorize_request(query: &str) -> String {
     send_request(&format!(
         "GET /authorize?{query} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ))
+}
+
+fn send_post_authorize_request(query: &str) -> String {
+    send_post_authorize_request_with_body(query, "username=username&password=password")
+}
+
+fn send_post_authorize_request_with_body(query: &str, body: &str) -> String {
+    send_request(&format!(
+        "POST /authorize?{query} HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{}",
+        body.len(),
+        body
     ))
 }
 

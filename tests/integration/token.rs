@@ -70,7 +70,7 @@ fn returns_encrypted_authorization_code_containing_request_claims() {
         kagome::resources::authorization_code::decode_cose_payload(&authorization_code).unwrap();
 
     assert_eq!(payload.client_id, "client_id");
-    assert_eq!(payload.id_token, id_token);
+    assert_eq!(payload.id_token, Some(id_token));
     assert_eq!(payload.previous_code, None);
     assert_eq!(
         payload.exp,

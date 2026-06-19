@@ -23,7 +23,8 @@ pub struct AuthorizationCode {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthorizationCodeCosePayload {
     pub client_id: String,
-    pub id_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_code: Option<String>,
     pub iat: u64,
@@ -35,6 +36,10 @@ pub trait Generate {
     fn client_id(&self) -> Option<&str>;
     fn id_token(&self) -> Option<&str>;
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode);
+
+    fn require_id_token(&self) -> bool {
+        true
+    }
 }
 
 pub trait Validate {
@@ -43,42 +48,39 @@ pub trait Validate {
     fn add_authorization_code(&mut self, authorization_code: &str);
 }
 
-pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
-    let authorization_code = token_request
+pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
+    let authorization_code = request
         .request_authorization_code()
         .map(str::to_owned)
         .ok_or_else(OAuthError::missing_authorization_code)?;
 
-    validate_request_authorization_code(&authorization_code, token_request.client_id())?;
+    validate_request_authorization_code(&authorization_code, request.client_id())?;
 
-    token_request.add_authorization_code(&authorization_code);
-    Ok(token_request)
+    request.add_authorization_code(&authorization_code);
+    Ok(request)
 }
 
-pub fn validate_optional<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
-    let Some(authorization_code) = token_request
-        .request_authorization_code()
-        .map(str::to_owned)
-    else {
-        return Ok(token_request);
+pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
+    let Some(authorization_code) = request.request_authorization_code().map(str::to_owned) else {
+        return Ok(request);
     };
 
-    validate_request_authorization_code(&authorization_code, token_request.client_id())?;
+    validate_request_authorization_code(&authorization_code, request.client_id())?;
 
-    token_request.add_authorization_code(&authorization_code);
-    Ok(token_request)
+    request.add_authorization_code(&authorization_code);
+    Ok(request)
 }
 
-pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
-    let client_id = token_request
+pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
+    let client_id = request
         .client_id()
         .ok_or_else(OAuthError::missing_client_id)?;
-    let id_token = token_request
-        .id_token()
-        .ok_or_else(OAuthError::missing_id_token)?;
-    let previous_code = token_request
-        .previous_authorization_code()
-        .map(str::to_owned);
+    let id_token = match (request.id_token(), request.require_id_token()) {
+        (Some(id_token), _) => Some(id_token.to_owned()),
+        (None, true) => return Err(OAuthError::missing_id_token()),
+        (None, false) => None,
+    };
+    let previous_code = request.previous_authorization_code().map(str::to_owned);
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?
@@ -86,7 +88,7 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     let exp = iat + AUTHORIZATION_CODE_TTL_SECONDS;
     let payload = AuthorizationCodeCosePayload {
         client_id: client_id.to_owned(),
-        id_token: id_token.to_owned(),
+        id_token,
         previous_code,
         iat,
         exp,
@@ -97,8 +99,8 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
         payload,
     };
 
-    token_request.add_authorization_code(authorization_code);
-    Ok(token_request)
+    request.add_authorization_code(authorization_code);
+    Ok(request)
 }
 
 fn validate_request_authorization_code(
