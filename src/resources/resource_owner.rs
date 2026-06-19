@@ -46,19 +46,17 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
 }
 
 fn validate_resource_owner<T: Validate>(request: &T) -> Result<Option<ResourceOwner>, OAuthError> {
-    if request.request_username().is_none() && request.request_password().is_none() {
+    if request.client_id_username().is_none()
+        && request.request_username().is_none()
+        && request.request_password().is_none()
+    {
         return Ok(None);
     }
 
     let username = request
-        .request_username()
+        .client_id_username()
+        .or_else(|| request.request_username())
         .ok_or_else(OAuthError::missing_username)?;
-
-    if let Some(client_id_username) = request.client_id_username()
-        && username != client_id_username
-    {
-        return Err(OAuthError::invalid_username(&[client_id_username]));
-    }
 
     let Some((username, expected_password)) = RESOURCE_OWNERS
         .iter()

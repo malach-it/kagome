@@ -212,23 +212,21 @@ fn redirects_for_authorize_post_request_with_matching_username_host_client_id() 
 }
 
 #[test]
-fn returns_oauth_error_for_authorize_post_request_with_mismatched_username_host_client_id() {
+fn redirects_for_authorize_post_request_with_client_id_username_over_body_username() {
     let response = send_post_authorize_request_with_body(
         &format!(
             "response_type=code&client_id=username%40example.com&redirect_uri={}",
             valid_redirect_uri()
         ),
-        "username=other_username&password=other_password",
+        "username=other_username&password=password",
     );
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">username must be one of: username</p>"));
-    assert!(
-        response
-            .contains("name=\"username\" autocomplete=\"username\" value=\"username\" disabled")
-    );
-    assert!(response.contains("type=\"hidden\" name=\"username\" value=\"username\""));
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(payload.client_id, "username@example.com");
+    assert_eq!(payload.username, Some("username".to_owned()));
 }
 
 #[test]
