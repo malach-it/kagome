@@ -78,9 +78,7 @@ fn validate_final_response_type_is_final(
             *response_type == ResponseType::Token && index + 1 != response_types.len()
         })
     {
-        return Err(OAuthError::unsupported_response_type(
-            &SUPPORTED_RESPONSE_TYPES,
-        ));
+        return Err(OAuthError::invalid_final_response_type());
     }
 
     let is_code_id_token_token_response_type = matches!(
@@ -103,9 +101,7 @@ fn validate_final_response_type_is_final(
                 *response_type == ResponseType::IdToken && index + 1 != response_types.len()
             })
     {
-        return Err(OAuthError::unsupported_response_type(
-            &SUPPORTED_RESPONSE_TYPES,
-        ));
+        return Err(OAuthError::invalid_final_response_type());
     }
 
     Ok(())

@@ -566,6 +566,22 @@ fn redirects_oauth_error_for_missing_response_type_with_client_id_resource_owner
 }
 
 #[test]
+fn redirects_oauth_error_for_invalid_final_response_type_with_client_id_resource_owner_credentials()
+{
+    let response = send_authorize_request(&format!(
+        "response_type=id_token+code&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains(
+        "location: https://client.example.com/callback?error=invalid_final_response_type&error_description=invalid%20final%20response%20type\r\n"
+    ));
+    assert!(response.contains("content-length: 0\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+}
+
+#[test]
 fn redirects_oauth_error_for_invalid_redirect_uri_with_client_id_resource_owner_credentials() {
     let response = send_authorize_request(
         "response_type=code&client_id=other_username%3Aother_password%40example.com&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback",
@@ -724,10 +740,7 @@ fn returns_oauth_error_when_token_authorize_response_type_is_not_final() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(
-        response
-            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
-    );
+    assert!(response.contains("<p role=\"alert\">invalid final response type</p>"));
 }
 
 #[test]
@@ -739,10 +752,7 @@ fn returns_oauth_error_when_token_authorize_response_type_is_in_middle_of_chain(
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(
-        response
-            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
-    );
+    assert!(response.contains("<p role=\"alert\">invalid final response type</p>"));
 }
 
 #[test]
@@ -754,10 +764,7 @@ fn returns_oauth_error_when_id_token_authorize_response_type_is_not_final() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(
-        response
-            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
-    );
+    assert!(response.contains("<p role=\"alert\">invalid final response type</p>"));
 }
 
 #[test]

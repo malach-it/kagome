@@ -11,6 +11,7 @@ pub struct OAuthError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthErrorCode {
     UnsupportedResponseType,
+    InvalidFinalResponseType,
     UnsupportedGrantType,
     InvalidClientId,
     MissingClientId,
@@ -42,6 +43,14 @@ impl OAuthError {
                 "response_type must be one of: {}",
                 supported_response_types.join(", ")
             ),
+        )
+    }
+
+    pub fn invalid_final_response_type() -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidFinalResponseType,
+            "invalid_final_response_type",
+            "invalid final response type",
         )
     }
 

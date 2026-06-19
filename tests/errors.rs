@@ -30,6 +30,17 @@ fn returns_invalid_token_response_oauth_response() {
 }
 
 #[test]
+fn returns_invalid_final_response_type_oauth_response() {
+    let response = kagome::errors::OAuthError::invalid_final_response_type().to_response();
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("\"error\":\"invalid_final_response_type\""));
+    assert!(response.contains("\"error_description\":\"invalid final response type\""));
+}
+
+#[test]
 fn returns_invalid_client_id_oauth_response() {
     let response = kagome::errors::OAuthError::invalid_client_id().to_response();
 
