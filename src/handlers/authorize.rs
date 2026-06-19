@@ -1,5 +1,5 @@
 use crate::{
-    errors::{OAuthError, OAuthErrorCode},
+    errors::OAuthError,
     resources::{
         authorization_code, client_credentials, metadata_policy, resource_owner, response_type,
     },
@@ -87,19 +87,11 @@ fn authorize_error_response(request: &KagomeRequest, mut error: OAuthError) -> S
         .is_some_and(|(_, client_id)| {
             client_credentials::client_id_resource_owner_credentials(client_id)
         })
-        && resource_owner_credentials_error(&error)
     {
         error = error.with_format("query");
     }
 
     login_error_response(&request.query_params, &error)
-}
-
-fn resource_owner_credentials_error(error: &OAuthError) -> bool {
-    matches!(
-        error.kind,
-        OAuthErrorCode::InvalidUsername | OAuthErrorCode::InvalidPassword
-    )
 }
 
 fn not_found_response() -> String {

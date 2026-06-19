@@ -259,6 +259,35 @@ fn returns_oauth_error_for_authorize_get_client_id_resource_owner_credentials() 
 }
 
 #[test]
+fn redirects_oauth_error_for_missing_response_type_with_client_id_resource_owner_credentials() {
+    let response = send_authorize_request(&format!(
+        "client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains(
+        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code\r\n"
+    ));
+    assert!(response.contains("content-length: 0\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+}
+
+#[test]
+fn redirects_oauth_error_for_invalid_redirect_uri_with_client_id_resource_owner_credentials() {
+    let response = send_authorize_request(
+        "response_type=code&client_id=other_username%3Aother_password%40example.com&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains(
+        "location: https://app.example.com/callback?error=invalid_request&error_description=redirect_uri%20must%20be%3A%20https%3A%2F%2Fclient.example.com%2Fcallback\r\n"
+    ));
+    assert!(response.contains("content-length: 0\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+}
+
+#[test]
 fn redirects_oauth_error_for_authorize_get_client_id_resource_owner_username() {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=app%3Apassword%40example.com&redirect_uri={}",
