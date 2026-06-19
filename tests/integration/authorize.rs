@@ -1,4 +1,10 @@
 use super::server::send_request;
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[test]
 fn returns_login_page_for_authorize_get_request() {
@@ -121,6 +127,48 @@ fn redirects_to_client_redirect_uri_with_id_token_for_client_id_resource_owner_c
     assert!(response.contains("location: https://client.example.com/callback#id_token="));
     assert_eq!(payload.client_id, "other_username@example.com");
     assert_eq!(payload.username, "other_username");
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_with_ssh_keys_for_post_authorize_ssh_keys_response_type() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=ssh_keys&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let private_key = redirect_fragment_parameter(&response, "ssh_private_key")
+        .expect("redirect should include private key");
+    let public_key = redirect_fragment_parameter(&response, "ssh_public_key")
+        .expect("redirect should include public key");
+    let certificate = redirect_fragment_parameter(&response, "ssh_certificate")
+        .expect("redirect should include certificate");
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback#ssh_private_key="));
+    assert!(private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
+    assert!(public_key.starts_with("ssh-ed25519 "));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_ssh_certificate_principal(&certificate, "username");
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_with_ssh_keys_for_client_id_resource_owner_credentials() {
+    let response = send_authorize_request(&format!(
+        "response_type=ssh_keys&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let private_key = redirect_fragment_parameter(&response, "ssh_private_key")
+        .expect("redirect should include private key");
+    let public_key = redirect_fragment_parameter(&response, "ssh_public_key")
+        .expect("redirect should include public key");
+    let certificate = redirect_fragment_parameter(&response, "ssh_certificate")
+        .expect("redirect should include certificate");
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback#ssh_private_key="));
+    assert!(private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
+    assert!(public_key.starts_with("ssh-ed25519 "));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_ssh_certificate_principal(&certificate, "other_username");
 }
 
 #[test]
@@ -559,7 +607,7 @@ fn redirects_oauth_error_for_missing_response_type_with_client_id_resource_owner
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token\r\n"
+        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token%2C%20ssh_keys\r\n"
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
@@ -692,10 +740,9 @@ fn returns_oauth_error_for_missing_authorize_response_type() {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
     assert!(response.contains("<title>kagome login</title>"));
-    assert!(
-        response
-            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
-    );
+    assert!(response.contains(
+        "<p role=\"alert\">response_type must be one of: code, token, id_token, ssh_keys</p>"
+    ));
     assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
     assert!(response.contains("client_id=client_id"));
     assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
@@ -710,7 +757,7 @@ fn redirects_oauth_error_to_request_redirect_uri_for_query_format() {
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token\r\n"
+        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token%2C%20ssh_keys\r\n"
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
@@ -725,10 +772,9 @@ fn returns_oauth_error_for_unsupported_authorize_response_type() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(
-        response
-            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
-    );
+    assert!(response.contains(
+        "<p role=\"alert\">response_type must be one of: code, token, id_token, ssh_keys</p>"
+    ));
 }
 
 #[test]
@@ -1050,6 +1096,35 @@ fn decode_form_value(value: &str) -> String {
     }
 
     String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn assert_ssh_certificate_principal(certificate: &str, principal: &str) {
+    let certificate_path = temporary_certificate_path();
+    fs::write(&certificate_path, certificate).expect("failed to write ssh certificate");
+
+    let output = Command::new("ssh-keygen")
+        .arg("-Lf")
+        .arg(&certificate_path)
+        .output()
+        .expect("failed to inspect ssh certificate");
+
+    let _ = fs::remove_file(&certificate_path);
+
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(&format!("        {principal}\n")),
+        "certificate did not contain principal {principal}: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+fn temporary_certificate_path() -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_nanos();
+
+    std::env::temp_dir().join(format!("kagome-cert-{}-{unique}.pub", std::process::id()))
 }
 
 fn decode_hex_byte(high: u8, low: u8) -> Option<u8> {

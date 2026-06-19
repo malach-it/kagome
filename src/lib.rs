@@ -1,3 +1,4 @@
+pub mod ca;
 pub mod errors;
 #[path = "handlers/lib.rs"]
 pub mod handlers;

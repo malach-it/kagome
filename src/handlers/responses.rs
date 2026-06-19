@@ -6,7 +6,7 @@ use crate::{
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
-        id_token::IdToken,
+        id_token::IdToken, ssh_keys::SshKeys,
     },
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -117,6 +117,27 @@ pub fn id_token_access_token_redirect_response(
         ),
         "expires_in",
         &access_token.expires_in.to_string(),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
+pub fn ssh_keys_redirect_response(redirect_uri: &str, ssh_keys: &SshKeys) -> String {
+    let location = append_fragment_parameter(
+        &append_fragment_parameter(
+            &append_fragment_parameter(
+                redirect_uri,
+                "ssh_private_key",
+                &percent_encode_query_value(&ssh_keys.private_key),
+            ),
+            "ssh_public_key",
+            &percent_encode_query_value(&ssh_keys.public_key),
+        ),
+        "ssh_certificate",
+        &percent_encode_query_value(&ssh_keys.certificate),
     );
 
     format!(
