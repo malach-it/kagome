@@ -26,6 +26,8 @@ pub struct AuthorizationCodeCosePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_code: Option<String>,
     pub iat: u64,
     pub exp: u64,
@@ -36,6 +38,14 @@ pub trait Generate {
     fn client_id(&self) -> Option<&str>;
     fn id_token(&self) -> Option<&str>;
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode);
+
+    fn username(&self) -> Option<&str> {
+        None
+    }
+
+    fn require_username(&self) -> bool {
+        false
+    }
 
     fn require_id_token(&self) -> bool {
         true
@@ -80,6 +90,11 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         (None, true) => return Err(OAuthError::missing_id_token()),
         (None, false) => None,
     };
+    let username = match (request.username(), request.require_username()) {
+        (Some(username), _) => Some(username.to_owned()),
+        (None, true) => return Err(OAuthError::missing_username()),
+        (None, false) => None,
+    };
     let previous_code = request.previous_authorization_code().map(str::to_owned);
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -89,6 +104,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let payload = AuthorizationCodeCosePayload {
         client_id: client_id.to_owned(),
         id_token,
+        username,
         previous_code,
         iat,
         exp,

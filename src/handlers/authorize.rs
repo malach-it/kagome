@@ -17,7 +17,10 @@ pub fn handle(request: &KagomeRequest) -> String {
 }
 
 fn handle_authorize(request: &KagomeRequest) -> String {
-    match authorize(AuthorizeLoginRequest::from_request(request)).and_then(logged_response) {
+    match authorize(AuthorizeLoginRequest::from_request(request))
+        .and_then(authorization_code::validate_optional)
+        .and_then(logged_response)
+    {
         Ok(response) => response,
         Err(error) => {
             log_authorize_failure(&error);
@@ -28,6 +31,7 @@ fn handle_authorize(request: &KagomeRequest) -> String {
 
 fn handle_authenticate(request: &KagomeRequest) -> String {
     match authorize(AuthorizeCodeRequest::from_request(request))
+        .and_then(authorization_code::validate_optional)
         .and_then(resource_owner::validate)
         .and_then(authorization_code::generate)
         .and_then(logged_response)

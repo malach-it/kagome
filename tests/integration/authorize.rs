@@ -33,6 +33,108 @@ fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
 }
 
 #[test]
+fn redirects_back_to_authorize_for_intermediate_code_response_type() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code+code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: /authorize?"));
+    assert!(response.contains("response_type=code"));
+    assert!(response.contains("client_id=client_id"));
+    assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
+    assert!(response.contains("authorization_code="));
+    assert!(response.contains("content-length: 0\r\n"));
+}
+
+#[test]
+fn returns_login_page_for_authorize_get_request_with_authorization_code() {
+    let first_response = send_post_authorize_request(&format!(
+        "response_type=code+code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let next_query = authorize_redirect_query(&first_response)
+        .expect("first authorize redirect should include query");
+    let response = send_authorize_request(&next_query);
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
+    assert!(response.contains("authorization_code="));
+}
+
+#[test]
+fn returns_oauth_error_for_invalid_authorize_get_authorization_code() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&authorization_code=app",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">authorization_code must be a cose_encrypt0</p>"));
+    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
+    assert!(response.contains("authorization_code=app"));
+}
+
+#[test]
+fn redirects_to_client_redirect_uri_for_last_code_response_type() {
+    let first_response = send_post_authorize_request(&format!(
+        "response_type=code+code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let next_query = authorize_redirect_query(&first_response)
+        .expect("first authorize redirect should include query");
+    let previous_code =
+        query_parameter(&next_query, "authorization_code").expect("redirect should include code");
+    let second_response = send_post_authorize_request(&next_query);
+    let code = redirect_code(&second_response).expect("final redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(second_response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(second_response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(payload.client_id, "client_id");
+    assert_eq!(payload.previous_code, Some(previous_code));
+}
+
+#[test]
+fn redirects_back_to_authorize_until_final_code_response_type() {
+    let first_response = send_post_authorize_request(&format!(
+        "response_type=code+code+code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let second_query = authorize_redirect_query(&first_response)
+        .expect("first authorize redirect should include query");
+    let first_code =
+        query_parameter(&second_query, "authorization_code").expect("redirect should include code");
+
+    assert!(second_query.contains("response_type=code%20code"));
+
+    let second_response = send_post_authorize_request(&second_query);
+    let third_query = authorize_redirect_query(&second_response)
+        .expect("second authorize redirect should include query");
+    let second_code =
+        query_parameter(&third_query, "authorization_code").expect("redirect should include code");
+    let second_payload =
+        kagome::resources::authorization_code::decode_cose_payload(&second_code).unwrap();
+
+    assert!(third_query.contains("response_type=code"));
+    assert_eq!(second_payload.previous_code, Some(first_code));
+
+    let third_response = send_post_authorize_request(&third_query);
+    let final_code = redirect_code(&third_response).expect("final redirect should include code");
+    let final_payload =
+        kagome::resources::authorization_code::decode_cose_payload(&final_code).unwrap();
+
+    assert!(third_response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(third_response.contains("location: https://client.example.com/callback?code="));
+    assert_eq!(final_payload.username, Some("username".to_owned()));
+    assert_eq!(final_payload.previous_code, Some(second_code));
+}
+
+#[test]
 fn returns_encrypted_code_containing_authorize_request_claims() {
     let response = send_post_authorize_request(&format!(
         "response_type=code&client_id=client_id&redirect_uri={}",
@@ -43,6 +145,7 @@ fn returns_encrypted_code_containing_authorize_request_claims() {
 
     assert_eq!(payload.client_id, "client_id");
     assert_eq!(payload.id_token, None);
+    assert_eq!(payload.username, Some("username".to_owned()));
     assert_eq!(payload.previous_code, None);
     assert_eq!(
         payload.exp,
@@ -110,6 +213,7 @@ fn returns_encrypted_code_without_id_token_for_authenticate_request() {
 
     assert_eq!(payload.client_id, "client_id");
     assert_eq!(payload.id_token, None);
+    assert_eq!(payload.username, Some("username".to_owned()));
 }
 
 #[test]
@@ -230,6 +334,25 @@ fn redirect_code(response: &str) -> Option<String> {
         .find_map(|parameter| parameter.strip_prefix("code="))?;
 
     Some(decode_form_value(encoded_code))
+}
+
+fn authorize_redirect_query(response: &str) -> Option<String> {
+    let location = response
+        .lines()
+        .find_map(|line| line.strip_prefix("location: "))?;
+    location.strip_prefix("/authorize?").map(str::to_owned)
+}
+
+fn query_parameter(query: &str, name: &str) -> Option<String> {
+    query.split('&').find_map(|parameter| {
+        let (parameter_name, value) = parameter.split_once('=')?;
+
+        if parameter_name == name {
+            Some(decode_form_value(value))
+        } else {
+            None
+        }
+    })
 }
 
 fn valid_redirect_uri() -> &'static str {

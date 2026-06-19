@@ -65,8 +65,28 @@ pub fn code_redirect_response(
     )
 }
 
+pub fn authorize_redirect_response(
+    query_params: &[(String, String)],
+    response_type: &str,
+    authorization_code: &AuthorizationCode,
+) -> String {
+    let mut query_params = query_params.to_vec();
+    set_query_parameter(&mut query_params, "response_type", response_type);
+    set_query_parameter(
+        &mut query_params,
+        "authorization_code",
+        &authorization_code.value,
+    );
+    let location = authorize_action(&query_params);
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
 pub fn login_page_response(request: &AuthorizeLoginRequest<'_>) -> String {
-    let action = authorize_action(&request.query_params);
+    let action = authorize_action(&request.request.query_params);
     let response_body = format!(
         "<!doctype html><html><head><title>kagome login</title></head><body><main><h1>kagome login</h1><form method=\"post\" action=\"{}\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label><button type=\"submit\">sign in</button></form></main></body></html>",
         escape_html(&action)
@@ -352,6 +372,17 @@ fn authorize_action(query_params: &[(String, String)]) -> String {
         .join("&");
 
     format!("/authorize?{query}")
+}
+
+fn set_query_parameter(query_params: &mut Vec<(String, String)>, name: &str, value: &str) {
+    if let Some((_, existing_value)) = query_params
+        .iter_mut()
+        .find(|(existing_name, _)| existing_name == name)
+    {
+        *existing_value = value.to_owned();
+    } else {
+        query_params.push((name.to_owned(), value.to_owned()));
+    }
 }
 
 fn percent_encode_query_value(value: &str) -> String {

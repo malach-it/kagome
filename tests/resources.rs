@@ -115,6 +115,7 @@ mod resources {
 
             assert_eq!(authorization_code.payload.client_id, payload.client_id);
             assert_eq!(authorization_code.payload.id_token, payload.id_token);
+            assert_eq!(authorization_code.payload.username, payload.username);
             assert_eq!(
                 authorization_code.payload.previous_code,
                 payload.previous_code
@@ -128,6 +129,7 @@ mod resources {
             assert_eq!(authorization_code.expires_in, payload.exp - payload.iat);
             assert_eq!(payload.client_id, "client_id");
             assert_eq!(payload.id_token, Some("id_token".to_owned()));
+            assert_eq!(payload.username, None);
             assert_eq!(payload.previous_code, None);
             assert!(payload.iat >= generated_at);
             assert!(payload.iat <= issued_at_timestamp());
