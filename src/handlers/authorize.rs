@@ -4,7 +4,6 @@ use crate::{
         access_token, authorization_code, client_credentials, id_token, metadata_policy,
         resource_owner,
         response_type::{self, ResponseType},
-        ssh_keys,
     },
     unit::KagomeRequest,
 };
@@ -103,8 +102,7 @@ where
     T: GenerateAuthorizeResponse
         + access_token::Generate
         + authorization_code::Generate
-        + id_token::Generate
-        + ssh_keys::Generate,
+        + id_token::Generate,
 {
     match authorize_request.response_types() {
         [
@@ -126,11 +124,6 @@ where
         {
             authorization_code::generate(authorize_request).and_then(id_token::generate)
         }
-        [ResponseType::Code, ResponseType::SshKeys]
-            if authorize_request.has_valid_resource_owner() =>
-        {
-            authorization_code::generate(authorize_request).and_then(ssh_keys::generate)
-        }
         [ResponseType::IdToken, ResponseType::Token]
             if authorize_request.has_valid_resource_owner() =>
         {
@@ -145,19 +138,13 @@ where
             id_token::generate(authorize_request)
         }
         [ResponseType::IdToken] => Err(OAuthError::missing_username()),
-        [ResponseType::SshKeys] if authorize_request.has_valid_resource_owner() => {
-            ssh_keys::generate(authorize_request)
-        }
-        [ResponseType::SshKeys] => Err(OAuthError::missing_username()),
         [ResponseType::Code, ..] => authorization_code::generate(authorize_request),
         [] => Err(OAuthError::unsupported_response_type(
             &response_type::SUPPORTED_RESPONSE_TYPES,
         )),
-        [ResponseType::IdToken, ..] | [ResponseType::SshKeys, ..] | [ResponseType::Token, ..] => {
-            Err(OAuthError::unsupported_response_type(
-                &response_type::SUPPORTED_RESPONSE_TYPES,
-            ))
-        }
+        [ResponseType::IdToken, ..] | [ResponseType::Token, ..] => Err(
+            OAuthError::unsupported_response_type(&response_type::SUPPORTED_RESPONSE_TYPES),
+        ),
     }
 }
 

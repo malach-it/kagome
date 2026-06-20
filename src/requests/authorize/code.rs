@@ -3,9 +3,8 @@ use crate::{
     handlers::responses::{
         access_token_redirect_response, authorize_redirect_response,
         code_access_token_redirect_response, code_id_token_access_token_redirect_response,
-        code_id_token_redirect_response, code_redirect_response, code_ssh_keys_redirect_response,
+        code_id_token_redirect_response, code_redirect_response,
         id_token_access_token_redirect_response, id_token_redirect_response,
-        ssh_keys_redirect_response,
     },
     resources::{
         access_token::{self, AccessToken},
@@ -14,7 +13,6 @@ use crate::{
         id_token::{self, IdToken},
         metadata_policy, resource_owner,
         response_type::{self, ResponseType},
-        ssh_keys::{self, SshKeys},
     },
     unit::{KagomeRequest, parse_query_parameter, parse_request_parameter},
 };
@@ -43,7 +41,6 @@ pub struct AuthorizeCodeResponse {
     pub access_token: Option<AccessToken>,
     pub authorization_code: Option<AuthorizationCode>,
     pub id_token: Option<IdToken>,
-    pub ssh_keys: Option<SshKeys>,
     pub previous_authorization_code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
@@ -119,21 +116,6 @@ impl<'a> AuthorizeCodeRequest<'a> {
             ));
         }
 
-        if let (Some(authorization_code), Some(ssh_keys)) = (
-            self.response.authorization_code.as_ref(),
-            self.response.ssh_keys.as_ref(),
-        ) {
-            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
-                OAuthError::invalid_token_response("authorize response requires redirect_uri")
-            })?;
-
-            return Ok(code_ssh_keys_redirect_response(
-                redirect_uri,
-                authorization_code,
-                ssh_keys,
-            ));
-        }
-
         if let (Some(id_token), Some(access_token)) = (
             self.response.id_token.as_ref(),
             self.response.access_token.as_ref(),
@@ -163,14 +145,6 @@ impl<'a> AuthorizeCodeRequest<'a> {
             })?;
 
             return Ok(id_token_redirect_response(redirect_uri, id_token));
-        }
-
-        if let Some(ssh_keys) = self.response.ssh_keys.as_ref() {
-            let redirect_uri = self.response.redirect_uri.as_ref().ok_or_else(|| {
-                OAuthError::invalid_token_response("authorize response requires redirect_uri")
-            })?;
-
-            return Ok(ssh_keys_redirect_response(redirect_uri, ssh_keys));
         }
 
         let authorization_code = self.response.authorization_code.as_ref().ok_or_else(|| {
@@ -203,7 +177,6 @@ impl AuthorizeCodeResponse {
             access_token: None,
             authorization_code: None,
             id_token: None,
-            ssh_keys: None,
             previous_authorization_code: None,
             client_id: None,
             client_secret: None,
@@ -381,19 +354,5 @@ impl<'a> id_token::Generate for AuthorizeCodeRequest<'a> {
 
     fn add_generated_id_token(&mut self, id_token: IdToken) {
         self.response.id_token = Some(id_token);
-    }
-}
-
-impl<'a> ssh_keys::Generate for AuthorizeCodeRequest<'a> {
-    fn client_id(&self) -> Option<&str> {
-        self.response.client_id.as_deref()
-    }
-
-    fn username(&self) -> Option<&str> {
-        self.response.username.as_deref()
-    }
-
-    fn add_ssh_keys(&mut self, ssh_keys: SshKeys) {
-        self.response.ssh_keys = Some(ssh_keys);
     }
 }

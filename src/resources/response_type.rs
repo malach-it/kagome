@@ -1,12 +1,11 @@
 use crate::errors::OAuthError;
 
-pub const SUPPORTED_RESPONSE_TYPES: [&str; 4] = ["code", "token", "id_token", "ssh_keys"];
+pub const SUPPORTED_RESPONSE_TYPES: [&str; 3] = ["code", "token", "id_token"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResponseType {
     Code,
     IdToken,
-    SshKeys,
     Token,
 }
 
@@ -15,7 +14,6 @@ impl ResponseType {
         match self {
             ResponseType::Code => "code",
             ResponseType::IdToken => "id_token",
-            ResponseType::SshKeys => "ssh_keys",
             ResponseType::Token => "token",
         }
     }
@@ -52,7 +50,6 @@ fn parse(response_type: Option<&str>) -> Result<Vec<ResponseType>, OAuthError> {
         .map(|response_type| match response_type {
             "code" => Ok(ResponseType::Code),
             "id_token" => Ok(ResponseType::IdToken),
-            "ssh_keys" => Ok(ResponseType::SshKeys),
             "token" => Ok(ResponseType::Token),
             _ => Err(OAuthError::unsupported_response_type(
                 &SUPPORTED_RESPONSE_TYPES,
@@ -79,16 +76,6 @@ fn validate_final_response_type_is_final(
         .enumerate()
         .any(|(index, response_type)| {
             *response_type == ResponseType::Token && index + 1 != response_types.len()
-        })
-    {
-        return Err(OAuthError::invalid_final_response_type());
-    }
-
-    if response_types
-        .iter()
-        .enumerate()
-        .any(|(index, response_type)| {
-            *response_type == ResponseType::SshKeys && index + 1 != response_types.len()
         })
     {
         return Err(OAuthError::invalid_final_response_type());
