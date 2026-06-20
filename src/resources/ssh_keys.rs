@@ -7,7 +7,7 @@ use std::{
 
 use crate::{ca, errors::OAuthError};
 
-pub const SSH_KEYS_TTL_SECONDS: u64 = 3600;
+pub const SSH_KEYS_TTL_SECONDS: u64 = 10;
 
 #[derive(Debug)]
 pub struct SshKeys {
