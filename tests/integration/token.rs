@@ -3,10 +3,12 @@ use std::{
     fs,
     path::PathBuf,
     process::Command,
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 const SSH_KEYS_CODE_VERIFIER: &str = "correct horse battery staple";
+static TEMP_PATH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn returns_token_response_for_form_client_credentials_grant_type() {
@@ -945,7 +947,8 @@ fn assert_ssh_certificate_key_id(certificate: &str, key_id: &str) {
 }
 
 fn ssh_certificate_details(certificate: &str) -> String {
-    let certificate_path = temporary_certificate_path();
+    let certificate_directory = temporary_certificate_directory();
+    let certificate_path = certificate_directory.join("cert.pub");
     fs::write(&certificate_path, certificate).expect("failed to write ssh certificate");
 
     let output = Command::new("ssh-keygen")
@@ -954,19 +957,25 @@ fn ssh_certificate_details(certificate: &str) -> String {
         .output()
         .expect("failed to inspect ssh certificate");
 
-    let _ = fs::remove_file(&certificate_path);
+    let _ = fs::remove_dir_all(&certificate_directory);
 
     assert!(output.status.success());
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-fn temporary_certificate_path() -> PathBuf {
+fn temporary_certificate_directory() -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system clock before unix epoch")
         .as_nanos();
+    let counter = TEMP_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let directory = std::env::temp_dir().join(format!(
+        "kagome-cert-{}-{unique}-{counter}",
+        std::process::id()
+    ));
 
-    std::env::temp_dir().join(format!("kagome-cert-{}-{unique}.pub", std::process::id()))
+    fs::create_dir(&directory).expect("failed to create certificate temp directory");
+    directory
 }
 
 fn jwk() -> jsonwebtoken::jwk::Jwk {

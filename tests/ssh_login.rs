@@ -2,10 +2,12 @@ use std::{
     fs,
     path::PathBuf,
     process::Command,
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 const CODE_VERIFIER: &str = "correct horse battery staple";
+static TEMP_PATH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn oauth_callback_exchanges_authorization_code_for_ssh_keys() {
@@ -246,7 +248,8 @@ fn json_string_field(response: &str, field: &str) -> Option<String> {
 }
 
 fn assert_ssh_certificate_principal(certificate: &str, principal: &str) {
-    let certificate_path = temporary_certificate_path();
+    let certificate_directory = temporary_certificate_directory();
+    let certificate_path = certificate_directory.join("cert.pub");
     fs::write(&certificate_path, certificate).expect("failed to write ssh certificate");
 
     let output = Command::new("ssh-keygen")
@@ -255,7 +258,7 @@ fn assert_ssh_certificate_principal(certificate: &str, principal: &str) {
         .output()
         .expect("failed to inspect ssh certificate");
 
-    let _ = fs::remove_file(&certificate_path);
+    let _ = fs::remove_dir_all(&certificate_directory);
 
     assert!(output.status.success());
     let certificate_details = String::from_utf8_lossy(&output.stdout);
@@ -322,8 +325,11 @@ fn assert_private_key_permissions(private_key_path: &PathBuf) {
 #[cfg(not(unix))]
 fn assert_private_key_permissions(_private_key_path: &PathBuf) {}
 
-fn temporary_certificate_path() -> PathBuf {
-    temporary_path("cert", "pub")
+fn temporary_certificate_directory() -> PathBuf {
+    let directory = temporary_path("cert", "");
+
+    fs::create_dir(&directory).expect("failed to create certificate temp directory");
+    directory
 }
 
 fn temporary_ssh_keys_path() -> PathBuf {
@@ -335,11 +341,17 @@ fn temporary_path(name: &str, extension: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock before unix epoch")
         .as_nanos();
+    let counter = TEMP_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let filename = if extension.is_empty() {
+        format!("kagome-{name}-{}-{unique}-{counter}", std::process::id())
+    } else {
+        format!(
+            "kagome-{name}-{}-{unique}-{counter}.{extension}",
+            std::process::id()
+        )
+    };
 
-    std::env::temp_dir().join(format!(
-        "kagome-{name}-{}-{unique}.{extension}",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(filename)
 }
 
 fn query_encode(value: &str) -> String {
