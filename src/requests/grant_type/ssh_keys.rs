@@ -21,6 +21,7 @@ pub struct SshKeysRequest<'a> {
     pub client_secret: Option<String>,
     pub client_encryption_key: Option<String>,
     pub client_encryption_alg: Option<String>,
+    pub code_verifier: Option<String>,
     pub grant_type: Option<String>,
 }
 
@@ -47,6 +48,7 @@ impl<'a> SshKeysRequest<'a> {
             client_secret: parse_request_parameter(request, "client_secret"),
             client_encryption_key: parse_request_parameter(request, "client_encryption_key"),
             client_encryption_alg: parse_request_parameter(request, "client_encryption_alg"),
+            code_verifier: parse_request_parameter(request, "code_verifier"),
             grant_type: response
                 .response
                 .grant_type
@@ -156,6 +158,14 @@ impl<'a> authorization_code::Validate for SshKeysRequest<'a> {
 
     fn client_id(&self) -> Option<&str> {
         self.response.client_id.as_deref()
+    }
+
+    fn code_verifier(&self) -> Option<&str> {
+        self.code_verifier.as_deref()
+    }
+
+    fn require_code_challenge(&self) -> bool {
+        true
     }
 
     fn add_authorization_code(&mut self, authorization_code: &str) {

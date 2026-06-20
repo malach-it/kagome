@@ -5,15 +5,18 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+const CODE_VERIFIER: &str = "correct horse battery staple";
+
 #[test]
 fn oauth_callback_exchanges_authorization_code_for_ssh_keys() {
     let code = valid_authorization_code("username@example.com", "username");
-    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path(
+    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path_and_code_verifier(
         &format!(
             "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
             query_encode(&code)
         ),
         None,
+        CODE_VERIFIER,
     );
     let certificate = json_string_field(&response, "ssh_certificate")
         .expect("callback response should include ssh certificate");
@@ -34,12 +37,13 @@ fn oauth_callback_exchanges_authorization_code_for_ssh_keys() {
 fn oauth_callback_stores_ssh_keys_when_path_is_configured() {
     let code = valid_authorization_code("username@example.com", "username");
     let ssh_keys_path = temporary_ssh_keys_path();
-    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path(
+    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path_and_code_verifier(
         &format!(
             "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
             query_encode(&code)
         ),
         Some(&ssh_keys_path),
+        CODE_VERIFIER,
     );
     let (private_key_path, public_key_path, certificate_path) =
         stored_ssh_key_paths(&ssh_keys_path);
@@ -93,12 +97,13 @@ fn oauth_callback_stores_ssh_keys_when_path_is_configured() {
 fn oauth_callback_does_not_render_host_prompt() {
     let code = valid_authorization_code("username@localhost:4000", "username");
     let ssh_keys_path = temporary_ssh_keys_path();
-    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path(
+    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path_and_code_verifier(
         &format!(
             "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
             query_encode(&code)
         ),
         Some(&ssh_keys_path),
+        CODE_VERIFIER,
     );
 
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
@@ -106,6 +111,25 @@ fn oauth_callback_does_not_render_host_prompt() {
     assert!(!response.contains("ssh-command"));
 
     let _ = fs::remove_dir_all(&ssh_keys_path);
+}
+
+#[test]
+fn oauth_callback_returns_oauth_error_when_code_verifier_is_missing() {
+    let code = valid_authorization_code("username@example.com", "username");
+    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path(
+        &format!(
+            "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
+            query_encode(&code)
+        ),
+        None,
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(
+        response
+            .contains("\"error_description\":\"code_verifier is required for authorization_code\"")
+    );
 }
 
 #[test]
@@ -149,6 +173,7 @@ fn valid_authorization_code(client_id: &'static str, username: &'static str) -> 
         authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
         client_id: &'static str,
         username: &'static str,
+        code_challenge: String,
     }
 
     impl kagome::resources::authorization_code::Generate for TestAuthorizationCodeRequest {
@@ -166,6 +191,14 @@ fn valid_authorization_code(client_id: &'static str, username: &'static str) -> 
 
         fn username(&self) -> Option<&str> {
             Some(self.username)
+        }
+
+        fn code_challenge(&self) -> Option<&str> {
+            Some(&self.code_challenge)
+        }
+
+        fn code_challenge_method(&self) -> Option<&str> {
+            Some(kagome::resources::code_verifier::CODE_CHALLENGE_METHOD_S256)
         }
 
         fn require_id_token(&self) -> bool {
@@ -188,6 +221,7 @@ fn valid_authorization_code(client_id: &'static str, username: &'static str) -> 
         authorization_code: None,
         client_id,
         username,
+        code_challenge: kagome::resources::code_verifier::code_challenge_s256(CODE_VERIFIER),
     };
 
     kagome::resources::authorization_code::generate(request)

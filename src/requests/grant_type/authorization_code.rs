@@ -18,6 +18,7 @@ pub struct AuthorizationCodeRequest<'a> {
     pub code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+    pub code_verifier: Option<String>,
     pub grant_type: Option<String>,
 }
 
@@ -38,6 +39,7 @@ impl<'a> AuthorizationCodeRequest<'a> {
             code: parse_request_parameter(request, "code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
+            code_verifier: parse_request_parameter(request, "code_verifier"),
             grant_type: parse_request_parameter(request, "grant_type"),
         }
     }
@@ -54,6 +56,7 @@ impl<'a> AuthorizationCodeRequest<'a> {
             code: parse_request_parameter(request, "code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
+            code_verifier: parse_request_parameter(request, "code_verifier"),
             grant_type: response
                 .response
                 .grant_type
@@ -127,6 +130,10 @@ impl<'a> authorization_code::Validate for AuthorizationCodeRequest<'a> {
 
     fn client_id(&self) -> Option<&str> {
         self.response.client_id.as_deref()
+    }
+
+    fn code_verifier(&self) -> Option<&str> {
+        self.code_verifier.as_deref()
     }
 
     fn add_authorization_code(&mut self, authorization_code: &str) {

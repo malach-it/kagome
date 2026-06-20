@@ -5,7 +5,13 @@ use std::{
     process::Command,
 };
 
-use crate::{http_server, resources::client_credentials};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use ring::rand::{SecureRandom, SystemRandom};
+
+use crate::{
+    http_server,
+    resources::{client_credentials, code_verifier},
+};
 
 pub const LOGIN_SERVER_ADDRESS_ENV_VAR: &str = "KAGOME_LOGIN_SERVER_ADDRESS";
 pub const DEFAULT_LOGIN_SERVER_ADDRESS: &str = "localhost:4000";
@@ -45,11 +51,12 @@ pub fn login(
     username: &str,
     host: &str,
 ) -> io::Result<String> {
-    let url = authorize_url(server_address, username);
+    let code_verifier = generate_code_verifier()?;
+    let url = authorize_url_with_code_verifier(server_address, username, &code_verifier);
 
     open_browser(&url)?;
 
-    let callback_response = handle_callback(listener)?;
+    let callback_response = handle_callback(listener, &code_verifier)?;
     let Some(private_key_path) = private_key_path(&callback_response) else {
         return Ok(console_response(&callback_response));
     };
@@ -62,19 +69,41 @@ pub fn login(
 }
 
 pub fn authorize_url(server_address: &str, username: &str) -> String {
+    let code_verifier = generate_code_verifier().unwrap_or_else(|_| "code_verifier".to_owned());
+
+    authorize_url_with_code_verifier(server_address, username, &code_verifier)
+}
+
+fn authorize_url_with_code_verifier(
+    server_address: &str,
+    username: &str,
+    code_verifier: &str,
+) -> String {
     format!(
         "http://{server_address}{}",
-        authorize_path(server_address, username)
+        authorize_path(server_address, username, code_verifier)
     )
 }
 
-fn authorize_path(server_address: &str, username: &str) -> String {
+fn authorize_path(server_address: &str, username: &str, code_verifier: &str) -> String {
     let client_id = format!("{username}@{server_address}");
+    let code_challenge = code_verifier::code_challenge_s256(code_verifier);
     format!(
-        "/authorize?response_type=code&client_id={}&redirect_uri={}",
+        "/authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method={}",
         query_encode(&client_id),
-        query_encode(&client_credentials::loopback_redirect_uri())
+        query_encode(&client_credentials::loopback_redirect_uri()),
+        query_encode(&code_challenge),
+        query_encode(code_verifier::CODE_CHALLENGE_METHOD_S256)
     )
+}
+
+fn generate_code_verifier() -> io::Result<String> {
+    let rng = SystemRandom::new();
+    let mut verifier = [0; 32];
+    rng.fill(&mut verifier)
+        .map_err(|_| io::Error::other("code verifier generation failed"))?;
+
+    Ok(URL_SAFE_NO_PAD.encode(verifier))
 }
 
 fn open_browser(url: &str) -> io::Result<()> {
@@ -131,10 +160,10 @@ fn prompt(reader: &mut impl BufRead, writer: &mut impl Write, prompt: &str) -> i
     Ok(value.trim_end_matches(['\r', '\n']).to_owned())
 }
 
-fn handle_callback(listener: TcpListener) -> io::Result<String> {
+fn handle_callback(listener: TcpListener, code_verifier: &str) -> io::Result<String> {
     let (stream, _) = listener.accept()?;
     let request = read_http_request(&stream)?;
-    let response = crate::ssh_login::route_raw_request(&request);
+    let response = crate::ssh_login::route_raw_request_with_code_verifier(&request, code_verifier);
     let mut writer = stream;
 
     writer.write_all(response.as_bytes())?;
@@ -263,6 +292,8 @@ mod tests {
         assert!(url.contains("response_type=code"));
         assert!(url.contains("client_id=username%40example.com%3A4000"));
         assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A4001%2Foauth%2Fcallback"));
+        assert!(url.contains("code_challenge="));
+        assert!(url.contains("code_challenge_method=S256"));
         assert!(!url.contains("password"));
     }
 

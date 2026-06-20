@@ -824,6 +824,22 @@ fn returns_encrypted_code_containing_authorize_request_claims() {
 }
 
 #[test]
+fn returns_encrypted_code_containing_s256_code_challenge() {
+    let code_verifier = "correct horse battery staple";
+    let code_challenge = kagome::resources::code_verifier::code_challenge_s256(code_verifier);
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&code_challenge={}&code_challenge_method=S256",
+        valid_redirect_uri(),
+        query_encode(&code_challenge)
+    ));
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert_eq!(payload.code_challenge, Some(code_challenge));
+    assert_eq!(payload.code_challenge_method, Some("S256".to_owned()));
+}
+
+#[test]
 fn returns_oauth_error_for_missing_authorize_response_type() {
     let response = send_post_authorize_request(&format!(
         "client_id=client_id&redirect_uri={}",
@@ -1155,6 +1171,26 @@ fn query_parameter(query: &str, name: &str) -> Option<String> {
             None
         }
     })
+}
+
+fn query_encode(value: &str) -> String {
+    value
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                vec![byte as char]
+            }
+            b' ' => vec!['+'],
+            _ => {
+                let hex = b"0123456789ABCDEF";
+                vec![
+                    '%',
+                    hex[(byte >> 4) as usize] as char,
+                    hex[(byte & 0x0F) as usize] as char,
+                ]
+            }
+        })
+        .collect()
 }
 
 fn valid_redirect_uri() -> &'static str {

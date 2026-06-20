@@ -36,31 +36,67 @@ pub fn route_raw_request(request: &str) -> String {
     let request = crate::unit::parse_request(request);
 
     let ssh_keys_path = ssh_keys_path_from_environment();
-    route_request_with_ssh_keys_path(&request, ssh_keys_path.as_deref())
+    route_request_with_ssh_keys_path_and_code_verifier(&request, ssh_keys_path.as_deref(), None)
+}
+
+pub fn route_raw_request_with_code_verifier(request: &str, code_verifier: &str) -> String {
+    let request = crate::unit::parse_request(request);
+
+    route_request_with_ssh_keys_path_and_code_verifier(
+        &request,
+        ssh_keys_path_from_environment().as_deref(),
+        Some(code_verifier),
+    )
 }
 
 pub fn route_request(request: &KagomeRequest) -> String {
-    route_request_with_ssh_keys_path(request, ssh_keys_path_from_environment().as_deref())
+    route_request_with_ssh_keys_path_and_code_verifier(
+        request,
+        ssh_keys_path_from_environment().as_deref(),
+        None,
+    )
 }
 
 pub fn route_raw_request_with_ssh_keys_path(request: &str, ssh_keys_path: Option<&Path>) -> String {
     let request = crate::unit::parse_request(request);
 
-    route_request_with_ssh_keys_path(&request, ssh_keys_path)
+    route_request_with_ssh_keys_path_and_code_verifier(&request, ssh_keys_path, None)
 }
 
 pub fn route_request_with_ssh_keys_path(
     request: &KagomeRequest,
     ssh_keys_path: Option<&Path>,
 ) -> String {
+    route_request_with_ssh_keys_path_and_code_verifier(request, ssh_keys_path, None)
+}
+
+pub fn route_raw_request_with_ssh_keys_path_and_code_verifier(
+    request: &str,
+    ssh_keys_path: Option<&Path>,
+    code_verifier: &str,
+) -> String {
+    let request = crate::unit::parse_request(request);
+
+    route_request_with_ssh_keys_path_and_code_verifier(&request, ssh_keys_path, Some(code_verifier))
+}
+
+fn route_request_with_ssh_keys_path_and_code_verifier(
+    request: &KagomeRequest,
+    ssh_keys_path: Option<&Path>,
+    code_verifier: Option<&str>,
+) -> String {
     if request.method.eq_ignore_ascii_case("GET") && request.path == OAUTH_CALLBACK_PATH {
-        return oauth_callback_response(request, ssh_keys_path);
+        return oauth_callback_response(request, ssh_keys_path, code_verifier);
     }
 
     crate::router::route_request(request)
 }
 
-fn oauth_callback_response(request: &KagomeRequest, ssh_keys_path: Option<&Path>) -> String {
+fn oauth_callback_response(
+    request: &KagomeRequest,
+    ssh_keys_path: Option<&Path>,
+    code_verifier: Option<&str>,
+) -> String {
     let Some(code) = parse_query_parameter(request, "code") else {
         return OAuthError::missing_authorization_code().to_response();
     };
@@ -72,8 +108,12 @@ fn oauth_callback_response(request: &KagomeRequest, ssh_keys_path: Option<&Path>
         Ok(client_encryption_key_pair) => client_encryption_key_pair,
         Err(error) => return error.to_response(),
     };
-    let body =
-        ssh_keys_token_request_body(&payload, &code, client_encryption_key_pair.public_key());
+    let body = ssh_keys_token_request_body(
+        &payload,
+        &code,
+        client_encryption_key_pair.public_key(),
+        code_verifier,
+    );
     let token_request = format!(
         "POST /token HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{}",
         body.len(),
@@ -99,15 +139,23 @@ fn ssh_keys_token_request_body(
     payload: &AuthorizationCodeCosePayload,
     code: &str,
     client_encryption_key: &str,
+    code_verifier: Option<&str>,
 ) -> String {
-    format!(
+    let mut body = format!(
         "client_id={}&client_secret={}&grant_type=ssh_keys&code={}&client_encryption_key={}&client_encryption_alg={}",
         form_encode(&payload.client_id),
         form_encode(CLIENT_SECRET),
         form_encode(code),
         form_encode(client_encryption_key),
         form_encode(ASYMMETRIC_CLIENT_ENCRYPTION_ALG)
-    )
+    );
+
+    if let Some(code_verifier) = code_verifier {
+        body.push_str("&code_verifier=");
+        body.push_str(&form_encode(code_verifier));
+    }
+
+    body
 }
 
 fn decrypt_ssh_keys_token_response(
@@ -328,16 +376,20 @@ mod tests {
                 id_token: None,
                 username: Some("username".to_owned()),
                 previous_code: None,
+                code_challenge: None,
+                code_challenge_method: None,
                 iat: 1,
                 exp: 2,
             },
             "authorization code",
             "client encryption key",
+            Some("code verifier"),
         );
 
         assert!(body.contains("client_id=username%40example.com"));
         assert!(body.contains("code=authorization+code"));
         assert!(body.contains("client_encryption_key=client+encryption+key"));
+        assert!(body.contains("code_verifier=code+verifier"));
         assert!(body.contains(&format!(
             "client_encryption_alg={}",
             ASYMMETRIC_CLIENT_ENCRYPTION_ALG.replace('+', "%2B")
