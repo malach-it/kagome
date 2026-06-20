@@ -2,7 +2,8 @@ use crate::{
     errors::OAuthError,
     handlers::responses::{cose_response, ssh_keys_response, ssh_keys_response_body},
     resources::{
-        authorization_code, client_credentials, crypto,
+        authorization_code, client_credentials,
+        crypto::{self, ASYMMETRIC_CLIENT_ENCRYPTION_ALG},
         grant_type::{self, GrantType},
         ssh_keys::{self, SshKeys},
     },
@@ -75,7 +76,7 @@ impl<'a> SshKeysRequest<'a> {
         if let Some(client_encryption_key) = self.client_encryption_key.as_deref() {
             validate_client_encryption_alg(self.client_encryption_alg.as_deref())?;
 
-            return Ok(cose_response(&crypto::encode_cose_encrypt0(
+            return Ok(cose_response(&crypto::encode_cose_encrypt0_for_public_key(
                 ssh_keys_response_body(ssh_keys).as_bytes(),
                 client_encryption_key,
                 SSH_KEYS_RESPONSE_EXTERNAL_AAD,
@@ -87,13 +88,12 @@ impl<'a> SshKeysRequest<'a> {
 }
 
 const SSH_KEYS_RESPONSE_EXTERNAL_AAD: &[u8] = b"kagome ssh_keys token response";
-const CLIENT_ENCRYPTION_ALG_A256GCM: &str = "A256GCM";
 
 fn validate_client_encryption_alg(client_encryption_alg: Option<&str>) -> Result<(), OAuthError> {
     match client_encryption_alg {
-        Some(CLIENT_ENCRYPTION_ALG_A256GCM) => Ok(()),
+        Some(ASYMMETRIC_CLIENT_ENCRYPTION_ALG) => Ok(()),
         _ => Err(OAuthError::invalid_token_response(format!(
-            "client_encryption_alg must be {CLIENT_ENCRYPTION_ALG_A256GCM}"
+            "client_encryption_alg must be {ASYMMETRIC_CLIENT_ENCRYPTION_ALG}"
         ))),
     }
 }
