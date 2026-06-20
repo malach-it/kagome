@@ -529,6 +529,24 @@ fn returns_login_page_for_authorize_get_request_with_username_host_client_id() {
 }
 
 #[test]
+fn returns_login_page_for_authorize_get_request_with_other_username_host_client_id() {
+    let response = send_request(
+        "GET /authorize?response_type=code&client_id=other_username%40localhost%3A4000&redirect_uri=http%3A%2F%2F127.0.0.1%3A4001%2Foauth%2Fcallback HTTP/1.1\r\nhost: localhost:4000\r\n\r\n",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+    assert!(
+        response.contains(
+            "name=\"username\" autocomplete=\"username\" value=\"other_username\" disabled"
+        )
+    );
+    assert!(response.contains("type=\"hidden\" name=\"username\" value=\"other_username\""));
+    assert!(!response.contains("client_id is invalid"));
+}
+
+#[test]
 fn redirects_for_authorize_post_request_with_matching_username_host_client_id() {
     let response = send_post_authorize_request_with_body(
         &format!(

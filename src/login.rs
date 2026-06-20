@@ -56,7 +56,8 @@ pub fn login(
 
     open_browser(&url)?;
 
-    let callback_response = handle_callback(listener, &code_verifier)?;
+    let callback_client_id = format!("{username}@{server_address}");
+    let callback_response = handle_callback(listener, &code_verifier, &callback_client_id)?;
     let Some(private_key_path) = private_key_path(&callback_response) else {
         return Ok(console_response(&callback_response));
     };
@@ -160,10 +161,18 @@ fn prompt(reader: &mut impl BufRead, writer: &mut impl Write, prompt: &str) -> i
     Ok(value.trim_end_matches(['\r', '\n']).to_owned())
 }
 
-fn handle_callback(listener: TcpListener, code_verifier: &str) -> io::Result<String> {
+fn handle_callback(
+    listener: TcpListener,
+    code_verifier: &str,
+    username: &str,
+) -> io::Result<String> {
     let (stream, _) = listener.accept()?;
     let request = read_http_request(&stream)?;
-    let response = crate::ssh_login::route_raw_request_with_code_verifier(&request, code_verifier);
+    let response = crate::ssh_login::route_raw_request_with_code_verifier_and_client_id(
+        &request,
+        code_verifier,
+        username,
+    );
     let mut writer = stream;
 
     writer.write_all(response.as_bytes())?;

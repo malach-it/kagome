@@ -10,14 +10,16 @@ const CODE_VERIFIER: &str = "correct horse battery staple";
 #[test]
 fn oauth_callback_exchanges_authorization_code_for_ssh_keys() {
     let code = valid_authorization_code("username@example.com", "username");
-    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path_and_code_verifier(
-        &format!(
-            "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
-            query_encode(&code)
-        ),
-        None,
-        CODE_VERIFIER,
-    );
+    let response =
+        kagome::ssh_login::route_raw_request_with_ssh_keys_path_code_verifier_and_client_id(
+            &format!(
+                "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
+                query_encode(&code)
+            ),
+            None,
+            CODE_VERIFIER,
+            "username@example.com",
+        );
     let certificate = json_string_field(&response, "ssh_certificate")
         .expect("callback response should include ssh certificate");
 
@@ -37,14 +39,16 @@ fn oauth_callback_exchanges_authorization_code_for_ssh_keys() {
 fn oauth_callback_stores_ssh_keys_when_path_is_configured() {
     let code = valid_authorization_code("username@example.com", "username");
     let ssh_keys_path = temporary_ssh_keys_path();
-    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path_and_code_verifier(
-        &format!(
-            "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
-            query_encode(&code)
-        ),
-        Some(&ssh_keys_path),
-        CODE_VERIFIER,
-    );
+    let response =
+        kagome::ssh_login::route_raw_request_with_ssh_keys_path_code_verifier_and_client_id(
+            &format!(
+                "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
+                query_encode(&code)
+            ),
+            Some(&ssh_keys_path),
+            CODE_VERIFIER,
+            "username@example.com",
+        );
     let (private_key_path, public_key_path, certificate_path) =
         stored_ssh_key_paths(&ssh_keys_path);
     let private_key = fs::read_to_string(&private_key_path).expect("private key should be stored");
@@ -97,14 +101,16 @@ fn oauth_callback_stores_ssh_keys_when_path_is_configured() {
 fn oauth_callback_does_not_render_host_prompt() {
     let code = valid_authorization_code("username@localhost:4000", "username");
     let ssh_keys_path = temporary_ssh_keys_path();
-    let response = kagome::ssh_login::route_raw_request_with_ssh_keys_path_and_code_verifier(
-        &format!(
-            "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
-            query_encode(&code)
-        ),
-        Some(&ssh_keys_path),
-        CODE_VERIFIER,
-    );
+    let response =
+        kagome::ssh_login::route_raw_request_with_ssh_keys_path_code_verifier_and_client_id(
+            &format!(
+                "GET /oauth/callback?code={} HTTP/1.1\r\nhost: localhost\r\n\r\n",
+                query_encode(&code)
+            ),
+            Some(&ssh_keys_path),
+            CODE_VERIFIER,
+            "username@localhost:4000",
+        );
 
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(!response.contains("name=\"host\""));

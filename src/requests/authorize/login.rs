@@ -214,7 +214,7 @@ impl<'a> client_credentials::Validate for AuthorizeLoginRequest<'a> {
 
     fn valid_client_id(&self, client_id: &str) -> bool {
         client_id == client_credentials::CLIENT_ID
-            || client_id == client_credentials::USERNAME_LOCALHOST_CLIENT_ID
+            || client_credentials::valid_loopback_client_id(client_id)
             || valid_authorize_client_id(client_id, self.request)
     }
 

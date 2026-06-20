@@ -36,23 +36,45 @@ pub fn route_raw_request(request: &str) -> String {
     let request = crate::unit::parse_request(request);
 
     let ssh_keys_path = ssh_keys_path_from_environment();
-    route_request_with_ssh_keys_path_and_code_verifier(&request, ssh_keys_path.as_deref(), None)
+    route_request_with_ssh_keys_path_code_verifier_and_client_id(
+        &request,
+        ssh_keys_path.as_deref(),
+        None,
+        None,
+    )
 }
 
 pub fn route_raw_request_with_code_verifier(request: &str, code_verifier: &str) -> String {
     let request = crate::unit::parse_request(request);
 
-    route_request_with_ssh_keys_path_and_code_verifier(
+    route_request_with_ssh_keys_path_code_verifier_and_client_id(
         &request,
         ssh_keys_path_from_environment().as_deref(),
         Some(code_verifier),
+        None,
+    )
+}
+
+pub fn route_raw_request_with_code_verifier_and_client_id(
+    request: &str,
+    code_verifier: &str,
+    client_id: &str,
+) -> String {
+    let request = crate::unit::parse_request(request);
+
+    route_request_with_ssh_keys_path_code_verifier_and_client_id(
+        &request,
+        ssh_keys_path_from_environment().as_deref(),
+        Some(code_verifier),
+        Some(client_id),
     )
 }
 
 pub fn route_request(request: &KagomeRequest) -> String {
-    route_request_with_ssh_keys_path_and_code_verifier(
+    route_request_with_ssh_keys_path_code_verifier_and_client_id(
         request,
         ssh_keys_path_from_environment().as_deref(),
+        None,
         None,
     )
 }
@@ -60,14 +82,19 @@ pub fn route_request(request: &KagomeRequest) -> String {
 pub fn route_raw_request_with_ssh_keys_path(request: &str, ssh_keys_path: Option<&Path>) -> String {
     let request = crate::unit::parse_request(request);
 
-    route_request_with_ssh_keys_path_and_code_verifier(&request, ssh_keys_path, None)
+    route_request_with_ssh_keys_path_code_verifier_and_client_id(
+        &request,
+        ssh_keys_path,
+        None,
+        None,
+    )
 }
 
 pub fn route_request_with_ssh_keys_path(
     request: &KagomeRequest,
     ssh_keys_path: Option<&Path>,
 ) -> String {
-    route_request_with_ssh_keys_path_and_code_verifier(request, ssh_keys_path, None)
+    route_request_with_ssh_keys_path_code_verifier_and_client_id(request, ssh_keys_path, None, None)
 }
 
 pub fn route_raw_request_with_ssh_keys_path_and_code_verifier(
@@ -77,16 +104,38 @@ pub fn route_raw_request_with_ssh_keys_path_and_code_verifier(
 ) -> String {
     let request = crate::unit::parse_request(request);
 
-    route_request_with_ssh_keys_path_and_code_verifier(&request, ssh_keys_path, Some(code_verifier))
+    route_request_with_ssh_keys_path_code_verifier_and_client_id(
+        &request,
+        ssh_keys_path,
+        Some(code_verifier),
+        None,
+    )
 }
 
-fn route_request_with_ssh_keys_path_and_code_verifier(
+pub fn route_raw_request_with_ssh_keys_path_code_verifier_and_client_id(
+    request: &str,
+    ssh_keys_path: Option<&Path>,
+    code_verifier: &str,
+    client_id: &str,
+) -> String {
+    let request = crate::unit::parse_request(request);
+
+    route_request_with_ssh_keys_path_code_verifier_and_client_id(
+        &request,
+        ssh_keys_path,
+        Some(code_verifier),
+        Some(client_id),
+    )
+}
+
+fn route_request_with_ssh_keys_path_code_verifier_and_client_id(
     request: &KagomeRequest,
     ssh_keys_path: Option<&Path>,
     code_verifier: Option<&str>,
+    client_id: Option<&str>,
 ) -> String {
     if request.method.eq_ignore_ascii_case("GET") && request.path == OAUTH_CALLBACK_PATH {
-        return oauth_callback_response(request, ssh_keys_path, code_verifier);
+        return oauth_callback_response(request, ssh_keys_path, code_verifier, client_id);
     }
 
     crate::router::route_request(request)
@@ -96,6 +145,7 @@ fn oauth_callback_response(
     request: &KagomeRequest,
     ssh_keys_path: Option<&Path>,
     code_verifier: Option<&str>,
+    client_id: Option<&str>,
 ) -> String {
     let Some(code) = parse_query_parameter(request, "code") else {
         return OAuthError::missing_authorization_code().to_response();
@@ -113,6 +163,7 @@ fn oauth_callback_response(
         &code,
         client_encryption_key_pair.public_key(),
         code_verifier,
+        client_id,
     );
     let token_request = format!(
         "POST /token HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{}",
@@ -140,10 +191,12 @@ fn ssh_keys_token_request_body(
     code: &str,
     client_encryption_key: &str,
     code_verifier: Option<&str>,
+    client_id: Option<&str>,
 ) -> String {
+    let client_id = client_id.unwrap_or(&payload.client_id);
     let mut body = format!(
         "client_id={}&client_secret={}&grant_type=ssh_keys&code={}&client_encryption_key={}&client_encryption_alg={}",
-        form_encode(&payload.client_id),
+        form_encode(client_id),
         form_encode(CLIENT_SECRET),
         form_encode(code),
         form_encode(client_encryption_key),
@@ -384,6 +437,7 @@ mod tests {
             "authorization code",
             "client encryption key",
             Some("code verifier"),
+            Some("username@example.com"),
         );
 
         assert!(body.contains("client_id=username%40example.com"));

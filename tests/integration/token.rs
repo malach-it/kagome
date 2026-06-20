@@ -340,6 +340,24 @@ fn returns_ssh_keys_response_for_userinfo_authorization_code_client_id() {
 }
 
 #[test]
+fn returns_ssh_keys_response_for_authorization_code_username_host_client_id() {
+    let body = format!(
+        "client_id=username%40localhost%3A4000&client_secret=client_secret&grant_type=ssh_keys&code={}&code_verifier={}",
+        valid_authorization_code_with_client_id_and_username("username@localhost:4000", "username"),
+        query_encode(SSH_KEYS_CODE_VERIFIER)
+    );
+    let response = send_form_token_request(&body);
+    let certificate = json_string_field(&response, "ssh_certificate")
+        .expect("token response should include ssh certificate");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert_ssh_certificate_key_id(&certificate, "username@localhost:4000");
+    assert_ssh_certificate_principal(&certificate, "username");
+}
+
+#[test]
 fn returns_token_response_for_form_code_chain_authorization_code_grant_type() {
     let body = format!(
         "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code&id_token={}&code={}",

@@ -5,7 +5,12 @@ pub const CLIENT_SECRET: &str = "client_secret";
 pub const REDIRECT_URI: &str = "https://client.example.com/callback";
 pub const LOOPBACK_REDIRECT_URI_SCHEME: &str = "http";
 pub const USERNAME_LOCALHOST_CLIENT_ID: &str = "username@localhost:4000";
+pub const OTHER_USERNAME_LOCALHOST_CLIENT_ID: &str = "other_username@localhost:4000";
 pub const USERNAME_LOCALHOST_REDIRECT_URI: &str = "http://127.0.0.1:4001/oauth/callback";
+const LOOPBACK_CLIENT_IDS: [&str; 2] = [
+    USERNAME_LOCALHOST_CLIENT_ID,
+    OTHER_USERNAME_LOCALHOST_CLIENT_ID,
+];
 
 #[derive(Debug)]
 pub struct ClientCredentials {
@@ -17,7 +22,7 @@ pub struct ClientCredentials {
 pub trait Validate {
     fn request_client_id(&self) -> Option<&str>;
     fn valid_client_id(&self, client_id: &str) -> bool {
-        client_id == CLIENT_ID || client_id == USERNAME_LOCALHOST_CLIENT_ID
+        client_id == CLIENT_ID || valid_loopback_client_id(client_id)
     }
     fn request_client_secret(&self) -> Option<&str> {
         None
@@ -104,10 +109,13 @@ pub fn loopback_redirect_uri_for_address(address: &str) -> String {
     )
 }
 
+pub fn valid_loopback_client_id(client_id: &str) -> bool {
+    LOOPBACK_CLIENT_IDS.contains(&client_id)
+}
+
 fn valid_redirect_uri(client_id: &str, redirect_uri: &str) -> bool {
     redirect_uri == REDIRECT_URI
-        || (client_id == USERNAME_LOCALHOST_CLIENT_ID
-            && redirect_uri == USERNAME_LOCALHOST_REDIRECT_URI)
+        || (valid_loopback_client_id(client_id) && redirect_uri == USERNAME_LOCALHOST_REDIRECT_URI)
         || (resource_owner_credentials(client_id).is_some()
             && redirect_uri == loopback_redirect_uri())
 }
