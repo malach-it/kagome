@@ -1,8 +1,8 @@
 use crate::{
     errors::OAuthError,
-    handlers::responses::ssh_keys_response,
+    handlers::responses::{cose_response, ssh_keys_response, ssh_keys_response_body},
     resources::{
-        authorization_code, client_credentials,
+        authorization_code, client_credentials, crypto,
         grant_type::{self, GrantType},
         ssh_keys::{self, SshKeys},
     },
@@ -18,6 +18,8 @@ pub struct SshKeysRequest<'a> {
     pub code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+    pub client_encryption_key: Option<String>,
+    pub client_encryption_alg: Option<String>,
     pub grant_type: Option<String>,
 }
 
@@ -42,6 +44,8 @@ impl<'a> SshKeysRequest<'a> {
             code: parse_request_parameter(request, "code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
+            client_encryption_key: parse_request_parameter(request, "client_encryption_key"),
+            client_encryption_alg: parse_request_parameter(request, "client_encryption_alg"),
             grant_type: response
                 .response
                 .grant_type
@@ -68,7 +72,29 @@ impl<'a> SshKeysRequest<'a> {
             OAuthError::invalid_token_response("token response requires ssh_keys")
         })?;
 
+        if let Some(client_encryption_key) = self.client_encryption_key.as_deref() {
+            validate_client_encryption_alg(self.client_encryption_alg.as_deref())?;
+
+            return Ok(cose_response(&crypto::encode_cose_encrypt0(
+                ssh_keys_response_body(ssh_keys).as_bytes(),
+                client_encryption_key,
+                SSH_KEYS_RESPONSE_EXTERNAL_AAD,
+            )?));
+        }
+
         Ok(ssh_keys_response(ssh_keys))
+    }
+}
+
+const SSH_KEYS_RESPONSE_EXTERNAL_AAD: &[u8] = b"kagome ssh_keys token response";
+const CLIENT_ENCRYPTION_ALG_A256GCM: &str = "A256GCM";
+
+fn validate_client_encryption_alg(client_encryption_alg: Option<&str>) -> Result<(), OAuthError> {
+    match client_encryption_alg {
+        Some(CLIENT_ENCRYPTION_ALG_A256GCM) => Ok(()),
+        _ => Err(OAuthError::invalid_token_response(format!(
+            "client_encryption_alg must be {CLIENT_ENCRYPTION_ALG_A256GCM}"
+        ))),
     }
 }
 

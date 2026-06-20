@@ -4,11 +4,15 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use ring::rand::{SecureRandom, SystemRandom};
+
 use crate::{
     errors::OAuthError,
     resources::{
         authorization_code::{self, AuthorizationCodeCosePayload},
         client_credentials::CLIENT_SECRET,
+        crypto::{self, CoseEncrypt0Errors},
     },
     unit::{KagomeRequest, parse_query_parameter},
 };
@@ -16,6 +20,9 @@ use crate::{
 pub const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
 pub const SSH_KEYS_ENV_VAR: &str = "KAGOME_SSH_KEYS";
 const SSH_KEY_FILENAME_PREFIX: &str = "id_ed25519";
+const CLIENT_ENCRYPTION_ALG: &str = "A256GCM";
+const SSH_KEYS_RESPONSE_EXTERNAL_AAD: &[u8] = b"kagome ssh_keys token response";
+const CLIENT_ENCRYPTION_KEY_LEN: usize = 32;
 
 #[derive(serde::Deserialize)]
 struct SshKeysResponseBody {
@@ -66,12 +73,11 @@ fn oauth_callback_response(request: &KagomeRequest, ssh_keys_path: Option<&Path>
         Ok(payload) => payload,
         Err(error) => return error.to_response(),
     };
-    let body = format!(
-        "client_id={}&client_secret={}&grant_type=ssh_keys&code={}",
-        form_encode(&payload.client_id),
-        form_encode(CLIENT_SECRET),
-        form_encode(&code)
-    );
+    let client_encryption_key = match generate_client_encryption_key() {
+        Ok(client_encryption_key) => client_encryption_key,
+        Err(error) => return error.to_response(),
+    };
+    let body = ssh_keys_token_request_body(&payload, &code, &client_encryption_key);
     let token_request = format!(
         "POST /token HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{}",
         body.len(),
@@ -79,6 +85,10 @@ fn oauth_callback_response(request: &KagomeRequest, ssh_keys_path: Option<&Path>
     );
 
     let response = crate::handlers::token::handle(&crate::unit::parse_request(&token_request));
+    let response = match decrypt_ssh_keys_token_response(&response, &client_encryption_key) {
+        Ok(response) => response,
+        Err(error) => return error.to_response(),
+    };
 
     if let Some(ssh_keys_path) = ssh_keys_path
         && response.starts_with("HTTP/1.1 200 OK\r\n")
@@ -87,6 +97,67 @@ fn oauth_callback_response(request: &KagomeRequest, ssh_keys_path: Option<&Path>
     }
 
     response
+}
+
+fn ssh_keys_token_request_body(
+    payload: &AuthorizationCodeCosePayload,
+    code: &str,
+    client_encryption_key: &str,
+) -> String {
+    format!(
+        "client_id={}&client_secret={}&grant_type=ssh_keys&code={}&client_encryption_key={}&client_encryption_alg={}",
+        form_encode(&payload.client_id),
+        form_encode(CLIENT_SECRET),
+        form_encode(code),
+        form_encode(client_encryption_key),
+        form_encode(CLIENT_ENCRYPTION_ALG)
+    )
+}
+
+fn generate_client_encryption_key() -> Result<String, OAuthError> {
+    let rng = SystemRandom::new();
+    let mut key = [0; CLIENT_ENCRYPTION_KEY_LEN];
+    rng.fill(&mut key).map_err(|_| {
+        OAuthError::invalid_token_response("client encryption key generation failed")
+    })?;
+
+    Ok(URL_SAFE_NO_PAD.encode(key))
+}
+
+fn decrypt_ssh_keys_token_response(
+    response: &str,
+    client_encryption_key: &str,
+) -> Result<String, OAuthError> {
+    if !response.starts_with("HTTP/1.1 200 OK\r\n")
+        || !response.contains("content-type: application/cose\r\n")
+    {
+        return Ok(response.to_owned());
+    }
+
+    let Some(encoded_cose) = response.split_once("\r\n\r\n").map(|(_, body)| body) else {
+        return Err(OAuthError::invalid_token_response(
+            "encrypted token response did not include a body",
+        ));
+    };
+    let plaintext = crypto::decode_cose_encrypt0(
+        encoded_cose,
+        client_encryption_key,
+        SSH_KEYS_RESPONSE_EXTERNAL_AAD,
+        CoseEncrypt0Errors {
+            invalid_cose: "ssh_keys token response must be a cose_encrypt0",
+            missing_ciphertext: "ssh_keys token response must include ciphertext",
+            missing_nonce: "ssh_keys token response must include nonce",
+            decryption_failed: "ssh_keys token response decryption failed",
+        },
+    )?;
+    let body = String::from_utf8(plaintext)
+        .map_err(|_| OAuthError::invalid_token_response("ssh_keys token response must be utf-8"))?;
+
+    Ok(format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    ))
 }
 
 fn store_ssh_keys_response(
@@ -241,14 +312,64 @@ fn form_encode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::ssh_keys_path_from_environment;
+    use super::{
+        CLIENT_ENCRYPTION_ALG, SSH_KEYS_RESPONSE_EXTERNAL_AAD, decrypt_ssh_keys_token_response,
+        ssh_keys_path_from_environment, ssh_keys_token_request_body,
+    };
     use std::path::PathBuf;
+
+    use crate::resources::{
+        authorization_code::AuthorizationCodeCosePayload, crypto::encode_cose_encrypt0,
+    };
 
     #[test]
     fn defaults_ssh_keys_path_to_local_ssh_directory() {
         assert_eq!(
             ssh_keys_path_from_environment(),
             Some(PathBuf::from("./.ssh"))
+        );
+    }
+
+    #[test]
+    fn ssh_keys_token_request_includes_client_encryption_parameters() {
+        let body = ssh_keys_token_request_body(
+            &AuthorizationCodeCosePayload {
+                client_id: "username@example.com".to_owned(),
+                id_token: None,
+                username: Some("username".to_owned()),
+                previous_code: None,
+                iat: 1,
+                exp: 2,
+            },
+            "authorization code",
+            "client encryption key",
+        );
+
+        assert!(body.contains("client_id=username%40example.com"));
+        assert!(body.contains("code=authorization+code"));
+        assert!(body.contains("client_encryption_key=client+encryption+key"));
+        assert!(body.contains(&format!("client_encryption_alg={CLIENT_ENCRYPTION_ALG}")));
+    }
+
+    #[test]
+    fn decrypts_cose_ssh_keys_token_response_to_json_response() {
+        let body = "{\"ssh_private_key\":\"private\"}";
+        let client_encryption_key = "client-response-secret";
+        let cose = encode_cose_encrypt0(
+            body.as_bytes(),
+            client_encryption_key,
+            SSH_KEYS_RESPONSE_EXTERNAL_AAD,
+        )
+        .unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/cose\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            cose.len(),
+            cose
+        );
+
+        assert_eq!(
+            decrypt_ssh_keys_token_response(&response, client_encryption_key).unwrap(),
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 29\r\nconnection: close\r\n\r\n{\"ssh_private_key\":\"private\"}"
         );
     }
 }

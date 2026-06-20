@@ -52,15 +52,25 @@ pub fn authorization_code_response(authorization_code: &AuthorizationCode) -> St
 }
 
 pub fn ssh_keys_response(ssh_keys: &SshKeys) -> String {
-    let response_body = format!(
+    http_json_response(&ssh_keys_response_body(ssh_keys))
+}
+
+pub fn ssh_keys_response_body(ssh_keys: &SshKeys) -> String {
+    format!(
         "{{\"ssh_private_key\":\"{}\",\"ssh_public_key\":\"{}\",\"ssh_certificate\":\"{}\",\"expires_in\":{}}}",
         escape_json(&ssh_keys.private_key),
         escape_json(&ssh_keys.public_key),
         escape_json(&ssh_keys.certificate),
         ssh_keys.expires_in
-    );
+    )
+}
 
-    http_json_response(&response_body)
+pub fn cose_response(cose: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/cose\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        cose.len(),
+        cose
+    )
 }
 
 pub fn code_redirect_response(

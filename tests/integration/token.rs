@@ -208,6 +208,46 @@ fn returns_ssh_keys_response_for_json_ssh_keys_grant_type() {
 }
 
 #[test]
+fn returns_cose_encrypted_ssh_keys_response_when_client_encryption_is_requested() {
+    let client_encryption_key = "client-response-secret";
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=ssh_keys&code={}&client_encryption_key={client_encryption_key}&client_encryption_alg=A256GCM",
+        valid_authorization_code_with_username("username")
+    );
+    let response = send_form_token_request(&body);
+    let plaintext = decrypt_cose_response_body(&response, client_encryption_key);
+    let certificate = json_string_value(&plaintext, "ssh_certificate")
+        .expect("encrypted token response should include ssh certificate");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: application/cose\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(!response.contains("\"ssh_private_key\""));
+    assert!(plaintext.contains("\"ssh_private_key\":\""));
+    assert!(plaintext.contains("\"ssh_public_key\":\"ssh-ed25519 "));
+    assert!(certificate.starts_with("ssh-ed25519-cert-v01@openssh.com "));
+    assert!(plaintext.contains(&format!(
+        "\"expires_in\":{}",
+        kagome::resources::ssh_keys::SSH_KEYS_TTL_SECONDS
+    )));
+    assert_ssh_certificate_principal(&certificate, "username");
+}
+
+#[test]
+fn returns_oauth_error_for_unsupported_client_encryption_alg() {
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=ssh_keys&code={}&client_encryption_key=client-response-secret&client_encryption_alg=dir",
+        valid_authorization_code_with_username("username")
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("\"error\":\"invalid_token_response\""));
+    assert!(response.contains("\"error_description\":\"client_encryption_alg must be A256GCM\""));
+}
+
+#[test]
 fn returns_ssh_keys_response_for_userinfo_authorization_code_client_id() {
     let body = format!(
         "client_id=username%40example.com&client_secret=client_secret&grant_type=ssh_keys&code={}",
@@ -497,11 +537,36 @@ fn send_json_token_request(body: &str) -> String {
 }
 
 fn json_string_field(response: &str, field: &str) -> Option<String> {
-    let field = format!("\"{field}\":\"");
-    let start = response.find(&field)? + field.len();
-    let end = response[start..].find('"')?;
+    json_string_value(response, field)
+}
 
-    Some(response[start..start + end].to_owned())
+fn json_string_value(json: &str, field: &str) -> Option<String> {
+    let field = format!("\"{field}\":\"");
+    let start = json.find(&field)? + field.len();
+    let end = json[start..].find('"')?;
+
+    Some(json[start..start + end].to_owned())
+}
+
+fn decrypt_cose_response_body(response: &str, client_encryption_key: &str) -> String {
+    let encoded_cose = response
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .expect("response should include body");
+    let plaintext = kagome::resources::crypto::decode_cose_encrypt0(
+        encoded_cose,
+        client_encryption_key,
+        b"kagome ssh_keys token response",
+        kagome::resources::crypto::CoseEncrypt0Errors {
+            invalid_cose: "response must be a cose_encrypt0",
+            missing_ciphertext: "response must include ciphertext",
+            missing_nonce: "response must include nonce",
+            decryption_failed: "response decryption failed",
+        },
+    )
+    .expect("response should decrypt");
+
+    String::from_utf8(plaintext).expect("response should be utf-8")
 }
 
 fn valid_id_token() -> String {
