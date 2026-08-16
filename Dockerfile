@@ -1,4 +1,4 @@
-FROM ghcr.io/malach-it/boruta-gateway:kubernetes-ingress-controller.alpha.7 AS gateway
+FROM ghcr.io/malach-it/boruta-gateway:kubernetes-ingress-controller.alpha.14 AS gateway
 
 FROM rust:1-alpine AS builder
 
