@@ -124,6 +124,34 @@ fn redirects_to_client_redirect_uri_with_id_token_for_client_id_resource_owner_c
 }
 
 #[test]
+fn returns_oauth_error_for_authorize_ssh_keys_response_type() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=ssh_keys&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(
+        response
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
+    );
+}
+
+#[test]
+fn returns_oauth_error_for_authorize_code_ssh_keys_response_type() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code+ssh_keys&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(
+        response
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token</p>")
+    );
+}
+
+#[test]
 fn redirects_to_client_redirect_uri_with_id_token_and_access_token_for_post_authorize_id_token_token_response_type()
  {
     let response = send_post_authorize_request(&format!(
@@ -440,6 +468,21 @@ fn redirects_for_authorize_get_request_with_client_id_resource_owner_credentials
 }
 
 #[test]
+fn redirects_to_loopback_callback_for_authorize_get_request_with_client_id_resource_owner_credentials()
+ {
+    let response = send_request(
+        "GET /authorize?response_type=code&client_id=username%3Apassword%40example.com&redirect_uri=http%3A%2F%2F127.0.0.1%3A4001%2Foauth%2Fcallback HTTP/1.1\r\nhost: example.com\r\n\r\n",
+    );
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: http://127.0.0.1:4001/oauth/callback?code="));
+    assert_eq!(payload.client_id, "username@example.com");
+    assert_eq!(payload.username, Some("username".to_owned()));
+}
+
+#[test]
 fn redirects_for_initial_authorize_get_request_with_client_id_resource_owner_credentials() {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
@@ -482,6 +525,24 @@ fn returns_login_page_for_authorize_get_request_with_username_host_client_id() {
             .contains("name=\"username\" autocomplete=\"username\" value=\"username\" disabled")
     );
     assert!(response.contains("type=\"hidden\" name=\"username\" value=\"username\""));
+    assert!(!response.contains("client_id is invalid"));
+}
+
+#[test]
+fn returns_login_page_for_authorize_get_request_with_other_username_host_client_id() {
+    let response = send_request(
+        "GET /authorize?response_type=code&client_id=other_username%40localhost%3A4000&redirect_uri=http%3A%2F%2F127.0.0.1%3A4001%2Foauth%2Fcallback HTTP/1.1\r\nhost: localhost:4000\r\n\r\n",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+    assert!(
+        response.contains(
+            "name=\"username\" autocomplete=\"username\" value=\"other_username\" disabled"
+        )
+    );
+    assert!(response.contains("type=\"hidden\" name=\"username\" value=\"other_username\""));
     assert!(!response.contains("client_id is invalid"));
 }
 
@@ -680,6 +741,22 @@ fn returns_encrypted_code_containing_authorize_request_claims() {
         payload.exp,
         payload.iat + kagome::resources::authorization_code::AUTHORIZATION_CODE_TTL_SECONDS
     );
+}
+
+#[test]
+fn returns_encrypted_code_containing_s256_code_challenge() {
+    let code_verifier = "correct horse battery staple";
+    let code_challenge = kagome::resources::code_verifier::code_challenge_s256(code_verifier);
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&code_challenge={}&code_challenge_method=S256",
+        valid_redirect_uri(),
+        query_encode(&code_challenge)
+    ));
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert_eq!(payload.code_challenge, Some(code_challenge));
+    assert_eq!(payload.code_challenge_method, Some("S256".to_owned()));
 }
 
 #[test]
@@ -1016,6 +1093,26 @@ fn query_parameter(query: &str, name: &str) -> Option<String> {
             None
         }
     })
+}
+
+fn query_encode(value: &str) -> String {
+    value
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                vec![byte as char]
+            }
+            b' ' => vec!['+'],
+            _ => {
+                let hex = b"0123456789ABCDEF";
+                vec![
+                    '%',
+                    hex[(byte >> 4) as usize] as char,
+                    hex[(byte & 0x0F) as usize] as char,
+                ]
+            }
+        })
+        .collect()
 }
 
 fn valid_redirect_uri() -> &'static str {

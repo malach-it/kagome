@@ -21,6 +21,7 @@ pub struct CodeChainRequest<'a> {
     pub authorization_code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+    pub code_verifier: Option<String>,
     id_token: Option<String>,
 }
 
@@ -42,6 +43,7 @@ impl<'a> CodeChainRequest<'a> {
             authorization_code: parse_request_parameter(request, "authorization_code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
+            code_verifier: parse_request_parameter(request, "code_verifier"),
             id_token: parse_request_parameter(request, "id_token"),
         }
     }
@@ -59,6 +61,7 @@ impl<'a> CodeChainRequest<'a> {
             authorization_code: parse_request_parameter(request, "authorization_code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
+            code_verifier: parse_request_parameter(request, "code_verifier"),
             id_token: parse_request_parameter(request, "id_token"),
         }
     }
@@ -114,6 +117,10 @@ impl<'a> authorization_code::Validate for CodeChainRequest<'a> {
 
     fn client_id(&self) -> Option<&str> {
         self.response.client_id.as_deref()
+    }
+
+    fn code_verifier(&self) -> Option<&str> {
+        self.code_verifier.as_deref()
     }
 
     fn add_authorization_code(&mut self, authorization_code: &str) {

@@ -30,6 +30,8 @@ pub struct AuthorizeLoginRequest<'a> {
     pub redirect_uri: Option<String>,
     pub authorization_code: Option<String>,
     pub metadata_policy: Option<String>,
+    pub code_challenge: Option<String>,
+    pub code_challenge_method: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -59,6 +61,8 @@ impl<'a> AuthorizeLoginRequest<'a> {
             redirect_uri: parse_query_parameter(request, "redirect_uri"),
             authorization_code: parse_query_parameter(request, "code"),
             metadata_policy: parse_query_parameter(request, "metadata_policy"),
+            code_challenge: parse_query_parameter(request, "code_challenge"),
+            code_challenge_method: parse_query_parameter(request, "code_challenge_method"),
             username: None,
             password: None,
         }
@@ -210,6 +214,7 @@ impl<'a> client_credentials::Validate for AuthorizeLoginRequest<'a> {
 
     fn valid_client_id(&self, client_id: &str) -> bool {
         client_id == client_credentials::CLIENT_ID
+            || client_credentials::valid_loopback_client_id(client_id)
             || valid_authorize_client_id(client_id, self.request)
     }
 
@@ -288,6 +293,10 @@ impl<'a> authorization_code::Validate for AuthorizeLoginRequest<'a> {
     fn add_authorization_code(&mut self, authorization_code: &str) {
         self.response.previous_authorization_code = Some(authorization_code.to_owned());
     }
+
+    fn validate_code_verifier(&self) -> bool {
+        false
+    }
 }
 
 impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
@@ -301,6 +310,14 @@ impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
 
     fn id_token(&self) -> Option<&str> {
         None
+    }
+
+    fn code_challenge(&self) -> Option<&str> {
+        self.code_challenge.as_deref()
+    }
+
+    fn code_challenge_method(&self) -> Option<&str> {
+        self.code_challenge_method.as_deref()
     }
 
     fn username(&self) -> Option<&str> {

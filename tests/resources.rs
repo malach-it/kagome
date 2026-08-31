@@ -645,6 +645,32 @@ mod resources {
         }
 
         #[test]
+        fn validates_allowed_username_localhost_client_id() {
+            let request = token_request(Some("username@localhost:4000"));
+            let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
+            let token_response =
+                kagome::resources::client_credentials::validate(token_response).unwrap();
+
+            assert_eq!(
+                token_response.response.client_id,
+                Some("username@localhost:4000".to_owned())
+            );
+        }
+
+        #[test]
+        fn validates_allowed_other_username_localhost_client_id() {
+            let request = token_request(Some("other_username@localhost:4000"));
+            let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
+            let token_response =
+                kagome::resources::client_credentials::validate(token_response).unwrap();
+
+            assert_eq!(
+                token_response.response.client_id,
+                Some("other_username@localhost:4000".to_owned())
+            );
+        }
+
+        #[test]
         fn returns_oauth_error_for_missing_client_id() {
             let request = token_request(None);
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
@@ -703,6 +729,63 @@ mod resources {
         }
 
         #[test]
+        fn validates_loopback_redirect_uri_for_resource_owner_client_id() {
+            let redirect_uri = kagome::resources::client_credentials::loopback_redirect_uri();
+            let mut request = authorize_request_with_client_id_and_redirect_uri(
+                "username:password@example.com",
+                Some(&redirect_uri),
+            );
+            request.headers.push(kagome::unit::HttpHeader {
+                name: "host".to_owned(),
+                value: "example.com".to_owned(),
+            });
+            let authorize_response =
+                kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
+            let authorize_response =
+                kagome::resources::client_credentials::validate(authorize_response).unwrap();
+
+            assert_eq!(authorize_response.response.redirect_uri, Some(redirect_uri));
+        }
+
+        #[test]
+        fn validates_allowed_callback_redirect_uri_for_username_localhost_client_id() {
+            let redirect_uri =
+                kagome::resources::client_credentials::USERNAME_LOCALHOST_REDIRECT_URI;
+            let request = authorize_request_with_client_id_and_redirect_uri(
+                "username@localhost:4000",
+                Some(redirect_uri),
+            );
+            let authorize_response =
+                kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
+            let authorize_response =
+                kagome::resources::client_credentials::validate(authorize_response).unwrap();
+
+            assert_eq!(
+                authorize_response.response.redirect_uri,
+                Some(redirect_uri.to_owned())
+            );
+        }
+
+        #[test]
+        fn validates_allowed_callback_redirect_uri_for_other_username_localhost_client_id() {
+            let redirect_uri =
+                kagome::resources::client_credentials::USERNAME_LOCALHOST_REDIRECT_URI;
+            let request = authorize_request_with_client_id_and_redirect_uri(
+                "other_username@localhost:4000",
+                Some(redirect_uri),
+            );
+            let authorize_response =
+                kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
+            let authorize_response =
+                kagome::resources::client_credentials::validate(authorize_response).unwrap();
+
+            assert_eq!(
+                authorize_response.response.redirect_uri,
+                Some(redirect_uri.to_owned())
+            );
+        }
+
+        #[test]
         fn returns_oauth_error_for_missing_redirect_uri() {
             let request = authorize_request(None);
             let authorize_response =
@@ -752,7 +835,14 @@ mod resources {
         }
 
         fn authorize_request(redirect_uri: Option<&str>) -> kagome::unit::KagomeRequest {
-            let mut request = authorize_request_with_client_id("client_id");
+            authorize_request_with_client_id_and_redirect_uri("client_id", redirect_uri)
+        }
+
+        fn authorize_request_with_client_id_and_redirect_uri(
+            client_id: &str,
+            redirect_uri: Option<&str>,
+        ) -> kagome::unit::KagomeRequest {
+            let mut request = authorize_request_with_client_id(client_id);
             if let Some(redirect_uri) = redirect_uri {
                 request
                     .query_params
@@ -1248,7 +1338,7 @@ mod resources {
             assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
                 error.error_description,
-                "grant_type must be one of: client_credentials, code_chain, authorization_code"
+                "grant_type must be one of: client_credentials, code_chain, authorization_code, ssh_keys"
             );
         }
 
@@ -1261,7 +1351,7 @@ mod resources {
             assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
                 error.error_description,
-                "grant_type must be one of: client_credentials, code_chain, authorization_code"
+                "grant_type must be one of: client_credentials, code_chain, authorization_code, ssh_keys"
             );
         }
 

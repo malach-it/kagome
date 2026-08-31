@@ -8,11 +8,19 @@ use std::{
 
 pub const ADDRESS_ENV_VAR: &str = "KAGOME_SERVER_ADDRESS";
 pub const DEFAULT_ADDRESS: &str = "0.0.0.0:4000";
+pub const LOOPBACK_ADDRESS_ENV_VAR: &str = "KAGOME_LOOPBACK_SERVER_ADDRESS";
+pub const DEFAULT_LOOPBACK_ADDRESS: &str = "127.0.0.1:4001";
 pub const WORKERS_ENV_VAR: &str = "KAGOME_WORKERS";
 pub const DEFAULT_WORKERS: usize = 4;
 
+pub type RouteRawRequest = fn(&str) -> String;
+
 pub fn address_from_environment() -> String {
     env::var(ADDRESS_ENV_VAR).unwrap_or_else(|_| DEFAULT_ADDRESS.to_owned())
+}
+
+pub fn loopback_address_from_environment() -> String {
+    env::var(LOOPBACK_ADDRESS_ENV_VAR).unwrap_or_else(|_| DEFAULT_LOOPBACK_ADDRESS.to_owned())
 }
 
 pub fn worker_count_from_environment() -> usize {
@@ -36,7 +44,25 @@ pub fn serve_with_workers(address: impl ToSocketAddrs, worker_count: usize) -> i
     serve_listener_with_workers(listener, worker_count)
 }
 
+pub fn serve_with_route(
+    address: impl ToSocketAddrs,
+    worker_count: usize,
+    route_raw_request: RouteRawRequest,
+) -> io::Result<()> {
+    let listener = TcpListener::bind(address)?;
+
+    serve_listener_with_route(listener, worker_count, route_raw_request)
+}
+
 pub fn serve_listener_with_workers(listener: TcpListener, worker_count: usize) -> io::Result<()> {
+    serve_listener_with_route(listener, worker_count, crate::router::route_raw_request)
+}
+
+pub fn serve_listener_with_route(
+    listener: TcpListener,
+    worker_count: usize,
+    route_raw_request: RouteRawRequest,
+) -> io::Result<()> {
     let worker_count = worker_count.max(1);
 
     println!("{}", listener.local_addr()?);
@@ -47,7 +73,9 @@ pub fn serve_listener_with_workers(listener: TcpListener, worker_count: usize) -
 
     for _ in 0..worker_count {
         let receiver = Arc::clone(&receiver);
-        workers.push(thread::spawn(move || worker_loop(receiver)));
+        workers.push(thread::spawn(move || {
+            worker_loop(receiver, route_raw_request)
+        }));
     }
 
     let accept_result = accept_connections(listener, sender.clone());
@@ -73,7 +101,10 @@ fn accept_connections(listener: TcpListener, sender: mpsc::Sender<TcpStream>) ->
     Ok(())
 }
 
-fn worker_loop(receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>) {
+fn worker_loop(
+    receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>,
+    route_raw_request: RouteRawRequest,
+) {
     loop {
         let stream = {
             let receiver = receiver
@@ -84,7 +115,7 @@ fn worker_loop(receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>) {
 
         match stream {
             Ok(stream) => {
-                if let Err(error) = handle_connection(stream)
+                if let Err(error) = handle_connection(stream, route_raw_request)
                     && !is_client_disconnect(&error)
                 {
                     eprintln!("failed to handle connection: {error}");
@@ -95,13 +126,13 @@ fn worker_loop(receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>) {
     }
 }
 
-fn handle_connection(stream: TcpStream) -> io::Result<()> {
+fn handle_connection(stream: TcpStream, route_raw_request: RouteRawRequest) -> io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
 
     while let Some(request) = read_http_request(&mut reader)? {
         let should_keep_alive = raw_request_connection_keep_alive(&request);
-        let mut response = crate::router::route_raw_request(&request);
+        let mut response = route_raw_request(&request);
 
         if should_keep_alive {
             response = response.replace("connection: close", "connection: keep-alive");

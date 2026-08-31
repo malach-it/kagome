@@ -3,7 +3,7 @@ use crate::{
     resources::{
         access_token, client_credentials,
         grant_type::{self, GrantType},
-        id_token,
+        id_token, ssh_keys,
     },
     unit::KagomeRequest,
 };
@@ -12,7 +12,7 @@ use super::responses::{log_timestamp, logged_response};
 
 pub use crate::requests::{
     AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
-    CodeChainRequest, GrantTypeRequest, GrantTypeResponse,
+    CodeChainRequest, GrantTypeRequest, GrantTypeResponse, SshKeysRequest,
 };
 
 pub fn handle(request: &KagomeRequest) -> String {
@@ -39,6 +39,13 @@ fn handle_validated_grant_type(
         [GrantType::ClientCredentials, ..] => client_credentials(
             ClientCredentialsRequest::from_grant_type_response(&token_request, request),
         )
+        .and_then(logged_response),
+        [GrantType::SshKeys, ..] => {
+            ssh_keys(SshKeysRequest::from_grant_type_response(
+                &token_request,
+                request,
+            ))
+        }
         .and_then(logged_response),
         [GrantType::CodeChain, GrantType::AuthorizationCode, ..] => code_chain_authorization_code(
             CodeChainRequest::from_grant_type_response(&token_request, request),
@@ -92,6 +99,15 @@ fn client_credentials(
     token_request: ClientCredentialsRequest,
 ) -> Result<ClientCredentialsRequest, OAuthError> {
     client_credentials::validate(token_request).and_then(access_token::generate)
+}
+
+fn ssh_keys(token_request: SshKeysRequest) -> Result<SshKeysRequest, OAuthError> {
+    use crate::resources::authorization_code;
+
+    client_credentials::validate(token_request)
+        .and_then(authorization_code::validate)
+        .and_then(SshKeysRequest::add_credentials_from_authorization_code)
+        .and_then(ssh_keys::generate)
 }
 
 fn log_token_failure(error: &OAuthError) {
