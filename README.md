@@ -3,7 +3,7 @@
 Proof of concept of OAuth 2.0 and satellite specifications implementation in
 Rust
 
-## Agentic Chat
+## Agentic Chat (specification additions prototype)
 
 Run the agentic chat script through Docker Compose with:
 
