@@ -5,8 +5,9 @@ services:
     environment:
       KAGOME_SERVER_ADDRESS: ${KAGOME_SERVER_ADDRESS:-0.0.0.0:4000}
       KAGOME_WORKERS: ${KAGOME_WORKERS:-4}
+      PORT: ${PORT:-8044}
     ports:
-      - "${KAGOME_PORT:-4000}:${KAGOME_PORT:-4000}"
+      - "${PORT:-8044}:${PORT:-8044}"
     healthcheck:
       test:
         [

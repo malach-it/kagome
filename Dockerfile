@@ -21,6 +21,8 @@ RUN chmod +x /usr/local/bin/kagome-gateway
 
 ENV KAGOME_SERVER_ADDRESS=127.0.0.1:4000
 ENV KAGOME_WORKERS=4
-ENV BORUTA_GATEWAY_CONFIGURATION_PATH=/etc/boruta/gateway.yml
+ENV PORT=8044
+
+EXPOSE $PORT
 
 CMD ["kagome-gateway"]

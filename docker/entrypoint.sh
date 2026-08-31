@@ -1,8 +1,22 @@
 #!/bin/sh
 set -eu
 
+validate_port() {
+  case ${PORT:-} in
+    ''|*[!0-9]*|??????*)
+      echo "invalid PORT: expected an integer between 1 and 65535" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    echo "invalid PORT: expected an integer between 1 and 65535" >&2
+    exit 1
+  fi
+}
+
 render_boruta_configuration() {
-  configuration_path=$BORUTA_GATEWAY_CONFIGURATION_PATH
+  configuration_path=/etc/boruta/gateway.yml
   aliases_temporary_path="${configuration_path}.aliases.tmp"
   virtual_host_temporary_path="${configuration_path}.virtual-host.tmp"
 
@@ -64,12 +78,17 @@ terminate() {
 
 trap terminate INT TERM
 
+validate_port
 render_boruta_configuration
 
 kagome &
 kagome_pid=$!
 
-/gateway/bin/boruta_gateway start &
+BORUTA_GATEWAY_SIDECAR_HTTPS_SERVER=true \
+  BORUTA_GATEWAY_SIDECAR_HTTPS_PORT="$PORT" \
+  BORUTA_GATEWAY_SIDECAR_HTTPS_VERIFY_CLIENT_CERTIFICATE=true \
+  BORUTA_GATEWAY_CONFIGURATION_PATH=/etc/boruta/gateway.yml \
+  /gateway/bin/boruta_gateway start &
 gateway_pid=$!
 
 while true; do
