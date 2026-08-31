@@ -1,0 +1,11 @@
+---
+version: "1.0"
+configuration:
+  aliases: __BORUTA_GATEWAY_ALIASES__
+  microgateway:
+    - scheme: "http"
+      port: 4000
+      virtual_host: "__BORUTA_GATEWAY_VIRTUAL_HOST__"
+      host: "localhost"
+      uris: ["/"]
+      strip_uri: false
