@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
-base64 = "0.22.1"
+base64 = "0.23.1"
 ciborium = "0.2.2"
 coset = "0.4.2"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
