@@ -8,6 +8,41 @@
 - Test both passing behavior and error or edge cases for changed logic.
 - Fix any formatting, test, or lint failures before creating a commit.
 
+## Testing Strategy
+
+### Identity Flow Integration Tests
+
+- Organize identity flow integration tests by specification under
+  `tests/integration/flows/<specification_name>/`.
+- Cover one business rule per test case.
+- Exercise flows end to end through HTTP requests and assert externally observable
+  response behavior instead of implementation details.
+- Use deterministic fixtures or fixture builders when a flow requires tokens,
+  authorization codes, credentials, or other setup data.
+- Keep fixtures focused on test setup; do not use them to replace the behavior the
+  test is intended to exercise.
+- Put tests shared by multiple specifications in
+  `tests/integration/flows/common.rs`.
+- Put reusable OAuth fixtures and helpers in
+  `tests/integration/flows/oauth/mod.rs`.
+- Add both success and error or edge-case coverage for the flow affected by a
+  change.
+
+### Branch-Case Test Matrix
+
+- Before writing tests, identify every behavior-affecting branch in the flow and
+  list its possible cases.
+- Build a test matrix from those cases, including valid and invalid inputs,
+  required and optional values, supported representations, authentication
+  outcomes, and intermediate and final flow states where applicable.
+- Add a test for every reachable combination in the matrix. Keep each test
+  focused on one expected business rule or outcome.
+- Mark impossible combinations explicitly and explain why they cannot occur.
+- Document combinations that are intentionally equivalent, but only collapse
+  them into one test when they exercise the same path and produce the same
+  observable result.
+- Update the matrix whenever flow logic gains, removes, or changes a branch.
+
 ## Commit Messages
 
 - Use Conventional Commit messages.

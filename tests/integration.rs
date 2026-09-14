@@ -1,6 +1,5 @@
 mod integration {
-    mod authorize;
     mod echo;
+    mod flows;
     mod server;
-    mod token;
 }
