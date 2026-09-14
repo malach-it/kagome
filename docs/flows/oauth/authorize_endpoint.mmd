@@ -1,0 +1,33 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /authorize] --> method{HTTP method?}
+    method -- other --> not_found["`**HTTP 404** not found`"]
+    method -- GET --> response_type
+    method -- POST --> response_type{response_type supported and ordering valid?}
+    response_type -- no --> error
+    response_type -- yes --> client{client_id and redirect_uri valid?}
+    client -- no --> error
+    client -- yes --> code{Incoming chained code absent or valid?}
+    code -- no --> error
+    code -- yes --> policy{metadata_policy absent or valid?}
+    policy -- no --> error
+    policy -- yes --> get_or_post{GET or POST?}
+    get_or_post -- GET --> optional_owner{Optional resource owner credentials valid?}
+    optional_owner -- invalid --> error
+    optional_owner -- absent --> login["`**HTTP 200** login page`"]
+    optional_owner -- valid --> generate
+    get_or_post -- POST --> required_owner{Required resource owner credentials valid?}
+    required_owner -- no --> error
+    required_owner -- yes --> generate{Generate requested response?}
+    generate -- no --> error
+    generate -- code with remaining stages --> continue_chain["`**HTTP 302** /authorize with code and remaining response_type`"]
+    generate -- final code --> code_redirect["`**HTTP 302** client redirect with code`"]
+    generate -- token --> token_redirect["`**HTTP 302** client fragment with access_token`"]
+    generate -- id_token --> id_redirect["`**HTTP 302** client fragment with id_token`"]
+    generate -- id_token token --> oidc_redirect["`**HTTP 302** client fragment with id_token and access_token`"]
+    generate -- code token --> hybrid_token["`**HTTP 302** client redirect with code and access_token`"]
+    generate -- code id_token --> hybrid_id["`**HTTP 302** client redirect with code and id_token`"]
+    generate -- code id_token token --> hybrid_all["`**HTTP 302** client redirect with code, id_token, and access_token`"]
+    error{Redirect error format available?}
+    error -- yes --> error_redirect["`**HTTP 302** client redirect with OAuth error`"]
+    error -- no --> login_error["`**HTTP 400** login page with OAuth error`"]

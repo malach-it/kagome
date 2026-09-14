@@ -1,0 +1,21 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[POST /token] --> grant{grant_type starts with code_chain?}
+    grant -- no --> unsupported["`**HTTP 400** unsupported_grant_type`"]
+    grant -- yes --> client{client_id and client_secret valid?}
+    client -- no --> client_error["`**HTTP 400** invalid_client`"]
+    client -- yes --> previous{Previous authorization_code supplied?}
+    previous -- no --> id_token
+    previous -- yes --> previous_valid{Previous code valid and issued to client?}
+    previous_valid -- no --> previous_error["`**HTTP 400** invalid_grant`"]
+    previous_valid -- yes --> id_token{ID token valid?}
+    id_token -- no --> id_error["`**HTTP 400** invalid_grant`"]
+    id_token -- yes --> issue{New authorization code generated?}
+    issue -- no --> issue_error["`**HTTP 400** invalid_token_response`"]
+    issue -- yes --> combined{authorization_code also requested?}
+    combined -- no --> code_success["`**HTTP 200** authorization code`"]
+    combined -- yes --> exchange{Exchange code present, valid, and issued to client?}
+    exchange -- no --> exchange_error["`**HTTP 400** invalid_grant`"]
+    exchange -- yes --> access{Access token generated?}
+    access -- no --> access_error["`**HTTP 400** invalid_token_response`"]
+    access -- yes --> token_success["`**HTTP 200** bearer access token`"]

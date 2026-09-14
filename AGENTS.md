@@ -43,6 +43,27 @@
   observable result.
 - Update the matrix whenever flow logic gains, removes, or changes a branch.
 
+### Flow and Endpoint Branch Graphs
+
+- Maintain a Mermaid branch graph for every identity flow and HTTP endpoint.
+- Store each Mermaid source at
+  `docs/flows/<specification_name>/<flow_or_endpoint>.mmd` and its rendered SVG
+  beside it as `<flow_or_endpoint>.svg`.
+- Treat the Mermaid source as canonical and regenerate the SVG from it; do not
+  edit the generated SVG by hand.
+- Show every behavior-affecting decision, labeled branch, intermediate state,
+  and terminal success or error response represented in the branch-case test
+  matrix.
+- Keep every graph closed: each branch must start at a defined node and end at a
+  defined state or terminal outcome, with no dangling edges or unterminated
+  paths.
+- Use the same terminology in graphs, test matrices, and test names so branches
+  can be traced between documentation and coverage.
+- Update both the Mermaid source and rendered SVG whenever a flow or endpoint
+  branch is added, removed, reordered, or changes its observable outcome.
+- Review graph changes together with the corresponding test changes and verify
+  that every reachable graph path is covered by the branch-case test matrix.
+
 ## Commit Messages
 
 - Use Conventional Commit messages.

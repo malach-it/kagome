@@ -1,0 +1,20 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Start authorization code flow] --> authorize[GET or POST /authorize]
+    authorize --> authorize_valid{Authorization request and resource owner valid?}
+    authorize_valid -- no --> authorize_error["`**HTTP 400** login error or **HTTP 302** error redirect`"]
+    authorize_valid -- yes --> owner{Resource owner authenticated?}
+    owner -- no --> login["`**HTTP 200** login page`"]
+    owner -- yes --> issue{Authorization code generated?}
+    issue -- no --> issue_error["`**HTTP 400** authorization response error`"]
+    issue -- yes --> redirect["`**HTTP 302** redirect with code`"]
+    redirect --> token[POST /token with authorization_code grant]
+    token --> client_id{client_id present and valid?}
+    client_id -- no --> client_error["`**HTTP 400** invalid_client`"]
+    client_id -- yes --> secret{client_secret present and valid?}
+    secret -- no --> secret_error["`**HTTP 400** invalid_client`"]
+    secret -- yes --> code{code present, valid, and issued to client?}
+    code -- no --> code_error["`**HTTP 400** invalid_grant`"]
+    code -- yes --> generate{access token generated?}
+    generate -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
+    generate -- yes --> success["`**HTTP 200** bearer access token`"]

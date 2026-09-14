@@ -1,0 +1,22 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /token] --> route{POST /token?}
+    route -- no --> not_found["`**HTTP 404** not found`"]
+    route -- yes --> grant{First grant_type value?}
+    grant -- missing or unsupported --> unsupported["`**HTTP 400** unsupported_grant_type`"]
+    grant -- client_credentials --> client_flow[Run client credentials flow]
+    grant -- authorization_code --> auth_code_flow[Run authorization code exchange]
+    grant -- code_chain only or other suffix --> chain_flow[Run code-chain flow]
+    grant -- code_chain authorization_code --> combined_flow[Run code-chain and authorization-code exchange]
+    client_flow --> client_result{Flow result?}
+    auth_code_flow --> auth_result{Flow result?}
+    chain_flow --> chain_result{Flow result?}
+    combined_flow --> combined_result{Flow result?}
+    client_result -- error --> oauth_error["`**HTTP 400** OAuth error`"]
+    auth_result -- error --> oauth_error
+    chain_result -- error --> oauth_error
+    combined_result -- error --> oauth_error
+    client_result -- success --> access_success["`**HTTP 200** bearer access token`"]
+    auth_result -- success --> access_success
+    chain_result -- success --> code_success["`**HTTP 200** authorization code`"]
+    combined_result -- success --> access_success
