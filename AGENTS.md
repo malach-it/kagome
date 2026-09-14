@@ -8,9 +8,90 @@
 - Test both passing behavior and error or edge cases for changed logic.
 - Fix any formatting, test, or lint failures before creating a commit.
 
+## Handler, Request, and Resource Architecture
+
+### Handlers
+
+- Structure a handler as a branch selector around monadic `Result` pipelines.
+  The handler chooses the applicable flow, while each selected branch composes
+  validation, generation, and response steps.
+- Thread an owned request value through each pipeline. Every step must have the
+  shape `T -> Result<T, OAuthError>` until the final response conversion, so
+  validated and generated state remains in the request's response state.
+- Compose sequential protocol rules with `.and_then(...)`; use `?` when a branch
+  must run multiple pipelines or combine their results. Rely on `Result`
+  short-circuiting instead of manually checking and forwarding every error.
+- Preserve protocol order in the pipeline. A step may consume only state made
+  available by preceding steps; do not bypass the sequence by reading or
+  mutating downstream response state directly in the handler.
+- Make behavior-affecting branches explicit with `match`, preferably over typed
+  enums or ordered slices of them. Keep each arm focused on selecting or
+  composing a pipeline, and make every supported and terminal case visible.
+- Make all branches converge on the same `Result<_, OAuthError>` shape and a
+  shared success/error boundary. Log successful responses through
+  `logged_response`; log failures once and convert them to the endpoint's HTTP
+  error format at the outer handler boundary.
+- Keep reusable validation, generation, parsing, cryptographic rules, and HTTP
+  serialization out of branch arms. Put them in resource, request, or shared
+  response modules and compose them from the handler.
+- Keep routing separate from branching: routers select an endpoint from the HTTP
+  method and path; handlers select and execute the endpoint's protocol flow.
+
+### Requests
+
+- Treat each request type as the explicit input contract for one flow stage.
+  Parse into it all and only the HTTP parameters needed to select branches,
+  validate inputs, and generate that stage's result.
+- A parsed field may be optional at the HTTP boundary even when a later resource
+  operation requires it. Preserve the value as `Option<_>` on the request and
+  let the operation responsible for the protocol rule decide whether absence is
+  valid or produces an `OAuthError`.
+- Parse the flow's parameters once, in its constructor, through the shared query
+  or request-parameter helpers. Downstream handlers and resource operations must
+  use the request fields through capability traits instead of searching the raw
+  `KagomeRequest` again.
+- When a flow begins to depend on another parameter, add that parameter to the
+  request type, parse it in every applicable constructor, and expose it through
+  the resource capability that consumes it.
+- Pair each request type with a response-state type. Keep parsed input parameters
+  on the request and keep validated or generated values on its `response` field;
+  do not use response state as a substitute for parsing required flow inputs.
+- Retain a reference to the original `KagomeRequest` only when response
+  generation, logging, or other request metadata requires it—not as an alternate
+  source for flow parameters.
+- Use `from_request` for the first stage of a flow. When a stage follows an
+  earlier validation, use a constructor such as `from_grant_type_response` or
+  `from_requests` that explicitly carries forward the validated response state.
+- Implement only the resource capability traits required by a request type.
+  Trait accessors expose raw or accumulated values, and trait mutation methods
+  write validated or generated values into response state.
+- Make `to_response` reject missing required output as an
+  `invalid_token_response`, then delegate wire-format construction to a shared
+  response helper.
+- Re-export request and response types through their parent module instead of
+  making handlers depend on private module paths.
+
+### Resources
+
+- Keep each protocol resource module focused on one domain concept and colocate
+  its typed value, constants, validation or generation traits, and operations.
+- Define reusable operations as generic functions over capability traits. They
+  should take an owned mutable request, return `Result<T, OAuthError>`, and add
+  validated or generated state through the trait before returning the request.
+- Provide separate required and optional operations, such as `validate` and
+  `validate_optional`, when absence has different protocol semantics. Optional
+  operations must still validate values when they are present.
+- Use trait defaults for genuinely optional inputs or flow-specific policy, and
+  override them on request types whose requirements differ.
+- Construct failures with the centralized `OAuthError` constructors so error
+  codes, descriptions, and formats remain consistent across flows.
+- Keep artifact serialization, signing, encryption, and time-bound validation
+  inside the resource that owns the artifact; expose typed results rather than
+  leaking those implementation details into handlers.
+
 ## Testing Strategy
 
-### Identity Flow Integration Tests
+### Identity Flows Integration Tests
 
 - Organize identity flow integration tests by specification under
   `tests/integration/flows/<specification_name>/`.
