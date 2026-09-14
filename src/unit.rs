@@ -94,6 +94,14 @@ pub fn parse_query_parameter(request: &KagomeRequest, parameter_name: &str) -> O
         .map(|(_, value)| value.clone())
 }
 
+pub fn request_header(request: &KagomeRequest, header_name: &str) -> Option<String> {
+    request
+        .headers
+        .iter()
+        .find(|header| header.name.eq_ignore_ascii_case(header_name))
+        .map(|header| header.value.clone())
+}
+
 fn parse_body_string_parameter(
     method: &str,
     headers: &[HttpHeader],

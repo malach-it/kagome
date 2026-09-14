@@ -10,6 +10,11 @@ pub struct OAuthError {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthErrorCode {
+    InvalidRequest,
+    InvalidGrant,
+    InvalidAccessToken,
+    InvalidCredentialRequest,
+    UnknownCredentialConfiguration,
     UnsupportedResponseType,
     InvalidFinalResponseType,
     UnsupportedGrantType,
@@ -34,6 +39,46 @@ pub enum OAuthErrorCode {
 
 impl OAuthError {
     pub const DEFAULT_FORMAT: &'static str = "json";
+
+    pub fn invalid_request(error_description: impl Into<String>) -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidRequest,
+            "invalid_request",
+            error_description,
+        )
+    }
+
+    pub fn invalid_grant(error_description: impl Into<String>) -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidGrant,
+            "invalid_grant",
+            error_description,
+        )
+    }
+
+    pub fn invalid_access_token(error_description: impl Into<String>) -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidAccessToken,
+            "invalid_token",
+            error_description,
+        )
+    }
+
+    pub fn invalid_credential_request(error_description: impl Into<String>) -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidCredentialRequest,
+            "invalid_credential_request",
+            error_description,
+        )
+    }
+
+    pub fn unknown_credential_configuration() -> Self {
+        Self::new(
+            OAuthErrorCode::UnknownCredentialConfiguration,
+            "unknown_credential_configuration",
+            "credential_configuration_id is unknown",
+        )
+    }
 
     pub fn unsupported_response_type(supported_response_types: &[&str]) -> Self {
         Self::new(

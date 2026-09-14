@@ -12,7 +12,7 @@ use super::responses::{log_timestamp, logged_response};
 
 pub use crate::requests::{
     AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
-    CodeChainRequest, GrantTypeRequest, GrantTypeResponse,
+    CodeChainRequest, GrantTypeRequest, GrantTypeResponse, PreAuthorizedCodeRequest,
 };
 
 pub fn handle(request: &KagomeRequest) -> String {
@@ -50,6 +50,10 @@ fn handle_validated_grant_type(
             request,
         ))
         .and_then(logged_response),
+        [GrantType::PreAuthorizedCode, ..] => {
+            pre_authorized_code(PreAuthorizedCodeRequest::from_request(request))
+                .and_then(logged_response)
+        }
         [] => Err(OAuthError::invalid_token_response(
             "token response requires grant_type",
         )),
@@ -92,6 +96,14 @@ fn client_credentials(
     token_request: ClientCredentialsRequest,
 ) -> Result<ClientCredentialsRequest, OAuthError> {
     client_credentials::validate(token_request).and_then(access_token::generate)
+}
+
+fn pre_authorized_code(
+    token_request: PreAuthorizedCodeRequest<'_>,
+) -> Result<PreAuthorizedCodeRequest<'_>, OAuthError> {
+    use crate::resources::{credential_access_token, pre_authorized_code};
+
+    pre_authorized_code::validate(token_request).and_then(credential_access_token::generate)
 }
 
 fn log_token_failure(error: &OAuthError) {

@@ -15,6 +15,30 @@ pub fn route_request(request: &KagomeRequest) -> String {
         return crate::handlers::token::handle(request);
     }
 
+    if request.method.eq_ignore_ascii_case("GET")
+        && request.path == "/.well-known/openid-credential-issuer"
+    {
+        return crate::handlers::oid4vci::credential_issuer_metadata(request);
+    }
+
+    if request.method.eq_ignore_ascii_case("GET")
+        && request.path == "/.well-known/oauth-authorization-server"
+    {
+        return crate::handlers::oid4vci::authorization_server_metadata(request);
+    }
+
+    if request.method.eq_ignore_ascii_case("GET") && request.path == "/credential-offer" {
+        return crate::handlers::oid4vci::credential_offer(request);
+    }
+
+    if request.method.eq_ignore_ascii_case("GET") && request.path == "/jwks" {
+        return crate::handlers::oid4vci::jwks(request);
+    }
+
+    if request.method.eq_ignore_ascii_case("POST") && request.path == "/credential" {
+        return crate::handlers::oid4vci::credential(request);
+    }
+
     if request.path == "/echo" {
         return crate::handlers::echo::handle(request);
     }

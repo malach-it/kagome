@@ -77,6 +77,7 @@ fn parse_grant_types(grant_type: &str) -> Vec<GrantType> {
             "authorization_code" => Some(GrantType::AuthorizationCode),
             "client_credentials" => Some(GrantType::ClientCredentials),
             "code_chain" => Some(GrantType::CodeChain),
+            crate::resources::pre_authorized_code::GRANT_TYPE => Some(GrantType::PreAuthorizedCode),
             _ => None,
         })
         .collect()

@@ -39,6 +39,9 @@
 
 ### Requests
 
+- Keep each request struct in its own file together with its paired response
+  state and resource capability implementations. Use the parent module only for
+  declaring those files and re-exporting their public types.
 - Treat each request type as the explicit input contract for one flow stage.
   Parse into it all and only the HTTP parameters needed to select branches,
   validate inputs, and generate that stage's result.
@@ -89,6 +92,20 @@
   inside the resource that owns the artifact; expose typed results rather than
   leaking those implementation details into handlers.
 
+### Stateless Flow State
+
+- Prefer carrying short-lived flow state in authenticated encrypted artifacts
+  instead of adding server-side in-memory or persistent storage.
+- Use COSE encryption when flow state is confidential. Give each artifact type
+  a distinct secret and external AAD so ciphertext cannot be substituted across
+  protocol contexts.
+- Validate the COSE structure, authenticated decryption, required claims,
+  issuance time, and expiration before accepting encrypted flow state.
+- Do not add storage solely to enforce single use unless the protocol profile
+  explicitly requires replay state. When single-use tracking is intentionally
+  omitted, retain applicable mitigations such as short expiration and a
+  separately delivered transaction code, and document the limitation.
+
 ## Testing Strategy
 
 ### Identity Flows Integration Tests
@@ -132,6 +149,10 @@
   beside it as `<flow_or_endpoint>.svg`.
 - Treat the Mermaid source as canonical and regenerate the SVG from it; do not
   edit the generated SVG by hand.
+- After creating or changing a Mermaid source, render its adjacent SVG before
+  completing the change. Verify that the SVG is valid XML, is newer than or
+  otherwise demonstrably matches its source, and preserves every visible label,
+  including word spaces and bold `HTTP <status>` terminal-response prefixes.
 - Show every behavior-affecting decision, labeled branch, intermediate state,
   and terminal success or error response represented in the branch-case test
   matrix.

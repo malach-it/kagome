@@ -3,6 +3,7 @@ use crate::{
     requests::{
         AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
         ClientCredentialsRequest, CodeChainAuthorizationCodeRequest, CodeChainRequest,
+        CredentialOfferRequest, CredentialRequest, PreAuthorizedCodeRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -48,6 +49,36 @@ pub fn authorization_code_response(authorization_code: &AuthorizationCode) -> St
     );
 
     http_json_response(&response_body)
+}
+
+pub fn oid4vci_json_response(response_body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        response_body.len(),
+        response_body
+    )
+}
+
+pub fn credential_error_response(error: &OAuthError) -> String {
+    let response_body = serde_json::json!({
+        "error": error.error,
+        "error_description": error.error_description,
+    })
+    .to_string();
+
+    if error.kind == crate::errors::OAuthErrorCode::InvalidAccessToken {
+        return format!(
+            "HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\ncache-control: no-store\r\nwww-authenticate: Bearer error=\"invalid_token\"\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+    }
+
+    format!(
+        "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        response_body.len(),
+        response_body
+    )
 }
 
 pub fn code_redirect_response(
@@ -472,6 +503,47 @@ impl ResponseLog for CodeChainAuthorizationCodeRequest<'_> {
                     optional_str(access_token.map(|access_token| access_token.value.as_str())),
                 ),
             ],
+        );
+    }
+}
+
+impl ResponseLog for CredentialOfferRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        eprintln!(
+            "[{}] credential_offer_handler success configuration={}",
+            log_timestamp(),
+            crate::resources::credential_issuer::CREDENTIAL_CONFIGURATION_ID
+        );
+    }
+}
+
+impl ResponseLog for PreAuthorizedCodeRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        log_token_success(
+            "pre_authorized_code",
+            &[("request.pre-authorized_code", "<redacted>".to_owned())],
+        );
+    }
+}
+
+impl ResponseLog for CredentialRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        eprintln!(
+            "[{}] credential_handler success configuration={}",
+            log_timestamp(),
+            optional_str(self.response.credential_configuration_id.as_deref())
         );
     }
 }
