@@ -39,6 +39,14 @@ pub fn route_request(request: &KagomeRequest) -> String {
         return crate::handlers::oid4vci::credential(request);
     }
 
+    if request.method.eq_ignore_ascii_case("GET") && request.path == "/presentation-request" {
+        return crate::handlers::oid4vp::presentation_request(request);
+    }
+
+    if request.method.eq_ignore_ascii_case("POST") && request.path == "/presentation-response" {
+        return crate::handlers::oid4vp::presentation_response(request);
+    }
+
     if request.path == "/echo" {
         return crate::handlers::echo::handle(request);
     }

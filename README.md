@@ -22,11 +22,36 @@ authorized credential configuration and subject. Its transaction code is
 `493536`. The profile is stateless, so a Pre-Authorized Code can be exchanged
 more than once until it expires; no redemption store is used.
 
-The issued JWT VC is signed with Ed25519. This proof of concept does not
-advertise or accept holder-binding proofs, a nonce endpoint, deferred issuance,
-request or response encryption, batch issuance, or notifications. The embedded
-keys and fixed transaction code are development fixtures and must be replaced
-for deployment.
+The issued JWT VC is signed with Ed25519 and bound through its `cnf` claim to
+the demonstration holder key used by the presentation profile. This proof of
+concept does not require a proof in the Credential Request and does not support
+a nonce endpoint, deferred issuance, request or response encryption, batch
+issuance, or notifications. The embedded keys and fixed transaction code are
+development fixtures and must be replaced for deployment.
+
+## OpenID for Verifiable Presentations
+
+Kagome implements a bounded verifier profile of OpenID for Verifiable
+Presentations 1.0 Final:
+
+- `GET /presentation-request` creates authorization request parameters using
+  `response_type=vp_token`, `response_mode=direct_post`, and a DCQL query for
+  one `jwt_vc_json` University Degree Credential.
+- `POST /presentation-response` accepts the form-encoded direct-post response.
+- Presentation JWTs and embedded Credential JWTs use Ed25519. The verifier
+  validates their signatures, validity periods, requested type and claims,
+  holder key and subject binding, audience, nonce, and DCQL response shape.
+- Wallet error responses are accepted for the bounded set documented by the
+  response implementation.
+
+The presentation request endpoint is a proof-of-concept helper that returns the
+authorization request parameters as JSON; wallet invocation and QR rendering
+are outside this profile. The five-minute nonce and transaction context are
+carried in COSE_Encrypt0 state. No Credential, Presentation, or replay state is
+stored. A valid presentation response can therefore be replayed until its state
+expires. Deployments that require replay prevention need an atomic shared
+single-use store. The embedded verifier, issuer, and holder keys are development
+fixtures and must be replaced for deployment.
 
 ## Agentic Chat (specification additions prototype)
 

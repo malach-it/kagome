@@ -1,0 +1,16 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    begin[Verifier creates presentation request] --> request_host{Verifier Host valid?}
+    request_host -- no --> request_error["`**HTTP 400** invalid_request`"]
+    request_host -- yes --> protect{Encrypt fresh nonce and context in COSE state?}
+    protect -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
+    protect -- yes --> authorization["`**HTTP 200** DCQL direct-post authorization request`"]
+    authorization --> wallet{Wallet outcome?}
+    wallet -- protocol error --> post_error[POST state and wallet error]
+    wallet -- presentation --> post_vp[POST state and vp_token]
+    post_error --> error_state{State valid and error supported?}
+    error_state -- no --> response_error["`**HTTP 400** invalid_request`"]
+    error_state -- yes --> success["`**HTTP 200** response processed`"]
+    post_vp --> validate{VP shape, proofs, credential, query, and bindings valid?}
+    validate -- no --> response_error
+    validate -- yes --> success

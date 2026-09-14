@@ -1,6 +1,7 @@
 mod authorize;
 mod grant_type;
 mod oid4vci;
+mod oid4vp;
 
 pub use authorize::{AuthorizeCodeRequest, AuthorizeCodeResponse, AuthorizeLoginRequest};
 pub use grant_type::{
@@ -12,4 +13,8 @@ pub use grant_type::{
 pub use oid4vci::{
     CredentialOfferRequest, CredentialOfferResponse, CredentialRequest, CredentialResponse,
     IssuerRequest, IssuerResponse, PreAuthorizedCodeRequest, PreAuthorizedCodeResponse,
+};
+pub use oid4vp::{
+    PresentationAuthorizationRequest, PresentationAuthorizationResponse, PresentationResponse,
+    PresentationResponseRequest,
 };

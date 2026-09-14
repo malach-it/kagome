@@ -4,6 +4,7 @@ use crate::{
         AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
         ClientCredentialsRequest, CodeChainAuthorizationCodeRequest, CodeChainRequest,
         CredentialOfferRequest, CredentialRequest, PreAuthorizedCodeRequest,
+        PresentationAuthorizationRequest, PresentationResponseRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -73,6 +74,28 @@ pub fn credential_error_response(error: &OAuthError) -> String {
             response_body
         );
     }
+
+    format!(
+        "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        response_body.len(),
+        response_body
+    )
+}
+
+pub fn oid4vp_json_response(response_body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        response_body.len(),
+        response_body
+    )
+}
+
+pub fn oid4vp_error_response(error: &OAuthError) -> String {
+    let response_body = serde_json::json!({
+        "error": error.error,
+        "error_description": error.error_description,
+    })
+    .to_string();
 
     format!(
         "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
@@ -544,6 +567,38 @@ impl ResponseLog for CredentialRequest<'_> {
             "[{}] credential_handler success configuration={}",
             log_timestamp(),
             optional_str(self.response.credential_configuration_id.as_deref())
+        );
+    }
+}
+
+impl ResponseLog for PresentationAuthorizationRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        eprintln!(
+            "[{}] presentation_request_handler success query={}",
+            log_timestamp(),
+            crate::resources::presentation_state::QUERY_ID
+        );
+    }
+}
+
+impl ResponseLog for PresentationResponseRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        eprintln!(
+            "[{}] presentation_response_handler success outcome={}",
+            log_timestamp(),
+            if self.response.wallet_error.is_some() {
+                "wallet_error"
+            } else {
+                "presentation"
+            }
         );
     }
 }

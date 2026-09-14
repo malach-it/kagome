@@ -1,0 +1,21 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /presentation-response] --> method{POST request?}
+    method -- no --> not_found["`**HTTP 404** not found`"]
+    method -- yes --> media{Form Content-Type?}
+    media -- no --> request_error["`**HTTP 400** invalid_request`"]
+    media -- yes --> state{State valid and current?}
+    state -- no --> request_error
+    state -- yes --> kind{Response kind?}
+    kind -- wallet error --> wallet{Supported error without vp_token?}
+    wallet -- no --> request_error
+    wallet -- yes --> success["`**HTTP 200** empty JSON object`"]
+    kind -- vp_token --> shape{DCQL response shape valid?}
+    shape -- no --> request_error
+    shape -- yes --> presentation{Holder presentation JWT valid?}
+    presentation -- no --> request_error
+    presentation -- yes --> credential{Issuer credential valid and query satisfied?}
+    credential -- no --> request_error
+    credential -- yes --> binding{Holder, audience, and nonce bound?}
+    binding -- no --> request_error
+    binding -- yes --> success

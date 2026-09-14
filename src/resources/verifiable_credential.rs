@@ -13,6 +13,7 @@ pub const SIGNING_ALGORITHM: &str = "EdDSA";
 pub const KEY_ID: &str = "kagome-credential-signing-key";
 pub const PUBLIC_KEY_X: &str = "mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g";
 pub const PUBLIC_KEY: &[u8] = b"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g=\n-----END PUBLIC KEY-----\n";
+pub const HOLDER_PUBLIC_KEY_X: &str = "nwivBoQHlj3Z7OlrsnliD0Sm-_mSSFmg1umcwdeV1e4";
 pub const TTL_SECONDS: u64 = 31_536_000;
 
 const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIDt2IW+OSTJfZcs+QLnyHa+IoZthF8Pbf7sBWYsElCKk\n-----END PRIVATE KEY-----\n";
@@ -30,7 +31,20 @@ struct JwtVcClaims<'a> {
     nbf: u64,
     exp: u64,
     jti: String,
+    cnf: Confirmation,
     vc: VerifiableCredentialClaims<'a>,
+}
+
+#[derive(Debug, Serialize)]
+struct Confirmation {
+    jwk: HolderPublicJwk,
+}
+
+#[derive(Debug, Serialize)]
+struct HolderPublicJwk {
+    kty: &'static str,
+    crv: &'static str,
+    x: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -83,6 +97,13 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         nbf: iat,
         exp: iat + TTL_SECONDS,
         jti: credential_id.clone(),
+        cnf: Confirmation {
+            jwk: HolderPublicJwk {
+                kty: "OKP",
+                crv: "Ed25519",
+                x: HOLDER_PUBLIC_KEY_X,
+            },
+        },
         vc: VerifiableCredentialClaims {
             id: credential_id,
             credential_types: ["VerifiableCredential", CREDENTIAL_TYPE],

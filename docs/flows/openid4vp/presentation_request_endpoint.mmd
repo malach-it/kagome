@@ -1,0 +1,9 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /presentation-request] --> method{GET request?}
+    method -- no --> not_found["`**HTTP 404** not found`"]
+    method -- yes --> host{Host present and valid?}
+    host -- no --> request_error["`**HTTP 400** invalid_request`"]
+    host -- yes --> state{Fresh nonce and COSE state generated?}
+    state -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
+    state -- yes --> success["`**HTTP 200** DCQL direct-post authorization request`"]
