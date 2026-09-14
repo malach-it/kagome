@@ -6,12 +6,16 @@ use crate::{
 mod authorization_code;
 mod client_credentials;
 mod code_chain;
+mod resource_owner_password_credentials;
 
 pub use authorization_code::{AuthorizationCodeRequest, AuthorizationCodeResponse};
 pub use client_credentials::{ClientCredentialsRequest, ClientCredentialsResponse};
 pub use code_chain::{
     CodeChainAuthorizationCodeRequest, CodeChainAuthorizationCodeResponse, CodeChainRequest,
     CodeChainResponse,
+};
+pub use resource_owner_password_credentials::{
+    ResourceOwnerPasswordCredentialsRequest, ResourceOwnerPasswordCredentialsResponse,
 };
 
 #[derive(Debug)]
@@ -76,6 +80,9 @@ fn parse_grant_types(grant_type: &str) -> Vec<GrantType> {
         .map_while(|grant_type| match grant_type {
             "authorization_code" => Some(GrantType::AuthorizationCode),
             "client_credentials" => Some(GrantType::ClientCredentials),
+            grant_type::RESOURCE_OWNER_PASSWORD_CREDENTIALS => {
+                Some(GrantType::ResourceOwnerPasswordCredentials)
+            }
             "code_chain" => Some(GrantType::CodeChain),
             crate::resources::pre_authorized_code::GRANT_TYPE => Some(GrantType::PreAuthorizedCode),
             _ => None,

@@ -1,6 +1,7 @@
 mod authorization_code;
 mod client_credentials;
 mod code_chain;
+mod resource_owner_password_credentials;
 
 pub(super) use super::super::server::send_request;
 
@@ -10,7 +11,7 @@ pub(super) fn assert_unsupported_grant_type_response(response: &str) {
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"unsupported_grant_type\""));
     assert!(response.contains(
-        "\"error_description\":\"grant_type must be one of: client_credentials, code_chain, authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code\""
+        "\"error_description\":\"grant_type must be one of: client_credentials, password, code_chain, authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code\""
     ));
 }
 

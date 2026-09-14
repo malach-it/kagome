@@ -8,7 +8,8 @@ pub use grant_type::{
     AuthorizationCodeRequest, AuthorizationCodeResponse, ClientCredentialsRequest,
     ClientCredentialsResponse, CodeChainAuthorizationCodeRequest,
     CodeChainAuthorizationCodeResponse, CodeChainRequest, CodeChainResponse, GrantTypeRequest,
-    GrantTypeResponse,
+    GrantTypeResponse, ResourceOwnerPasswordCredentialsRequest,
+    ResourceOwnerPasswordCredentialsResponse,
 };
 pub use oid4vci::{
     CredentialOfferRequest, CredentialOfferResponse, CredentialRequest, CredentialResponse,

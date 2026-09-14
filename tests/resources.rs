@@ -25,6 +25,7 @@ mod resources {
             );
             assert_eq!(access_token.payload.token_type, payload.token_type);
             assert_eq!(access_token.payload.client_id, payload.client_id);
+            assert_eq!(access_token.payload.username, payload.username);
             assert_eq!(access_token.payload.iat, payload.iat);
             assert_eq!(access_token.payload.exp, payload.exp);
             assert_eq!(
@@ -33,6 +34,7 @@ mod resources {
             );
             assert_eq!(access_token.expires_in, payload.exp - payload.iat);
             assert_eq!(payload.client_id, "client_id");
+            assert_eq!(payload.username, None);
             assert!(payload.iat >= generated_at);
             assert!(payload.iat <= issued_at_timestamp());
             assert_eq!(
@@ -1100,6 +1102,18 @@ mod resources {
         }
 
         #[test]
+        fn validates_resource_owner_password_credentials() {
+            let request = token_request(Some("password"));
+            let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
+            let token_response = kagome::resources::grant_type::validate(token_response).unwrap();
+
+            assert_eq!(
+                token_response.response.grant_type,
+                Some(kagome::resources::grant_type::GrantType::ResourceOwnerPasswordCredentials)
+            );
+        }
+
+        #[test]
         fn validates_code_chain() {
             let request = token_request(Some("code_chain"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
@@ -1248,20 +1262,20 @@ mod resources {
             assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
                 error.error_description,
-                "grant_type must be one of: client_credentials, code_chain, authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code"
+                "grant_type must be one of: client_credentials, password, code_chain, authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code"
             );
         }
 
         #[test]
         fn returns_oauth_error_for_unsupported_grant_type() {
-            let request = token_request(Some("password"));
+            let request = token_request(Some("refresh_token"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
             let error = kagome::resources::grant_type::validate(token_response).unwrap_err();
 
             assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
                 error.error_description,
-                "grant_type must be one of: client_credentials, code_chain, authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code"
+                "grant_type must be one of: client_credentials, password, code_chain, authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code"
             );
         }
 

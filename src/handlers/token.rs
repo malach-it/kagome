@@ -3,7 +3,7 @@ use crate::{
     resources::{
         access_token, client_credentials,
         grant_type::{self, GrantType},
-        id_token,
+        id_token, resource_owner,
     },
     unit::KagomeRequest,
 };
@@ -13,9 +13,10 @@ use super::responses::{log_timestamp, logged_response};
 pub use crate::requests::{
     AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
     CodeChainRequest, GrantTypeRequest, GrantTypeResponse, PreAuthorizedCodeRequest,
+    ResourceOwnerPasswordCredentialsRequest,
 };
 
-pub fn handle(request: &KagomeRequest) -> String {
+pub fn handle_token(request: &KagomeRequest) -> String {
     match grant_type::validate(GrantTypeRequest::from_request(request))
         .and_then(|token_request| handle_validated_grant_type(token_request, request))
     {
@@ -54,6 +55,13 @@ fn handle_validated_grant_type(
             pre_authorized_code(PreAuthorizedCodeRequest::from_request(request))
                 .and_then(logged_response)
         }
+        [GrantType::ResourceOwnerPasswordCredentials, ..] => resource_owner_password_credentials(
+            ResourceOwnerPasswordCredentialsRequest::from_grant_type_response(
+                &token_request,
+                request,
+            ),
+        )
+        .and_then(logged_response),
         [] => Err(OAuthError::invalid_token_response(
             "token response requires grant_type",
         )),
@@ -96,6 +104,14 @@ fn client_credentials(
     token_request: ClientCredentialsRequest,
 ) -> Result<ClientCredentialsRequest, OAuthError> {
     client_credentials::validate(token_request).and_then(access_token::generate)
+}
+
+fn resource_owner_password_credentials(
+    token_request: ResourceOwnerPasswordCredentialsRequest,
+) -> Result<ResourceOwnerPasswordCredentialsRequest, OAuthError> {
+    client_credentials::validate(token_request)
+        .and_then(resource_owner::validate)
+        .and_then(access_token::generate)
 }
 
 fn pre_authorized_code(

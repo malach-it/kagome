@@ -12,6 +12,9 @@
 
 ### Handlers
 
+- Keep one public routed endpoint handler per file. Private branch-selection and
+  pipeline-composition helpers may remain beside that handler; shared response
+  and resource logic belongs in dedicated modules.
 - Structure a handler as a branch selector around monadic `Result` pipelines.
   The handler chooses the applicable flow, while each selected branch composes
   validation, generation, and response steps.

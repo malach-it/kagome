@@ -1,6 +1,6 @@
 use crate::unit::{self, KagomeRequest};
 
-pub fn handle(request: &KagomeRequest) -> String {
+pub fn handle_echo(request: &KagomeRequest) -> String {
     let response_body = unit::to_json(request);
 
     format!(

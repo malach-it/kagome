@@ -5,6 +5,7 @@ use crate::{
         ClientCredentialsRequest, CodeChainAuthorizationCodeRequest, CodeChainRequest,
         CredentialOfferRequest, CredentialRequest, PreAuthorizedCodeRequest,
         PresentationAuthorizationRequest, PresentationResponseRequest,
+        ResourceOwnerPasswordCredentialsRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -449,6 +450,40 @@ impl ResponseLog for ClientCredentialsRequest<'_> {
     }
 }
 
+impl ResponseLog for ResourceOwnerPasswordCredentialsRequest {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        let access_token = self.response.access_token.as_ref();
+
+        log_token_success(
+            "password",
+            &[
+                (
+                    "request.grant_type",
+                    optional_str(self.grant_type.as_deref()),
+                ),
+                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "request.client_secret",
+                    redacted_optional(self.client_secret.as_deref()),
+                ),
+                ("request.username", optional_str(self.username.as_deref())),
+                (
+                    "request.password",
+                    redacted_optional(self.password.as_deref()),
+                ),
+                (
+                    "response.access_token",
+                    optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                ),
+            ],
+        );
+    }
+}
+
 impl ResponseLog for CodeChainRequest<'_> {
     fn to_http_response(&self) -> Result<String, OAuthError> {
         self.to_response()
@@ -650,7 +685,7 @@ fn redacted_optional(value: Option<&str>) -> String {
 
 fn http_json_response(response_body: &str) -> String {
     format!(
-        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncache-control: no-store\r\npragma: no-cache\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
         response_body.len(),
         response_body
     )

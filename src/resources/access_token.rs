@@ -19,6 +19,8 @@ pub struct AccessToken {
 pub struct AccessTokenJwtPayload {
     pub token_type: String,
     pub client_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
     pub iat: u64,
     pub exp: u64,
 }
@@ -26,12 +28,18 @@ pub struct AccessTokenJwtPayload {
 pub trait Generate {
     fn client_id(&self) -> Option<&str>;
     fn add_access_token(&mut self, access_token: AccessToken);
+
+    fn username(&self) -> Option<&str> {
+        None
+    }
 }
 
 pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     let client_id = token_request
         .client_id()
-        .ok_or_else(OAuthError::missing_client_id)?;
+        .ok_or_else(OAuthError::missing_client_id)?
+        .to_owned();
+    let username = token_request.username().map(str::to_owned);
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?
@@ -39,7 +47,8 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     let exp = iat + ACCESS_TOKEN_TTL_SECONDS;
     let payload = AccessTokenJwtPayload {
         token_type: TOKEN_TYPE.to_owned(),
-        client_id: client_id.to_owned(),
+        client_id,
+        username,
         iat,
         exp,
     };

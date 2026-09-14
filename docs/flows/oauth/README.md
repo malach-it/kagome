@@ -20,6 +20,12 @@ responses.
 
 ![Client credentials flow](client_credentials.svg)
 
+## Resource Owner Password Credentials Flow
+
+[Mermaid source](resource_owner_password_credentials.mmd)
+
+![Resource owner password credentials flow](resource_owner_password_credentials.svg)
+
 ## Code-Chain Flow
 
 [Mermaid source](code_chain.mmd)

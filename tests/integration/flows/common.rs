@@ -8,7 +8,7 @@ use super::oauth::*;
 #[test]
 fn returns_oauth_error_for_unsupported_form_grant_type() {
     let response = send_request(
-        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: 67\r\n\r\nclient_id=client_id&client_secret=client_secret&grant_type=password",
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: 70\r\n\r\nclient_id=client_id&client_secret=client_secret&grant_type=unsupported",
     );
 
     assert_unsupported_grant_type_response(&response);
@@ -17,7 +17,7 @@ fn returns_oauth_error_for_unsupported_form_grant_type() {
 #[test]
 fn returns_oauth_error_for_unsupported_json_grant_type() {
     let response = send_request(
-        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\ncontent-length: 81\r\n\r\n{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"password\"}",
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\ncontent-length: 84\r\n\r\n{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"unsupported\"}",
     );
 
     assert_unsupported_grant_type_response(&response);

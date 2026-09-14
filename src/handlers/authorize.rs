@@ -12,16 +12,16 @@ use super::responses::{log_timestamp, logged_response, login_error_response};
 
 pub use crate::requests::{AuthorizeCodeRequest, AuthorizeLoginRequest};
 
-pub fn handle(request: &KagomeRequest) -> String {
+pub fn handle_authorize(request: &KagomeRequest) -> String {
     match request.method.to_ascii_uppercase().as_str() {
-        "GET" => handle_authorize(request),
-        "POST" => handle_authenticate(request),
+        "GET" => handle_authorization_request(request),
+        "POST" => handle_authentication(request),
         _ => not_found_response(),
     }
 }
 
-fn handle_authorize(request: &KagomeRequest) -> String {
-    let authorize_request = authorize(AuthorizeLoginRequest::from_request(request))
+fn handle_authorization_request(request: &KagomeRequest) -> String {
+    let authorize_request = validate_authorize(AuthorizeLoginRequest::from_request(request))
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate);
 
@@ -49,8 +49,8 @@ fn handle_authorize(request: &KagomeRequest) -> String {
     }
 }
 
-fn handle_authenticate(request: &KagomeRequest) -> String {
-    match authorize(AuthorizeCodeRequest::from_request(request))
+fn handle_authentication(request: &KagomeRequest) -> String {
+    match validate_authorize(AuthorizeCodeRequest::from_request(request))
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate)
         .and_then(resource_owner::validate)
@@ -65,7 +65,7 @@ fn handle_authenticate(request: &KagomeRequest) -> String {
     }
 }
 
-fn authorize<T>(authorize_request: T) -> Result<T, OAuthError>
+fn validate_authorize<T>(authorize_request: T) -> Result<T, OAuthError>
 where
     T: response_type::Validate + client_credentials::Validate,
 {

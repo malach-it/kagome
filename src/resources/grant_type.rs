@@ -1,7 +1,10 @@
 use crate::errors::OAuthError;
 
-pub const SUPPORTED_GRANT_TYPES: [&str; 4] = [
+pub const RESOURCE_OWNER_PASSWORD_CREDENTIALS: &str = "password";
+
+pub const SUPPORTED_GRANT_TYPES: [&str; 5] = [
     "client_credentials",
+    RESOURCE_OWNER_PASSWORD_CREDENTIALS,
     "code_chain",
     "authorization_code",
     super::pre_authorized_code::GRANT_TYPE,
@@ -13,6 +16,7 @@ pub enum GrantType {
     ClientCredentials,
     CodeChain,
     PreAuthorizedCode,
+    ResourceOwnerPasswordCredentials,
 }
 
 impl GrantType {
@@ -22,6 +26,7 @@ impl GrantType {
             GrantType::ClientCredentials => "client_credentials",
             GrantType::CodeChain => "code_chain",
             GrantType::PreAuthorizedCode => super::pre_authorized_code::GRANT_TYPE,
+            GrantType::ResourceOwnerPasswordCredentials => RESOURCE_OWNER_PASSWORD_CREDENTIALS,
         }
     }
 }
@@ -45,6 +50,9 @@ fn parse(grant_type: Option<&str>) -> Result<GrantType, OAuthError> {
     match grant_type.and_then(|grant_type| grant_type.split_whitespace().next()) {
         Some("authorization_code") => Ok(GrantType::AuthorizationCode),
         Some("client_credentials") => Ok(GrantType::ClientCredentials),
+        Some(RESOURCE_OWNER_PASSWORD_CREDENTIALS) => {
+            Ok(GrantType::ResourceOwnerPasswordCredentials)
+        }
         Some("code_chain") => Ok(GrantType::CodeChain),
         Some(super::pre_authorized_code::GRANT_TYPE) => Ok(GrantType::PreAuthorizedCode),
         _ => Err(OAuthError::unsupported_grant_type(&SUPPORTED_GRANT_TYPES)),
