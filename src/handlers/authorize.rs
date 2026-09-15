@@ -243,7 +243,16 @@ fn authorize_error_response(request: &KagomeRequest, mut error: OAuthError) -> S
         error = error.with_format("query");
     }
 
-    authorize_error_http_response(&request.query_params, &error)
+    let validated_redirect_uri =
+        client_credentials::validate(AuthorizeLoginRequest::from_request(request))
+            .ok()
+            .and_then(|request| request.response.redirect_uri);
+
+    authorize_error_http_response(
+        validated_redirect_uri.as_deref(),
+        &request.query_params,
+        &error,
+    )
 }
 
 fn not_found_response() -> String {

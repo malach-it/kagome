@@ -15,9 +15,9 @@ use super::super::*;
 // - metadata policy: missing | valid string | valid username superset | invalid |
 //   username mismatch
 // - federation: configured redirect | local authentication not implemented
-// Error rendering is covered for HTML and redirect response formats. Public client response
-// representations are covered here for code, by implicit tests for token, and by OID4VCI tests
-// for pre-authorized_code.
+// Error rendering: validated redirect | missing, invalid, or another client's redirect;
+// HTML and redirect response formats. Public client response representations are covered
+// here for code, by implicit tests for token, and by OID4VCI tests for pre-authorized_code.
 
 #[test]
 fn redirects_authorize_get_request_to_federated_server() {
@@ -526,17 +526,27 @@ fn redirects_oauth_error_for_invalid_final_response_type_with_client_id_resource
 }
 
 #[test]
-fn redirects_oauth_error_for_invalid_redirect_uri_with_client_id_resource_owner_credentials() {
+fn renders_html_error_for_invalid_redirect_uri_with_client_id_resource_owner_credentials() {
     let response = send_authorize_request(
         "response_type=code&client_id=other_username%3Aother_password%40example.com&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback",
     );
 
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains(
-        "location: https://app.example.com/callback?error=invalid_request&error_description=redirect_uri%20is%20invalid\r\n"
-    ));
-    assert!(response.contains("content-length: 0\r\n"));
-    assert!(response.contains("connection: close\r\n"));
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">redirect_uri is invalid</p>"));
+    assert!(!response.contains("location:"));
+}
+
+#[test]
+fn renders_html_error_for_query_format_with_untrusted_redirect_uri() {
+    let response = send_authorize_request(
+        "response_type=app&client_id=client_id&redirect_uri=https%3A%2F%2Fattacker.example.com%2Fcallback&format=query",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">response_type must be one of:"));
+    assert!(!response.contains("location:"));
 }
 
 #[test]

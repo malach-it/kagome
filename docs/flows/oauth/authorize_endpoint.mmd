@@ -40,6 +40,6 @@ flowchart TD
     generate -- code token --> hybrid_token["`**HTTP 302** client redirect with code and access_token`"]
     generate -- code id_token --> hybrid_id["`**HTTP 302** client redirect with code and id_token`"]
     generate -- code id_token token --> hybrid_all["`**HTTP 302** client redirect with code, id_token, and access_token`"]
-    error{Redirect error format available?}
-    error -- yes --> error_redirect["`**HTTP 302** client redirect with OAuth error and optional state`"]
+    error{Client and redirect_uri revalidated, and redirect error format available?}
+    error -- yes --> error_redirect["`**HTTP 302** trusted client redirect with OAuth error and optional state`"]
     error -- no --> html_error["`**HTTP 400** HTML authorization error`"]

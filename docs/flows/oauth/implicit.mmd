@@ -1,7 +1,7 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     start[GET or POST /authorize with response_type token] --> request{Registered client or public username@host with matching redirect?}
-    request -- no --> request_error["`**HTTP 400** HTML authorization error`"]
+    request -- no --> request_error["`**HTTP 400** HTML authorization error or **HTTP 302** error redirect after client and redirect_uri revalidation`"]
     request -- yes --> method{Request method?}
     method -- GET --> optional_owner{Resource owner credentials embedded in client_id?}
     optional_owner -- absent --> federation{Client has federated_server?}

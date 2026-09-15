@@ -425,11 +425,12 @@ pub fn not_implemented_response() -> String {
 }
 
 pub fn authorize_error_http_response(
+    validated_redirect_uri: Option<&str>,
     query_params: &[(String, String)],
     error: &OAuthError,
 ) -> String {
     if (error.format == "query" || query_parameter(query_params, "format") == Some("query"))
-        && let Some(redirect_uri) = query_parameter(query_params, "redirect_uri")
+        && let Some(redirect_uri) = validated_redirect_uri
     {
         return query_error_response(redirect_uri, error, query_parameter(query_params, "state"));
     }
