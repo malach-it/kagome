@@ -58,15 +58,20 @@ const graphs = [
   ["SIOPv2 — Flow", "siopv2/siopv2.svg"],
 ];
 
-const canvasWidth = 2000;
+const columns = 6;
+const cellWidth = 2000;
+const cellHeight = 2200;
 const horizontalPadding = 48;
 const titleHeight = 72;
-const graphGap = 72;
-const availableWidth = canvasWidth - horizontalPadding * 2;
+const verticalPadding = 48;
+const availableWidth = cellWidth - horizontalPadding * 2;
+const availableHeight = cellHeight - titleHeight - verticalPadding * 2;
+const rows = Math.ceil(graphs.length / columns);
+const canvasWidth = columns * cellWidth;
+const canvasHeight = rows * cellHeight;
 const sections = [];
-let y = 48;
 
-for (const [title, relativePath] of graphs) {
+for (const [index, [title, relativePath]] of graphs.entries()) {
   const path = join(repositoryRoot, "docs/flows", relativePath);
   const svg = await readFile(path, "utf8");
   const viewBox = svg.match(/viewBox="([^"]+)"/)?.[1];
@@ -79,26 +84,33 @@ for (const [title, relativePath] of graphs) {
     throw new Error(`${relativePath} has an invalid viewBox`);
   }
 
-  const scale = Math.min(1, availableWidth / sourceWidth);
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+  const cellX = column * cellWidth;
+  const cellY = row * cellHeight;
+  const scale = Math.min(
+    availableWidth / sourceWidth,
+    availableHeight / sourceHeight,
+  );
   const width = sourceWidth * scale;
   const height = sourceHeight * scale;
-  const x = (canvasWidth - width) / 2;
+  const x = cellX + (cellWidth - width) / 2;
+  const y = cellY + titleHeight + (availableHeight - height) / 2;
   const data = Buffer.from(svg).toString("base64");
 
   sections.push(
-    `  <text x="${horizontalPadding}" y="${y + 34}" class="title">${escapeXml(title)}</text>`,
-    `  <image x="${x}" y="${y + titleHeight}" width="${width}" height="${height}" href="data:image/svg+xml;base64,${data}"/>`,
+    `  <text x="${cellX + horizontalPadding}" y="${cellY + 42}" class="title">${escapeXml(title)}</text>`,
+    `  <image x="${x}" y="${y}" width="${width}" height="${height}" href="data:image/svg+xml;base64,${data}"/>`,
   );
-  y += titleHeight + height + graphGap;
 }
 
 const document = [
   '<?xml version="1.0" encoding="UTF-8"?>',
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${y}" viewBox="0 0 ${canvasWidth} ${y}" role="img" aria-labelledby="title description">`,
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}" role="img" aria-labelledby="title description">`,
   "  <title id=\"title\">Kagome identity flow graphs</title>",
-  "  <desc id=\"description\">All OAuth, OpenID4VCI, OpenID4VP, and SIOPv2 flow and endpoint graphs.</desc>",
+  "  <desc id=\"description\">Landscape overview of all OAuth, OpenID4VCI, OpenID4VP, and SIOPv2 flow and endpoint graphs.</desc>",
   "  <style>.title { font: 700 28px sans-serif; fill: #222; }</style>",
-  `  <rect width="${canvasWidth}" height="${y}" fill="white"/>`,
+  `  <rect width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`,
   ...sections,
   "</svg>",
   "",

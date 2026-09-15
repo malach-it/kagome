@@ -7,8 +7,8 @@ README.
 
 ## Complete Overview
 
-The following self-contained image combines every rendered graph in this
-catalog.
+The following self-contained landscape image combines every rendered graph in
+this catalog.
 
 ![All identity flow graphs](all.svg)
 
