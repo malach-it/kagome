@@ -20,6 +20,9 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.server.address, "127.0.0.1:4100");
     assert_eq!(config.server.issuer, "https://kagome.example.com");
     assert_eq!(config.server.workers, 8);
+    assert_eq!(config.tokens.access_token_ttl, 3600);
+    assert_eq!(config.tokens.authorization_code_ttl, 600);
+    assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.clients[0].client_id, "client_id");
     assert_eq!(config.clients[0].client_secret, "client_secret");
     assert_eq!(
@@ -38,6 +41,9 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.server.address, "0.0.0.0:4000");
     assert_eq!(config.server.issuer, "http://localhost:4000");
     assert_eq!(config.server.workers, 4);
+    assert_eq!(config.tokens.access_token_ttl, 3600);
+    assert_eq!(config.tokens.authorization_code_ttl, 600);
+    assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.clients.len(), 1);
     let federated_server = config.clients[0]
         .federated_server
@@ -89,6 +95,7 @@ fn json_schema_describes_configuration_constraints() {
     let server = &schema["$defs"]["ServerConfig"];
     let client = &schema["$defs"]["ClientConfig"];
     let federated_server = &schema["$defs"]["FederatedServerConfig"];
+    let token_ttls = &schema["$defs"]["TokenTtlsConfig"];
 
     assert_eq!(
         schema["$schema"],
@@ -101,6 +108,13 @@ fn json_schema_describes_configuration_constraints() {
     assert_eq!(server["properties"]["issuer"]["minLength"], 1);
     assert_eq!(server["properties"]["issuer"]["format"], "uri");
     assert_eq!(server["properties"]["workers"]["minimum"], 1);
+    assert_eq!(token_ttls["additionalProperties"], false);
+    assert_eq!(token_ttls["properties"]["access_token_ttl"]["minimum"], 1);
+    assert_eq!(
+        token_ttls["properties"]["authorization_code_ttl"]["minimum"],
+        1
+    );
+    assert_eq!(token_ttls["properties"]["id_token_ttl"]["minimum"], 1);
     assert_eq!(
         server["required"],
         serde_json::json!(["address", "issuer", "workers"])
@@ -149,6 +163,44 @@ fn json_schema_describes_configuration_constraints() {
             "token_endpoint"
         ])
     );
+}
+
+#[test]
+fn loads_token_ttls_from_yaml() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ntokens:\n  access_token_ttl: 120\n  authorization_code_ttl: 30\n  id_token_ttl: 90\n",
+    ));
+
+    let config = Config::load_from_path(file.path()).expect("token TTLs should load");
+
+    assert_eq!(config.tokens.access_token_ttl, 120);
+    assert_eq!(config.tokens.authorization_code_ttl, 30);
+    assert_eq!(config.tokens.id_token_ttl, 90);
+}
+
+#[test]
+fn rejects_zero_token_ttls() {
+    for field in ["access_token_ttl", "authorization_code_ttl", "id_token_ttl"] {
+        let access_token_ttl = if field == "access_token_ttl" { 0 } else { 120 };
+        let authorization_code_ttl = if field == "authorization_code_ttl" {
+            0
+        } else {
+            30
+        };
+        let id_token_ttl = if field == "id_token_ttl" { 0 } else { 90 };
+        let file = ConfigFile::new(&configuration_yaml(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ntokens:\n  access_token_ttl: {access_token_ttl}\n  authorization_code_ttl: {authorization_code_ttl}\n  id_token_ttl: {id_token_ttl}\n"
+        )));
+
+        let error = Config::load_from_path(file.path()).expect_err("zero TTL should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("tokens.{field} must be greater than zero"))
+        );
+    }
 }
 
 #[test]

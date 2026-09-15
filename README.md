@@ -18,6 +18,10 @@ server:
   address: 0.0.0.0:4000
   issuer: http://localhost:4000
   workers: 4
+tokens:
+  access_token_ttl: 3600
+  authorization_code_ttl: 600
+  id_token_ttl: 3600
 clients:
   - client_id: client_id
     client_secret: client_secret
@@ -40,7 +44,9 @@ continue to use local authentication. The local `kagome.yaml` is ignored by
 Git.
 
 `server.address` controls the listening socket, while `server.issuer` is the
-public HTTP origin used to construct federation callback URLs.
+public HTTP origin used to construct federation callback URLs. The `tokens`
+values configure access-token, authorization-code, and ID-token lifetimes in
+seconds; omitted `tokens` configuration uses the example defaults.
 
 For a federated client, `GET /authorize` redirects to the configured upstream
 authorization endpoint with `response_type=code`, the upstream `client_id`, the

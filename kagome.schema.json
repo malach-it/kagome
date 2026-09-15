@@ -14,6 +14,10 @@
     "server": {
       "description": "HTTP server settings.",
       "$ref": "#/$defs/ServerConfig"
+    },
+    "tokens": {
+      "description": "Lifetimes, in seconds, for OAuth tokens and authorization codes.",
+      "$ref": "#/$defs/TokenTtlsConfig"
     }
   },
   "additionalProperties": false,
@@ -123,6 +127,35 @@
         "address",
         "issuer",
         "workers"
+      ]
+    },
+    "TokenTtlsConfig": {
+      "type": "object",
+      "properties": {
+        "access_token_ttl": {
+          "description": "Lifetime of an access token, in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1
+        },
+        "authorization_code_ttl": {
+          "description": "Lifetime of an authorization code, in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1
+        },
+        "id_token_ttl": {
+          "description": "Lifetime of an ID token, in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "access_token_ttl",
+        "authorization_code_ttl",
+        "id_token_ttl"
       ]
     }
   }

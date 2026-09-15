@@ -2,10 +2,13 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::errors::OAuthError;
+use crate::{
+    config::{Config, DEFAULT_ACCESS_TOKEN_TTL_SECONDS},
+    errors::OAuthError,
+};
 
 pub const SECRET: &str = "static_secret";
-pub const ACCESS_TOKEN_TTL_SECONDS: u64 = 3600;
+pub const ACCESS_TOKEN_TTL_SECONDS: u64 = DEFAULT_ACCESS_TOKEN_TTL_SECONDS;
 pub const TOKEN_TYPE: &str = "bearer";
 
 #[derive(Debug)]
@@ -44,7 +47,9 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?
         .as_secs();
-    let exp = iat + ACCESS_TOKEN_TTL_SECONDS;
+    let exp = iat
+        .checked_add(Config::token_ttls().access_token_ttl)
+        .ok_or_else(|| OAuthError::invalid_token_response("access token lifetime is too large"))?;
     let payload = AccessTokenJwtPayload {
         token_type: TOKEN_TYPE.to_owned(),
         client_id,

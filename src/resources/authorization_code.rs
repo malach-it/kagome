@@ -1,10 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{errors::OAuthError, resources::crypto};
+use crate::{
+    config::{Config, DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS},
+    errors::OAuthError,
+    resources::crypto,
+};
 
 pub const SECRET: &str = "static_authorization_code_secret";
-pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = 600;
+pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS;
 const COSE_EXTERNAL_AAD: &[u8] = b"kagome.authorization_code";
 const COSE_ENCRYPT0_ERRORS: crypto::CoseEncrypt0Errors = crypto::CoseEncrypt0Errors {
     invalid_cose: "authorization_code must be a cose_encrypt0",
@@ -115,7 +119,11 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?
         .as_secs();
-    let exp = iat + AUTHORIZATION_CODE_TTL_SECONDS;
+    let exp = iat
+        .checked_add(Config::token_ttls().authorization_code_ttl)
+        .ok_or_else(|| {
+            OAuthError::invalid_token_response("authorization code lifetime is too large")
+        })?;
     let payload = AuthorizationCodeCosePayload {
         client_id: client_id.to_owned(),
         id_token,

@@ -12,6 +12,9 @@ use serde::Deserialize;
 
 pub const CONFIG_PATH_ENV_VAR: &str = "KAGOME_CONFIG";
 pub const DEFAULT_CONFIG_PATH: &str = "kagome.yaml";
+pub const DEFAULT_ACCESS_TOKEN_TTL_SECONDS: u64 = 3600;
+pub const DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS: u64 = 600;
+pub const DEFAULT_ID_TOKEN_TTL_SECONDS: u64 = 3600;
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
@@ -20,9 +23,37 @@ static CONFIG: OnceLock<Config> = OnceLock::new();
 pub struct Config {
     /// HTTP server settings.
     pub server: ServerConfig,
+    /// Lifetimes, in seconds, for OAuth tokens and authorization codes.
+    #[serde(default)]
+    #[schemars(default)]
+    pub tokens: TokenTtlsConfig,
     /// OAuth clients accepted by the authorization server.
     #[schemars(length(min = 1))]
     pub clients: Vec<ClientConfig>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TokenTtlsConfig {
+    /// Lifetime of an access token, in seconds.
+    #[schemars(range(min = 1))]
+    pub access_token_ttl: u64,
+    /// Lifetime of an authorization code, in seconds.
+    #[schemars(range(min = 1))]
+    pub authorization_code_ttl: u64,
+    /// Lifetime of an ID token, in seconds.
+    #[schemars(range(min = 1))]
+    pub id_token_ttl: u64,
+}
+
+impl Default for TokenTtlsConfig {
+    fn default() -> Self {
+        Self {
+            access_token_ttl: DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
+            authorization_code_ttl: DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS,
+            id_token_ttl: DEFAULT_ID_TOKEN_TTL_SECONDS,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -93,6 +124,10 @@ impl Config {
             .expect("configuration must be initialized at startup")
     }
 
+    pub fn token_ttls() -> TokenTtlsConfig {
+        CONFIG.get().map(|config| config.tokens).unwrap_or_default()
+    }
+
     pub fn json_schema() -> Schema {
         SchemaGenerator::new(SchemaSettings::draft2020_12()).into_root_schema_for::<Self>()
     }
@@ -148,6 +183,19 @@ impl Config {
                 path: path.to_owned(),
                 message: "clients must contain at least one client".to_owned(),
             });
+        }
+
+        for (field, ttl) in [
+            ("access_token_ttl", self.tokens.access_token_ttl),
+            ("authorization_code_ttl", self.tokens.authorization_code_ttl),
+            ("id_token_ttl", self.tokens.id_token_ttl),
+        ] {
+            if ttl == 0 {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("tokens.{field} must be greater than zero"),
+                });
+            }
         }
 
         let mut client_ids = HashSet::new();

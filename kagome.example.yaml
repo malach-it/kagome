@@ -3,6 +3,10 @@ server:
   address: 0.0.0.0:4000
   issuer: http://localhost:4000
   workers: 4
+tokens:
+  access_token_ttl: 3600
+  authorization_code_ttl: 600
+  id_token_ttl: 3600
 clients:
   - client_id: client_id
     client_secret: client_secret

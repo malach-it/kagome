@@ -6,10 +6,13 @@ use jsonwebtoken::{
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::errors::OAuthError;
+use crate::{
+    config::{Config, DEFAULT_ID_TOKEN_TTL_SECONDS},
+    errors::OAuthError,
+};
 
 pub const SECRET: &str = "static_id_token_secret";
-pub const ID_TOKEN_TTL_SECONDS: u64 = 3600;
+pub const ID_TOKEN_TTL_SECONDS: u64 = DEFAULT_ID_TOKEN_TTL_SECONDS;
 
 #[derive(Debug)]
 pub struct IdToken {
@@ -48,7 +51,9 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("id_token generation failed"))?
         .as_secs();
-    let exp = iat + ID_TOKEN_TTL_SECONDS;
+    let exp = iat
+        .checked_add(Config::token_ttls().id_token_ttl)
+        .ok_or_else(|| OAuthError::invalid_token_response("ID token lifetime is too large"))?;
     let payload = IdTokenJwtPayload {
         client_id: client_id.to_owned(),
         username: username.to_owned(),
