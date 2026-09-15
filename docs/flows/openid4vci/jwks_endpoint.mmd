@@ -3,5 +3,5 @@ flowchart TD
     start[Request /jwks] --> method{GET request?}
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> host{Host present and valid?}
-    host -- no --> error["`**HTTP 400** invalid_request`"]
-    host -- yes --> success["`**HTTP 200** Ed25519 public JWK`"]
+    host -- no --> error["`**HTTP 400** CORS invalid_request`"]
+    host -- yes --> success["`**HTTP 200** CORS credential and ES256 request JWKs`"]

@@ -496,7 +496,7 @@ fn redirects_oauth_error_for_missing_response_type_with_client_id_resource_owner
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token%2C%20urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code\r\n"
+        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token%2C%20vp_token%2C%20urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code\r\n"
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
@@ -616,7 +616,7 @@ fn returns_oauth_error_for_missing_authorize_response_type() {
     assert!(response.contains("<title>kagome login</title>"));
     assert!(
         response
-            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token, urn:ietf:params:oauth:response-type:pre-authorized_code</p>")
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token, vp_token, urn:ietf:params:oauth:response-type:pre-authorized_code</p>")
     );
     assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
     assert!(response.contains("client_id=client_id"));
@@ -632,7 +632,7 @@ fn redirects_oauth_error_to_request_redirect_uri_for_query_format() {
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token%2C%20urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code\r\n"
+        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token%2C%20vp_token%2C%20urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code\r\n"
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
@@ -649,7 +649,7 @@ fn returns_oauth_error_for_unsupported_authorize_response_type() {
     assert!(response.contains("content-type: text/html\r\n"));
     assert!(
         response
-            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token, urn:ietf:params:oauth:response-type:pre-authorized_code</p>")
+            .contains("<p role=\"alert\">response_type must be one of: code, token, id_token, vp_token, urn:ietf:params:oauth:response-type:pre-authorized_code</p>")
     );
 }
 

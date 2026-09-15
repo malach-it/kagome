@@ -1,9 +1,18 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request /presentation-request] --> method{GET request?}
+    start[Request /authorize with response_type vp_token] --> method{GET request?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> host{Host present and valid?}
-    host -- no --> request_error["`**HTTP 400** invalid_request`"]
+    method -- yes --> response_type{vp_token is the only response type?}
+    response_type -- no --> authorize_error["`**HTTP 400** authorize HTML error`"]
+    response_type -- yes --> client{Client and redirect URI valid?}
+    client -- no --> authorize_error
+    client -- yes --> optional{Optional code and metadata policy valid?}
+    optional -- no --> authorize_error
+    optional -- yes --> verifier[Use configured issuer as verifier]
+    verifier --> host{Credential issuer Host valid?}
+    host -- no --> authorize_error
     host -- yes --> state{Fresh nonce and COSE state generated?}
     state -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
-    state -- yes --> success["`**HTTP 200** DCQL direct-post authorization request`"]
+    state -- yes --> sign{Request object signed?}
+    sign -- no --> generation_error
+    sign -- yes --> success["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and signed request`"]

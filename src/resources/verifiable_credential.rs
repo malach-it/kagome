@@ -3,6 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::Serialize;
+use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::errors::OAuthError;
@@ -47,14 +48,7 @@ struct JwtVcClaims<'a> {
 
 #[derive(Debug, Serialize)]
 struct Confirmation {
-    jwk: HolderPublicJwk,
-}
-
-#[derive(Debug, Serialize)]
-struct HolderPublicJwk {
-    kty: &'static str,
-    crv: &'static str,
-    x: &'static str,
+    jwk: Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -92,6 +86,9 @@ struct Degree {
 pub trait Generate {
     fn credential_issuer(&self) -> Option<&str>;
     fn subject(&self) -> Option<&str>;
+    fn holder_jwk(&self) -> Option<&Value> {
+        None
+    }
     fn add_verifiable_credential(&mut self, credential: VerifiableCredential);
 }
 
@@ -126,11 +123,9 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         exp: iat + TTL_SECONDS,
         jti: credential_id.clone(),
         cnf: Confirmation {
-            jwk: HolderPublicJwk {
-                kty: "OKP",
-                crv: "Ed25519",
-                x: HOLDER_PUBLIC_KEY_X,
-            },
+            jwk: request.holder_jwk().cloned().unwrap_or_else(
+                || json!({"kty": "OKP", "crv": "Ed25519", "x": HOLDER_PUBLIC_KEY_X}),
+            ),
         },
         context: ["https://www.w3.org/ns/credentials/v2"],
         id: credential_id.clone(),

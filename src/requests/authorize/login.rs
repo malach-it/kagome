@@ -2,22 +2,26 @@ use crate::{
     config::Config,
     errors::OAuthError,
     handlers::responses::{
-        access_token_redirect_response, authorize_redirect_response,
-        code_access_token_redirect_response, code_id_token_access_token_redirect_response,
-        code_id_token_redirect_response, code_redirect_response,
-        credential_offer_redirect_response, federated_authorize_redirect_response,
-        id_token_access_token_redirect_response, id_token_redirect_response, login_page_response,
+        access_token_redirect_response, authorization_request_redirect_response,
+        authorize_redirect_response, code_access_token_redirect_response,
+        code_id_token_access_token_redirect_response, code_id_token_redirect_response,
+        code_redirect_response, credential_offer_redirect_response,
+        federated_authorize_redirect_response, id_token_access_token_redirect_response,
+        id_token_redirect_response, login_page_response,
     },
-    requests::FederationCallbackRequest,
+    requests::{FederationCallbackRequest, SiopResponseRequest},
     resources::{
         access_token::{self, AccessToken},
         authorization_code::{self, AuthorizationCode},
-        client_credentials, federated_server,
+        client_credentials, credential_issuer, federated_server,
         id_token::{self, IdToken},
-        metadata_policy, pre_authorized_code, resource_owner,
+        metadata_policy, pre_authorized_code,
+        presentation_request::{self, SignedPresentationRequest},
+        presentation_state, resource_owner,
         response_type::{self, ResponseType},
+        verifier,
     },
-    unit::{KagomeRequest, parse_query_parameter},
+    unit::{KagomeRequest, parse_query_parameter, request_header},
 };
 
 use super::{client_id_username, response_type_query, valid_authorize_client_id};
@@ -36,6 +40,7 @@ pub struct AuthorizeLoginRequest<'a> {
     pub metadata_policy: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
+    pub host: Option<String>,
 }
 
 #[derive(Debug)]
@@ -55,6 +60,11 @@ pub struct AuthorizeLoginResponse {
     pub federated_authorization: Option<federated_server::FederatedAuthorization>,
     pub federation_authorization_code: Option<String>,
     pub federated_access_token: Option<String>,
+    pub siop_authenticated: bool,
+    pub verifier: Option<String>,
+    pub presentation_state: Option<presentation_state::PresentationState>,
+    pub signed_presentation_request: Option<SignedPresentationRequest>,
+    pub credential_issuer: Option<String>,
 }
 
 impl<'a> AuthorizeLoginRequest<'a> {
@@ -70,6 +80,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
             metadata_policy: parse_query_parameter(request, "metadata_policy"),
             username: None,
             password: None,
+            host: request_header(request, "host"),
         }
     }
 
@@ -103,6 +114,38 @@ impl<'a> AuthorizeLoginRequest<'a> {
             metadata_policy: parameters.metadata_policy,
             username: parameters.username,
             password: parameters.password,
+            host: request_header(request, "host"),
+        })
+    }
+
+    pub fn from_siop(
+        siop_response: SiopResponseRequest<'a>,
+        request: &'a KagomeRequest,
+    ) -> Result<Self, OAuthError> {
+        let state = siop_response.response.state_claims.ok_or_else(|| {
+            OAuthError::invalid_request("siop response state is invalid or expired")
+        })?;
+        let id_token = siop_response.response.id_token.ok_or_else(|| {
+            OAuthError::invalid_request("siop response requires a validated id_token")
+        })?;
+        let response_type = state.response_type;
+        let parameters = state.authorization;
+        let mut response = AuthorizeLoginResponse::empty();
+        response.username = Some(id_token.subject);
+        response.siop_authenticated = true;
+
+        Ok(Self {
+            response,
+            request,
+            response_type: Some(response_type),
+            client_id: parameters.client_id,
+            redirect_uri: parameters.redirect_uri,
+            state: parameters.state,
+            authorization_code: parameters.authorization_code,
+            metadata_policy: parameters.metadata_policy,
+            username: None,
+            password: None,
+            host: request_header(request, "host"),
         })
     }
 
@@ -111,6 +154,29 @@ impl<'a> AuthorizeLoginRequest<'a> {
     }
 
     pub fn to_response(&self) -> Result<String, OAuthError> {
+        if let Some(state) = self.response.presentation_state.as_ref() {
+            let redirect_uri = self.response.redirect_uri.as_deref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+            let signed_request = self
+                .response
+                .signed_presentation_request
+                .as_ref()
+                .ok_or_else(|| {
+                    OAuthError::invalid_token_response("signed presentation request is required")
+                })?;
+
+            return Ok(authorization_request_redirect_response(
+                redirect_uri,
+                &[
+                    ("client_id", &state.claims.client_id),
+                    ("response_type", "vp_token"),
+                    ("redirect_uri", &signed_request.redirect_uri),
+                    ("request", &signed_request.value),
+                ],
+            ));
+        }
+
         if let Some(pre_authorized_code) = self.response.pre_authorized_code.as_deref() {
             let redirect_uri = self.response.redirect_uri.as_deref().ok_or_else(|| {
                 OAuthError::invalid_token_response("authorize response requires redirect_uri")
@@ -220,7 +286,9 @@ impl<'a> AuthorizeLoginRequest<'a> {
 
         if let Some(response_type) = response_type_query(&self.response.next_response_types) {
             let restored_query_parameters = self.restored_query_parameters();
-            let query_parameters = if self.response.federated_access_token.is_some() {
+            let query_parameters = if self.response.federated_access_token.is_some()
+                || self.response.siop_authenticated
+            {
                 &restored_query_parameters
             } else {
                 &self.request.query_params
@@ -277,7 +345,68 @@ impl AuthorizeLoginResponse {
             federated_authorization: None,
             federation_authorization_code: None,
             federated_access_token: None,
+            siop_authenticated: false,
+            verifier: None,
+            presentation_state: None,
+            signed_presentation_request: None,
+            credential_issuer: None,
         }
+    }
+}
+
+impl verifier::Validate for AuthorizeLoginRequest<'_> {
+    fn add_verifier(&mut self, verifier: String) {
+        self.response.verifier = Some(verifier);
+    }
+}
+
+impl credential_issuer::Validate for AuthorizeLoginRequest<'_> {
+    fn request_host(&self) -> Option<&str> {
+        self.host.as_deref()
+    }
+
+    fn add_credential_issuer(&mut self, credential_issuer: String) {
+        self.response.credential_issuer = Some(credential_issuer);
+    }
+}
+
+impl presentation_state::Generate for AuthorizeLoginRequest<'_> {
+    fn verifier(&self) -> Option<&str> {
+        self.response.verifier.as_deref()
+    }
+
+    fn credential_issuer(&self) -> Option<&str> {
+        self.response.credential_issuer.as_deref()
+    }
+
+    fn authorization_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
+    fn authorization_redirect_uri(&self) -> Option<&str> {
+        self.response.redirect_uri.as_deref()
+    }
+
+    fn authorization_state(&self) -> Option<&str> {
+        self.state.as_deref()
+    }
+
+    fn add_presentation_state(&mut self, state: presentation_state::PresentationState) {
+        self.response.presentation_state = Some(state);
+    }
+}
+
+impl presentation_request::Generate for AuthorizeLoginRequest<'_> {
+    fn verifier(&self) -> Option<&str> {
+        self.response.verifier.as_deref()
+    }
+
+    fn presentation_state(&self) -> Option<&presentation_state::PresentationState> {
+        self.response.presentation_state.as_ref()
+    }
+
+    fn add_signed_presentation_request(&mut self, request: SignedPresentationRequest) {
+        self.response.signed_presentation_request = Some(request);
     }
 }
 

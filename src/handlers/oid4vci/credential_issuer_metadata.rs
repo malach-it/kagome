@@ -17,6 +17,12 @@ pub fn handle_credential_issuer_metadata(request: &KagomeRequest) -> String {
                     "credential_signing_alg_values_supported": [
                         verifiable_credential::SIGNING_ALGORITHM
                     ],
+                    "proof_types_supported": {
+                        "jwt": {
+                            "proof_signing_alg_values_supported":
+                                crate::resources::verifiable_presentation::SUPPORTED_ALGORITHM_NAMES
+                        }
+                    },
                     "credential_definition": {
                         "type": [
                             "VerifiableCredential",

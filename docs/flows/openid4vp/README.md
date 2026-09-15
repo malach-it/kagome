@@ -12,6 +12,48 @@ SVG files are rendered for direct review.
 
 ## Presentation Request Endpoint
 
+`GET /authorize?response_type=vp_token` selects this flow through the main
+authorize handler. It uses the common authorize response-type, client and
+redirect URI, optional code, and metadata-policy validations before the
+authorize response-generation presentation branch creates the verifier state.
+The handler redirects to the validated authorize `redirect_uri` with the
+verifier `client_id`, `response_type=vp_token`, and a signed JWT in its `request`
+query parameter. It also carries the verifier callback as `redirect_uri`. The
+outer client identifier, response type, and callback URI match their signed
+claims. The callback includes the encrypted presentation `state` in its query
+so wallet form posts remain transaction-bound. The verifier and callback origin come from the configured server
+`issuer`, independently of the request `Host`. The request `Host` remains the
+validated credential issuer origin bound into presentation state. The request object contains the
+Presentation Exchange `presentation_definition`; the direct-post response binds
+its `presentation_submission` descriptor map to that definition before
+validating the presentation and credential. The response validator also accepts
+Boruta wallet's credential-bound descriptor representation, whose omitted
+definition identifier is recovered from authenticated presentation state. Its
+wallet-defined nested descriptor identifier is treated as opaque and may
+contain any non-empty value, while its credential type, formats, and paths
+remain strictly checked.
+
+Presentation JWTs may use any asymmetric algorithm supported by the JWT
+implementation: ECDSA, RSA PKCS#1, RSA-PSS, or EdDSA. Symmetric HMAC algorithms
+are rejected. The presentation signature key is resolved from an embedded
+header `jwk`, falling back to an issuer-bound P-256 `did:key` in `kid`. It is
+intentionally independent of the credential's `cnf.jwk`; credential-subject and
+presentation-issuer equality remains required.
+
+The verifier accepts the standard nested JWT VP profile and Boruta wallet's
+compact top-level VP profile. Audience and JWT time claims are optional, but are
+validated whenever present. When absent, the response remains bound to the
+short-lived encrypted request state through its nonce and, for the compact
+profile, presentation-definition ID. The compact profile also requires its
+issuer and subject to match.
+
+After successful presentation validation, Kagome generates an authorization
+code for the original validated authorize client and redirects to that client's
+redirect URI with `code` and the original client `state`. Wallet errors and
+validation failures occurring after presentation-state validation redirect to
+the same URI with `error`, `error_description`, and `state`. Failures before the
+encrypted state is trusted remain local JSON errors.
+
 [Mermaid source](presentation_request_endpoint.mmd)
 
 ![Presentation request endpoint](presentation_request_endpoint.svg)

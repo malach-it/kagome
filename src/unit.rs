@@ -86,6 +86,27 @@ pub fn parse_request_parameter(request: &KagomeRequest, parameter_name: &str) ->
     )
 }
 
+pub fn parse_request_json_parameter(
+    request: &KagomeRequest,
+    parameter_name: &str,
+) -> Option<serde_json::Value> {
+    if !request.method.eq_ignore_ascii_case("POST") {
+        return None;
+    }
+    let media_type = content_type(&request.headers)?
+        .split(';')
+        .next()
+        .map(str::trim)?;
+    if !media_type.eq_ignore_ascii_case("application/json") {
+        return None;
+    }
+
+    serde_json::from_str::<serde_json::Value>(&request.body)
+        .ok()?
+        .get(parameter_name)
+        .cloned()
+}
+
 pub fn parse_query_parameter(request: &KagomeRequest, parameter_name: &str) -> Option<String> {
     request
         .query_params

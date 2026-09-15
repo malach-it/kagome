@@ -1,4 +1,39 @@
-use crate::errors::OAuthError;
+use serde::Deserialize;
+
+use crate::{
+    errors::OAuthError,
+    resources::{credential_issuer::CREDENTIAL_TYPE, presentation_state::PresentationStateClaims},
+};
+
+const VP_FORMAT: &str = "jwt_vp";
+const VC_FORMAT: &str = "jwt_vc";
+const VP_PATH: &str = "$";
+const VC_PATH: &str = "$.vp.verifiableCredential[0]";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresentationSubmission {
+    id: String,
+    definition_id: Option<String>,
+    descriptor_map: Vec<DescriptorMap>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescriptorMap {
+    id: String,
+    format: String,
+    path: String,
+    path_nested: NestedDescriptorMap,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NestedDescriptorMap {
+    id: Option<String>,
+    format: String,
+    path: String,
+}
 
 pub const SUPPORTED_WALLET_ERRORS: &[&str] = &[
     "access_denied",
@@ -14,7 +49,14 @@ pub trait ValidateEncoding {
 pub trait ValidateWalletError {
     fn request_wallet_error(&self) -> Option<&str>;
     fn request_vp_token(&self) -> Option<&str>;
+    fn request_presentation_submission(&self) -> Option<&str>;
     fn add_wallet_error(&mut self, error: String);
+}
+
+pub trait Validate {
+    fn request_presentation_submission(&self) -> Option<&str>;
+    fn presentation_state_claims(&self) -> Option<&PresentationStateClaims>;
+    fn mark_presentation_submission_validated(&mut self);
 }
 
 pub fn validate_encoding<T: ValidateEncoding>(request: T) -> Result<T, OAuthError> {
@@ -44,11 +86,91 @@ pub fn validate_wallet_error<T: ValidateWalletError>(mut request: T) -> Result<T
             "wallet error response must not include vp_token",
         ));
     }
+    if request.request_presentation_submission().is_some() {
+        return Err(OAuthError::invalid_request(
+            "wallet error response must not include presentation_submission",
+        ));
+    }
 
     if !SUPPORTED_WALLET_ERRORS.contains(&error) {
         return Err(OAuthError::invalid_request("wallet error is unsupported"));
     }
 
     request.add_wallet_error(error.to_owned());
+    Ok(request)
+}
+
+pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
+    let encoded_submission = request
+        .request_presentation_submission()
+        .ok_or_else(|| OAuthError::invalid_request("presentation_submission is required"))?;
+    let submission: PresentationSubmission =
+        serde_json::from_str(encoded_submission).map_err(|_| {
+            OAuthError::invalid_request("presentation_submission must be a JSON object")
+        })?;
+    let state = request.presentation_state_claims().ok_or_else(|| {
+        OAuthError::invalid_request("state must be validated before presentation_submission")
+    })?;
+
+    if submission.id.is_empty() {
+        return Err(OAuthError::invalid_request(
+            "presentation_submission id is required",
+        ));
+    }
+    if submission
+        .definition_id
+        .as_deref()
+        .is_some_and(|definition_id| definition_id != state.presentation_definition_id)
+    {
+        return Err(OAuthError::invalid_request(
+            "presentation_submission definition_id is invalid",
+        ));
+    }
+    let [descriptor] = submission.descriptor_map.as_slice() else {
+        return Err(OAuthError::invalid_request(
+            "presentation_submission must contain exactly one descriptor",
+        ));
+    };
+    let standard_descriptor = submission.definition_id.is_some()
+        && descriptor.id == state.input_descriptor_id
+        && descriptor.path_nested.id.as_deref() == Some(&state.input_descriptor_id)
+        && descriptor.format == VP_FORMAT
+        && descriptor.path == VP_PATH
+        && descriptor.path_nested.format == VC_FORMAT
+        && descriptor.path_nested.path == VC_PATH;
+    let credential_bound_descriptor = submission.definition_id.is_none()
+        && descriptor.id == CREDENTIAL_TYPE
+        && descriptor
+            .path_nested
+            .id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty())
+        && descriptor.format == VP_FORMAT
+        && descriptor.path == VP_PATH
+        && descriptor.path_nested.format == VC_FORMAT
+        && descriptor.path_nested.path == "$.verifiableCredential[0]";
+
+    if !standard_descriptor && !credential_bound_descriptor {
+        let descriptor_id_is_valid = descriptor.id == state.input_descriptor_id
+            && descriptor.path_nested.id.as_deref() == Some(&state.input_descriptor_id);
+        let credential_bound_id_is_valid = descriptor.id == CREDENTIAL_TYPE
+            && descriptor
+                .path_nested
+                .id
+                .as_deref()
+                .is_some_and(|id| !id.is_empty())
+            && submission.definition_id.is_none();
+        if !descriptor_id_is_valid && !credential_bound_id_is_valid {
+            return Err(OAuthError::invalid_request(
+                "presentation_submission descriptor id is invalid",
+            ));
+        }
+
+        return Err(OAuthError::invalid_request(
+            "presentation_submission descriptor mapping is invalid",
+        ));
+    }
+
+    request.mark_presentation_submission_validated();
     Ok(request)
 }

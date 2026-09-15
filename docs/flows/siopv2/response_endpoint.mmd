@@ -1,0 +1,28 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /siopv2-response] --> method{POST request?}
+    method -- no --> not_found["`**HTTP 404** not found`"]
+    method -- yes --> media{Form Content-Type?}
+    media -- no --> failure[Error response]
+    media -- yes --> state{State valid, current, issuer-bound, and request parameters consistent?}
+    state -- no --> failure
+    state -- yes --> kind{Response kind?}
+    kind -- wallet error --> wallet{Supported error without id_token?}
+    wallet -- no --> failure
+    wallet -- yes --> wallet_redirect["`**HTTP 302** client redirect with wallet error, description, and state`"]
+    kind -- id_token --> jwt{JWT uses ES256?}
+    jwt -- no --> failure
+    jwt -- yes --> syntax{Raw P-256, Boruta JWK-JCS, or thumbprint key binding valid?}
+    syntax -- no --> failure
+    syntax -- yes --> signature{Signature and expiration valid?}
+    signature -- no --> failure
+    signature -- yes --> claims{Issuer, audience, nonce, and time claims valid?}
+    claims -- no --> failure
+    claims -- yes --> restore{SIOP request response type, authorization attributes, and optional code valid?}
+    restore -- no --> failure
+    restore -- yes --> response_types{SIOP request response type pipeline succeeds?}
+    response_types -- no --> failure
+    response_types -- yes --> identity_success["`**HTTP 302** redirect with requested OAuth response`"]
+    failure --> destination{Trusted client redirect URI available?}
+    destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
+    destination -- no --> html_error["`**HTTP 400** HTML error page`"]

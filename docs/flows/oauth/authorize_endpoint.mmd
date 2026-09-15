@@ -1,9 +1,8 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request /authorize] --> method{HTTP method?}
-    method -- other --> not_found["`**HTTP 404** not found`"]
-    method -- GET --> response_type
-    method -- POST --> response_type{response_type supported and ordering valid?}
+    start[Request /authorize] --> method{HTTP method and flow?}
+    method -- other or non-GET vp_token --> not_found["`**HTTP 404** not found`"]
+    method -- GET or OAuth POST --> response_type{response_type supported and ordering valid?}
     response_type -- no --> error
     response_type -- yes --> client{client_id accepted and redirect_uri configured?}
     client -- no --> error
@@ -13,7 +12,16 @@ flowchart TD
     code -- no --> error
     code -- yes --> policy{metadata_policy absent or valid?}
     policy -- no --> error
-    policy -- yes --> get_or_post{GET or POST?}
+    policy -- yes --> flow{Validated response type?}
+    flow -- vp_token --> vp_verifier[Use configured issuer as verifier]
+    vp_verifier --> vp_host{Credential issuer Host valid?}
+    vp_host -- no --> error
+    vp_host -- yes --> vp_state{Fresh presentation nonce and state generated?}
+    vp_state -- no --> error
+    vp_state -- yes --> vp_sign{Presentation request object signed?}
+    vp_sign -- no --> error
+    vp_sign -- yes --> vp_success["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and signed request`"]
+    flow -- OAuth --> get_or_post{GET or POST?}
     get_or_post -- GET --> optional_owner{Optional resource owner credentials valid?}
     optional_owner -- invalid --> error
     optional_owner -- absent --> federation{federated_server configured?}

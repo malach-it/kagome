@@ -1,0 +1,25 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    begin[Relying party creates authorization request] --> oauth{Response types, client, redirect URI, and optional code valid?}
+    oauth -- no --> request_error["`**HTTP 400** OAuth error`"]
+    oauth -- yes --> issuer[Use configured issuer as verifier]
+    issuer --> protect{Fresh nonce and request response type stored in encrypted state?}
+    protect -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
+    protect -- yes --> sign{Request object signed?}
+    sign -- no --> generation_error
+    sign -- yes --> authorization["`**HTTP 302** validated redirect URI with signed SIOPv2 query`"]
+    authorization --> wallet{Wallet outcome?}
+    wallet -- protocol error --> post_error[POST wallet error to state-bound callback]
+    wallet -- identity --> post_token[POST self-issued id_token to state-bound callback]
+    post_error --> error_valid{State valid and error supported?}
+    error_valid -- no --> response_error
+    error_valid -- yes --> wallet_redirect["`**HTTP 302** client redirect with wallet error`"]
+    post_token --> validate{State, signature, subject, claims, and bindings valid?}
+    validate -- no --> response_error
+    validate -- yes --> restore[Restore SIOP request response type, authorization attributes, and optional code]
+    restore --> generate{SIOP request response type pipeline succeeds?}
+    generate -- no --> response_error
+    generate -- yes --> identity_success["`**HTTP 302** redirect with requested OAuth response`"]
+    response_error[Error response] --> destination{Trusted client redirect URI available?}
+    destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
+    destination -- no --> html_error["`**HTTP 400** HTML error page`"]

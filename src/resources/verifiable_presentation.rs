@@ -1,5 +1,7 @@
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken::{
-    Algorithm, DecodingKey, Validation, decode, decode_header, get_current_timestamp,
+    Algorithm, AlgorithmFamily, DecodingKey, Validation, decode, decode_header,
+    get_current_timestamp,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -7,10 +9,13 @@ use serde_json::Value;
 use crate::errors::OAuthError;
 
 use super::{
-    credential_issuer::CREDENTIAL_TYPE,
-    presentation_state::PresentationStateClaims,
-    verifiable_credential::{HOLDER_PUBLIC_KEY_X, PUBLIC_KEY},
+    credential_issuer::CREDENTIAL_TYPE, presentation_state::PresentationStateClaims,
+    self_issued_id_token, verifiable_credential::PUBLIC_KEY,
 };
+
+pub const SUPPORTED_ALGORITHM_NAMES: [&str; 9] = [
+    "ES256", "ES384", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "EdDSA",
+];
 
 #[derive(Debug)]
 pub struct ValidatedPresentation {
@@ -21,15 +26,33 @@ pub struct ValidatedPresentation {
 #[derive(Debug, Deserialize)]
 struct PresentationClaims {
     iss: String,
-    aud: String,
+    #[serde(default)]
+    sub: Option<String>,
+    #[serde(default)]
+    aud: Option<String>,
     nonce: String,
-    iat: u64,
-    nbf: u64,
-    exp: u64,
-    vp: PresentationBody,
+    #[serde(default)]
+    iat: Option<u64>,
+    #[serde(default)]
+    nbf: Option<u64>,
+    #[serde(default)]
+    exp: Option<u64>,
+    #[serde(default)]
+    vp: Option<PresentationBody>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default, rename = "type")]
+    presentation_types: Vec<String>,
+    #[serde(default, rename = "verifiableCredential")]
+    credentials: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
+struct PresentationIssuer {
+    iss: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct PresentationBody {
     #[serde(rename = "type")]
     presentation_types: Vec<String>,
@@ -43,13 +66,7 @@ struct CredentialClaims {
     sub: String,
     iat: u64,
     exp: u64,
-    cnf: Confirmation,
     vc: CredentialBody,
-}
-
-#[derive(Debug, Deserialize)]
-struct Confirmation {
-    jwk: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +80,7 @@ struct CredentialBody {
 pub trait Validate {
     fn request_vp_token(&self) -> Option<&str>;
     fn presentation_state_claims(&self) -> Option<&PresentationStateClaims>;
+    fn presentation_submission_validated(&self) -> bool;
     fn add_validated_presentation(&mut self, presentation: ValidatedPresentation);
 }
 
@@ -73,37 +91,34 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let state = request
         .presentation_state_claims()
         .ok_or_else(|| invalid("state must be validated before vp_token"))?;
-    let presentation_jwt = presentation_jwt(vp_token, &state.query_id)?;
+    if !request.presentation_submission_validated() {
+        return Err(invalid(
+            "presentation_submission must be validated before vp_token",
+        ));
+    }
+    let presentation_jwt = vp_token.to_owned();
     let header = decode_header(&presentation_jwt)
         .map_err(|_| invalid("vp_token presentation must be a jwt"))?;
 
-    if header.alg != Algorithm::EdDSA {
-        return Err(invalid("vp_token presentation algorithm must be EdDSA"));
+    if header.alg.family() == AlgorithmFamily::Hmac {
+        return Err(invalid(
+            "vp_token presentation algorithm must be asymmetric",
+        ));
     }
 
-    let holder_jwk = header
-        .jwk
-        .ok_or_else(|| invalid("vp_token presentation header must include jwk"))?;
-    validate_holder_jwk(&holder_jwk)?;
+    let holder_jwk = resolve_holder_jwk(&presentation_jwt, header.jwk, header.kid.as_deref())?;
     let holder_key = DecodingKey::from_jwk(&holder_jwk)
         .map_err(|_| invalid("vp_token presentation jwk must be valid"))?;
-    let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.set_required_spec_claims(&["exp", "nbf"]);
-    validation.set_audience(&[state.client_id.as_str()]);
+    let mut validation = Validation::new(header.alg);
+    validation.required_spec_claims.clear();
+    validation.validate_nbf = true;
+    validation.validate_aud = false;
     let presentation = decode::<PresentationClaims>(&presentation_jwt, &holder_key, &validation)
         .map_err(|_| invalid("vp_token presentation is invalid or expired"))?
         .claims;
 
-    validate_presentation_claims(&presentation, state)?;
-    let credential = validate_credential(&presentation.vp.credentials[0], state)?;
-    let presented_jwk = serde_json::to_value(&holder_jwk)
-        .map_err(|_| invalid("vp_token presentation jwk must be valid"))?;
-
-    if credential.cnf.jwk != presented_jwk {
-        return Err(invalid(
-            "vp_token presentation key must match the credential holder key",
-        ));
-    }
+    let credentials = validate_presentation_claims(&presentation, state)?;
+    let credential = validate_credential(&credentials[0], state)?;
 
     if credential.sub != presentation.iss {
         return Err(invalid(
@@ -118,66 +133,108 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
-fn presentation_jwt(vp_token: &str, query_id: &str) -> Result<String, OAuthError> {
-    let vp_token: Value =
-        serde_json::from_str(vp_token).map_err(|_| invalid("vp_token must be a JSON object"))?;
-    let entries = vp_token
-        .as_object()
-        .ok_or_else(|| invalid("vp_token must be a JSON object"))?;
-
-    if entries.len() != 1 {
-        return Err(invalid(
-            "vp_token must satisfy exactly one credential query",
-        ));
+fn resolve_holder_jwk(
+    token: &str,
+    header_jwk: Option<jsonwebtoken::jwk::Jwk>,
+    key_id: Option<&str>,
+) -> Result<jsonwebtoken::jwk::Jwk, OAuthError> {
+    if let Some(jwk) = header_jwk {
+        return Ok(jwk);
     }
 
-    let presentations = entries
-        .get(query_id)
-        .and_then(Value::as_array)
-        .ok_or_else(|| invalid("vp_token does not satisfy the requested credential query"))?;
-
-    if presentations.len() != 1 {
+    let key_id = key_id
+        .ok_or_else(|| invalid("vp_token presentation header must include jwk or a did:key kid"))?;
+    let issuer = decode_unverified_issuer(token)?;
+    if !issuer.iss.starts_with("did:key:")
+        || !(key_id == issuer.iss
+            || key_id
+                .strip_prefix(&issuer.iss)
+                .is_some_and(|fragment| fragment.starts_with('#')))
+    {
         return Err(invalid(
-            "vp_token credential query must contain exactly one presentation",
+            "vp_token presentation kid must identify the issuer did:key",
         ));
     }
+    let jwk = self_issued_id_token::did_key_jwk(&issuer.iss)
+        .map_err(|_| invalid("vp_token presentation kid must contain a valid P-256 did:key"))?;
 
-    presentations[0]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| invalid("vp_token presentation must be a string"))
+    serde_json::from_value(jwk)
+        .map_err(|_| invalid("vp_token presentation kid must contain a valid P-256 did:key"))
 }
 
-fn validate_presentation_claims(
-    presentation: &PresentationClaims,
+fn decode_unverified_issuer(token: &str) -> Result<PresentationIssuer, OAuthError> {
+    let mut segments = token.split('.');
+    let _header = segments.next();
+    let payload = segments
+        .next()
+        .ok_or_else(|| invalid("vp_token presentation must be a jwt"))?;
+    if segments.next().is_none() || segments.next().is_some() {
+        return Err(invalid("vp_token presentation must be a jwt"));
+    }
+    let payload = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|_| invalid("vp_token presentation claims are invalid"))?;
+
+    serde_json::from_slice(&payload)
+        .map_err(|_| invalid("vp_token presentation claims are invalid"))
+}
+
+fn validate_presentation_claims<'a>(
+    presentation: &'a PresentationClaims,
     state: &PresentationStateClaims,
-) -> Result<(), OAuthError> {
+) -> Result<&'a [String], OAuthError> {
     let now = get_current_timestamp();
 
-    if presentation.aud != state.client_id {
-        return Err(invalid("vp_token presentation audience is invalid"));
-    }
     if presentation.nonce != state.nonce {
         return Err(invalid("vp_token presentation nonce is invalid"));
     }
-    if presentation.iat > now || presentation.nbf > now || presentation.exp <= presentation.iat {
-        return Err(invalid("vp_token presentation time claims are invalid"));
-    }
-    if !presentation
-        .vp
-        .presentation_types
+    let (presentation_types, credentials) = if let Some(body) = &presentation.vp {
+        // Boruta wallet omits aud and JWT time claims. Their absence is accepted
+        // because the nonce is bound to short-lived authenticated presentation
+        // state; when these claims are present, their constraints still apply.
+        if presentation
+            .aud
+            .as_deref()
+            .is_some_and(|audience| audience != state.client_id)
+        {
+            return Err(invalid("vp_token presentation audience is invalid"));
+        }
+        if presentation.iat.is_some_and(|iat| iat > now)
+            || presentation.nbf.is_some_and(|nbf| nbf > now)
+            || presentation.exp.is_some_and(|exp| exp <= now)
+            || presentation
+                .iat
+                .zip(presentation.exp)
+                .is_some_and(|(iat, exp)| exp <= iat)
+        {
+            return Err(invalid("vp_token presentation time claims are invalid"));
+        }
+
+        (&body.presentation_types, &body.credentials)
+    } else {
+        if presentation.id.as_deref() != Some(&state.presentation_definition_id) {
+            return Err(invalid("vp_token presentation definition id is invalid"));
+        }
+        if presentation.sub.as_deref() != Some(&presentation.iss) {
+            return Err(invalid("vp_token presentation issuer must equal subject"));
+        }
+
+        (&presentation.presentation_types, &presentation.credentials)
+    };
+
+    if !presentation_types
         .iter()
         .any(|presentation_type| presentation_type == "VerifiablePresentation")
     {
         return Err(invalid("vp_token must be a VerifiablePresentation"));
     }
-    if presentation.vp.credentials.len() != 1 {
+    if credentials.len() != 1 {
         return Err(invalid(
             "vp_token presentation must contain exactly one credential",
         ));
     }
 
-    Ok(())
+    Ok(credentials)
 }
 
 fn validate_credential(
@@ -230,19 +287,6 @@ fn validate_credential(
     }
 
     Ok(credential)
-}
-
-fn validate_holder_jwk(jwk: &jsonwebtoken::jwk::Jwk) -> Result<(), OAuthError> {
-    let value = serde_json::to_value(jwk)
-        .map_err(|_| invalid("vp_token presentation jwk must be valid"))?;
-    if value.get("kty").and_then(Value::as_str) != Some("OKP")
-        || value.get("crv").and_then(Value::as_str) != Some("Ed25519")
-        || value.get("x").and_then(Value::as_str) != Some(HOLDER_PUBLIC_KEY_X)
-    {
-        return Err(invalid("vp_token presentation holder key is not trusted"));
-    }
-
-    Ok(())
 }
 
 fn invalid(description: &str) -> OAuthError {

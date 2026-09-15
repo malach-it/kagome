@@ -39,7 +39,9 @@ pub fn route_request(request: &KagomeRequest) -> String {
         return crate::handlers::oid4vci::credential_offer::handle_credential_offer(request);
     }
 
-    if request.method.eq_ignore_ascii_case("GET") && request.path == "/jwks" {
+    if request.method.eq_ignore_ascii_case("GET")
+        && (request.path == "/jwks" || request.path == "/openid/jwks")
+    {
         return crate::handlers::oid4vci::jwks::handle_jwks(request);
     }
 
@@ -51,14 +53,20 @@ pub fn route_request(request: &KagomeRequest) -> String {
         return crate::handlers::responses::cors_preflight_response();
     }
 
-    if request.method.eq_ignore_ascii_case("GET") && request.path == "/presentation-request" {
-        return crate::handlers::oid4vp::presentation_request::handle_presentation_request(request);
-    }
-
     if request.method.eq_ignore_ascii_case("POST") && request.path == "/presentation-response" {
         return crate::handlers::oid4vp::presentation_response::handle_presentation_response(
             request,
         );
+    }
+
+    if request.method.eq_ignore_ascii_case("GET") && request.path == "/siopv2-request" {
+        return crate::handlers::siopv2::authorization_request::handle_siop_authorization_request(
+            request,
+        );
+    }
+
+    if request.method.eq_ignore_ascii_case("POST") && request.path == "/siopv2-response" {
+        return crate::handlers::siopv2::response::handle_siop_response(request);
     }
 
     if request.path == "/echo" {

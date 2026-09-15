@@ -3,10 +3,10 @@ use crate::{
     handlers::responses::oid4vci_json_response,
     resources::{
         credential_access_token::{self, CredentialAccessTokenClaims},
-        credential_issuer,
+        credential_issuer, credential_proof,
         verifiable_credential::{self, VerifiableCredential},
     },
-    unit::{KagomeRequest, parse_request_parameter, request_header},
+    unit::{KagomeRequest, parse_request_json_parameter, parse_request_parameter, request_header},
 };
 
 #[derive(Debug)]
@@ -16,6 +16,7 @@ pub struct CredentialRequest<'a> {
     pub access_token: Option<String>,
     pub content_type: Option<String>,
     pub credential_identifier: Option<String>,
+    pub proof: Option<serde_json::Value>,
     pub response: CredentialResponse,
 }
 
@@ -25,6 +26,7 @@ pub struct CredentialResponse {
     pub authorized_credential_configuration_id: Option<String>,
     pub credential_configuration_id: Option<String>,
     pub subject: Option<String>,
+    pub holder_jwk: Option<serde_json::Value>,
     pub credential: Option<VerifiableCredential>,
 }
 
@@ -36,6 +38,7 @@ impl<'a> CredentialRequest<'a> {
             access_token: bearer_token(request_header(request, "authorization").as_deref()),
             content_type: request_header(request, "content-type"),
             credential_identifier: parse_request_parameter(request, "credential_identifier"),
+            proof: parse_request_json_parameter(request, "proof"),
             response: CredentialResponse::default(),
         }
     }
@@ -105,8 +108,30 @@ impl verifiable_credential::Generate for CredentialRequest<'_> {
         self.response.subject.as_deref()
     }
 
+    fn holder_jwk(&self) -> Option<&serde_json::Value> {
+        self.response.holder_jwk.as_ref()
+    }
+
     fn add_verifiable_credential(&mut self, credential: VerifiableCredential) {
         self.response.credential = Some(credential);
+    }
+}
+
+impl credential_proof::Validate for CredentialRequest<'_> {
+    fn request_proof(&self) -> Option<&serde_json::Value> {
+        self.proof.as_ref()
+    }
+
+    fn credential_issuer(&self) -> Option<&str> {
+        self.response.credential_issuer.as_deref()
+    }
+
+    fn add_validated_credential_proof(
+        &mut self,
+        proof: credential_proof::ValidatedCredentialProof,
+    ) {
+        self.response.subject = Some(proof.subject);
+        self.response.holder_jwk = Some(proof.jwk);
     }
 }
 

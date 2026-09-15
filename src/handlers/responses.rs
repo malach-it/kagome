@@ -4,8 +4,8 @@ use crate::{
         AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
         ClientCredentialsRequest, CodeChainAuthorizationCodeRequest, CodeChainRequest,
         CredentialOfferRequest, CredentialRequest, PreAuthorizedCodeRequest,
-        PresentationAuthorizationRequest, PresentationResponseRequest,
-        ResourceOwnerPasswordCredentialsRequest,
+        PresentationResponseRequest, ResourceOwnerPasswordCredentialsRequest,
+        SiopAuthorizationRequest, SiopResponseRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -112,6 +112,70 @@ pub fn oid4vp_error_response(error: &OAuthError) -> String {
 
     format!(
         "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        response_body.len(),
+        response_body
+    )
+}
+
+pub fn authorization_request_redirect_response(
+    redirect_uri: &str,
+    parameters: &[(&str, &str)],
+) -> String {
+    let (base_uri, fragment) = redirect_uri
+        .split_once('#')
+        .map_or((redirect_uri, None), |(base, fragment)| {
+            (base, Some(fragment))
+        });
+    let location = parameters
+        .iter()
+        .fold(base_uri.to_owned(), |uri, (name, value)| {
+            append_query_parameter(&uri, name, &percent_encode_query_value(value))
+        });
+    let location = match fragment {
+        Some(fragment) => format!("{location}#{fragment}"),
+        None => location,
+    };
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {location}\r\ncache-control: no-store\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+    )
+}
+
+pub fn siopv2_error_redirect_response(
+    redirect_uri: &str,
+    error: &str,
+    error_description: Option<&str>,
+    state: Option<&str>,
+) -> String {
+    authorization_error_redirect_response(redirect_uri, error, error_description, state)
+}
+
+pub fn authorization_error_redirect_response(
+    redirect_uri: &str,
+    error: &str,
+    error_description: Option<&str>,
+    state: Option<&str>,
+) -> String {
+    let mut parameters = vec![("error", error)];
+    if let Some(error_description) = error_description {
+        parameters.push(("error_description", error_description));
+    }
+    if let Some(state) = state {
+        parameters.push(("state", state));
+    }
+
+    authorization_request_redirect_response(redirect_uri, &parameters)
+}
+
+pub fn oauth_error_html_response(error: &str, error_description: Option<&str>) -> String {
+    let description = error_description.unwrap_or(error);
+    let response_body = format!(
+        "<!doctype html><html><head><title>authorization error</title></head><body><main><h1>authorization error</h1><p role=\"alert\">{}</p></main></body></html>",
+        escape_html(description)
+    );
+
+    format!(
+        "HTTP/1.1 400 Bad Request\r\ncontent-type: text/html\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
         response_body.len(),
         response_body
     )
@@ -436,6 +500,10 @@ impl ResponseLog for AuthorizeLoginRequest<'_> {
     fn log_success(&self) {
         let flow = if self.response.pre_authorized_code.is_some() {
             "pre_authorized_code"
+        } else if self.response.presentation_state.is_some() {
+            "openid4vp"
+        } else if self.response.siop_authenticated {
+            "siopv2"
         } else if self.response.federated_authorization.is_some() {
             "federated_redirect"
         } else if self.response.federated_access_token.is_some() {
@@ -696,20 +764,6 @@ impl ResponseLog for CredentialRequest<'_> {
     }
 }
 
-impl ResponseLog for PresentationAuthorizationRequest<'_> {
-    fn to_http_response(&self) -> Result<String, OAuthError> {
-        self.to_response()
-    }
-
-    fn log_success(&self) {
-        eprintln!(
-            "[{}] presentation_request_handler success query={}",
-            log_timestamp(),
-            crate::resources::presentation_state::QUERY_ID
-        );
-    }
-}
-
 impl ResponseLog for PresentationResponseRequest<'_> {
     fn to_http_response(&self) -> Result<String, OAuthError> {
         self.to_response()
@@ -723,6 +777,37 @@ impl ResponseLog for PresentationResponseRequest<'_> {
                 "wallet_error"
             } else {
                 "presentation"
+            }
+        );
+    }
+}
+
+impl ResponseLog for SiopAuthorizationRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        eprintln!(
+            "[{}] siopv2_request_handler success response_mode=direct_post",
+            log_timestamp()
+        );
+    }
+}
+
+impl ResponseLog for SiopResponseRequest<'_> {
+    fn to_http_response(&self) -> Result<String, OAuthError> {
+        self.to_response()
+    }
+
+    fn log_success(&self) {
+        eprintln!(
+            "[{}] siopv2_response_handler success outcome={}",
+            log_timestamp(),
+            if self.response.wallet_error.is_some() {
+                "wallet_error"
+            } else {
+                "id_token"
             }
         );
     }

@@ -1,0 +1,12 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /siopv2-request] --> method{GET request?}
+    method -- no --> not_found["`**HTTP 404** not found`"]
+    method -- yes --> oauth{Response types, client, redirect URI, and optional code valid?}
+    oauth -- no --> request_error["`**HTTP 400** OAuth error`"]
+    oauth -- yes --> issuer[Load configured issuer as verifier]
+    issuer --> state{Fresh nonce and request response type stored in COSE state?}
+    state -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
+    state -- yes --> signed{ES256 request object generated?}
+    signed -- no --> generation_error
+    signed -- yes --> success["`**HTTP 302** validated redirect URI with signed SIOPv2 query`"]

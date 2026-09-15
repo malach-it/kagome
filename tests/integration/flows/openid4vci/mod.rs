@@ -1,5 +1,7 @@
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use serde_json::Value;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, encode};
+use serde_json::{Value, json};
 
 use super::super::server::send_request;
 
@@ -7,9 +9,14 @@ const HOST: &str = "issuer.example.com";
 const CONFIGURATION_ID: &str = "UniversityDegreeCredential";
 const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
 const RESPONSE_TYPE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_code";
+const PROOF_X: &str = "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI";
+const PROOF_Y: &str = "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8";
+const PROOF_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
 
 // Branch matrix:
 // - discovery endpoint: issuer metadata | authorization-server metadata | JWKS
+// - JWKS route: canonical | OpenID compatibility alias; response: success | error,
+//   each with Access-Control-Allow-Origin
 // - endpoint method: supported | credential OPTIONS preflight | unsupported
 // - Host: valid | missing | invalid
 // - token representation: form | JSON
@@ -22,6 +29,9 @@ const RESPONSE_TYPE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_
 // - credential request media type: application/json (case-insensitive, parameters
 //   allowed) | missing | unsupported
 // - credential_identifier: supported | missing | legacy credential_configuration_id | unknown
+// - credential proof: absent (access-token subject fallback) | valid JWT proof |
+//   malformed | invalid signature | wrong audience. A valid proof binds the
+//   issued subject and cnf.jwk to its wallet DID and public key.
 // - authorize response type: authenticated | unauthenticated | combined with another type
 // A token/configuration mismatch is unreachable because this profile advertises
 // and issues exactly one credential configuration.
@@ -46,10 +56,12 @@ fn returns_credential_issuer_metadata() {
             [0],
         "EdDSA"
     );
-    assert!(
-        body["credential_configurations_supported"][CONFIGURATION_ID]
-            .get("proof_types_supported")
-            .is_none()
+    assert_eq!(
+        body["credential_configurations_supported"][CONFIGURATION_ID]["proof_types_supported"]["jwt"]
+            ["proof_signing_alg_values_supported"],
+        json!([
+            "ES256", "ES384", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "EdDSA"
+        ])
     );
 }
 
@@ -71,13 +83,16 @@ fn returns_authorization_server_metadata() {
 
 #[test]
 fn returns_credential_signing_jwk() {
-    let response = get("/jwks");
-    let body = json_body(&response);
+    for path in ["/jwks", "/openid/jwks"] {
+        let response = get(path);
+        let body = json_body(&response);
 
-    assert_ok_json(&response);
-    assert_eq!(body["keys"][0]["kty"], "OKP");
-    assert_eq!(body["keys"][0]["crv"], "Ed25519");
-    assert_eq!(body["keys"][0]["alg"], "EdDSA");
+        assert_ok_json(&response);
+        assert!(response.contains("access-control-allow-origin: *\r\n"));
+        assert_eq!(body["keys"][0]["kty"], "OKP");
+        assert_eq!(body["keys"][0]["crv"], "Ed25519");
+        assert_eq!(body["keys"][0]["alg"], "EdDSA");
+    }
 }
 
 #[test]
@@ -302,6 +317,63 @@ fn issues_ed25519_signed_jwt_vc() {
 }
 
 #[test]
+fn issues_credential_bound_to_wallet_proof_subject_and_key() {
+    let access_token = access_token();
+    let did = proof_did_key();
+    let proof = credential_proof(&did, "https://issuer.example.com");
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {access_token}")),
+        &credential_body_with_proof(CONFIGURATION_ID, &proof),
+    );
+    let body = json_body(&response);
+    let claims = credential_claims(body["credential"].as_str().unwrap());
+
+    assert_ok_json(&response);
+    assert_eq!(claims["sub"], did);
+    assert_eq!(claims["credentialSubject"][CONFIGURATION_ID]["id"], did);
+    assert_eq!(claims["vc"]["credentialSubject"]["id"], did);
+    assert_eq!(claims["cnf"]["jwk"], proof_jwk());
+}
+
+#[test]
+fn rejects_credential_proof_with_invalid_signature() {
+    let access_token = access_token();
+    let did = proof_did_key();
+    let mut proof = credential_proof(&did, "https://issuer.example.com");
+    proof.push('x');
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {access_token}")),
+        &credential_body_with_proof(CONFIGURATION_ID, &proof),
+    );
+
+    assert_credential_error(
+        &response,
+        "invalid_credential_request",
+        "proof jwt signature is invalid",
+    );
+}
+
+#[test]
+fn rejects_credential_proof_with_wrong_audience() {
+    let access_token = access_token();
+    let did = proof_did_key();
+    let proof = credential_proof(&did, "https://attacker.example.com");
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {access_token}")),
+        &credential_body_with_proof(CONFIGURATION_ID, &proof),
+    );
+
+    assert_credential_error(
+        &response,
+        "invalid_credential_request",
+        "proof jwt audience is invalid",
+    );
+}
+
+#[test]
 fn accepts_case_insensitive_json_credential_content_type_with_parameters() {
     let access_token = access_token();
     let response = credential_request(
@@ -434,6 +506,7 @@ fn returns_not_found_for_unsupported_oid4vci_methods() {
         "/.well-known/oauth-authorization-server",
         "/credential-offer",
         "/jwks",
+        "/openid/jwks",
     ] {
         let response = send_request(&format!("POST {path} HTTP/1.1\r\nhost: {HOST}\r\n\r\n"));
         assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
@@ -452,6 +525,16 @@ fn rejects_missing_or_invalid_host_for_issuer_endpoints() {
         "GET /.well-known/openid-credential-issuer HTTP/1.1\r\nhost: issuer/example\r\n\r\n",
     );
     assert_oauth_error(&invalid, "invalid_request", "host header is invalid");
+}
+
+#[test]
+fn returns_jwks_errors_with_access_control_allow_origin() {
+    for path in ["/jwks", "/openid/jwks"] {
+        let response = send_request(&format!("GET {path} HTTP/1.1\r\n\r\n"));
+
+        assert_oauth_error(&response, "invalid_request", "host header is required");
+        assert!(response.contains("access-control-allow-origin: *\r\n"));
+    }
 }
 
 fn credential_offer() -> String {
@@ -579,6 +662,84 @@ fn post(path: &str, authorization: Option<&str>, content_type: &str, body: &str)
 
 fn credential_body(credential_identifier: &str) -> String {
     serde_json::json!({"credential_identifier": credential_identifier}).to_string()
+}
+
+fn credential_body_with_proof(credential_identifier: &str, proof: &str) -> String {
+    json!({
+        "credential_identifier": credential_identifier,
+        "format": "jwt_vc",
+        "proof": {
+            "proof_type": "jwt",
+            "jwt": proof
+        }
+    })
+    .to_string()
+}
+
+fn credential_proof(subject: &str, audience: &str) -> String {
+    let claims = json!({
+        "iss": subject,
+        "sub": subject,
+        "aud": audience,
+        "iat": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    });
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some(subject.to_owned());
+    encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ec_pem(PROOF_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap()
+}
+
+fn credential_claims(credential: &str) -> Value {
+    let mut validation = Validation::new(Algorithm::EdDSA);
+    validation.validate_aud = false;
+    jsonwebtoken::decode::<Value>(
+        credential,
+        &DecodingKey::from_ed_pem(kagome::resources::verifiable_credential::PUBLIC_KEY).unwrap(),
+        &validation,
+    )
+    .unwrap()
+    .claims
+}
+
+fn proof_jwk() -> Value {
+    json!({"kty": "EC", "crv": "P-256", "x": PROOF_X, "y": PROOF_Y})
+}
+
+fn proof_did_key() -> String {
+    let canonical = format!(r#"{{"crv":"P-256","kty":"EC","x":"{PROOF_X}","y":"{PROOF_Y}"}}"#);
+    let mut multicodec_key = vec![0xd1, 0xd6, 0x03];
+    multicodec_key.extend(canonical.as_bytes());
+    format!("did:key:z{}", base58btc(&multicodec_key))
+}
+
+fn base58btc(value: &[u8]) -> String {
+    let alphabet = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let mut digits = vec![0_u8];
+    for byte in value {
+        let mut carry = u32::from(*byte);
+        for digit in &mut digits {
+            carry += u32::from(*digit) << 8;
+            *digit = (carry % 58) as u8;
+            carry /= 58;
+        }
+        while carry > 0 {
+            digits.push((carry % 58) as u8);
+            carry /= 58;
+        }
+    }
+    let leading_zeroes = value.iter().take_while(|byte| **byte == 0).count();
+    let mut encoded = String::from_utf8(vec![b'1'; leading_zeroes]).unwrap();
+    encoded.extend(
+        digits
+            .iter()
+            .rev()
+            .map(|digit| alphabet[usize::from(*digit)] as char),
+    );
+    encoded
 }
 
 fn json_body(response: &str) -> Value {

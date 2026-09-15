@@ -1,12 +1,15 @@
 use crate::{
     errors::OAuthError,
-    handlers::responses::oid4vp_json_response,
+    handlers::responses::{
+        authorization_error_redirect_response, authorization_request_redirect_response,
+    },
     resources::{
+        authorization_code::{self, AuthorizationCode},
         presentation_state::{self, PresentationStateClaims},
         presentation_submission,
         verifiable_presentation::{self, ValidatedPresentation},
     },
-    unit::{KagomeRequest, parse_request_parameter, request_header},
+    unit::{KagomeRequest, parse_query_parameter, parse_request_parameter, request_header},
 };
 
 #[derive(Debug)]
@@ -15,7 +18,9 @@ pub struct PresentationResponseRequest<'a> {
     pub content_type: Option<String>,
     pub state: Option<String>,
     pub vp_token: Option<String>,
+    pub presentation_submission: Option<String>,
     pub error: Option<String>,
+    pub error_description: Option<String>,
     pub response: PresentationResponse,
 }
 
@@ -23,7 +28,9 @@ pub struct PresentationResponseRequest<'a> {
 pub struct PresentationResponse {
     pub state_claims: Option<PresentationStateClaims>,
     pub presentation: Option<ValidatedPresentation>,
+    pub presentation_submission_validated: bool,
     pub wallet_error: Option<String>,
+    pub authorization_code: Option<AuthorizationCode>,
 }
 
 impl<'a> PresentationResponseRequest<'a> {
@@ -31,9 +38,12 @@ impl<'a> PresentationResponseRequest<'a> {
         Self {
             request,
             content_type: request_header(request, "content-type"),
-            state: parse_request_parameter(request, "state"),
+            state: parse_query_parameter(request, "state")
+                .or_else(|| parse_request_parameter(request, "state")),
             vp_token: parse_request_parameter(request, "vp_token"),
+            presentation_submission: parse_request_parameter(request, "presentation_submission"),
             error: parse_request_parameter(request, "error"),
+            error_description: parse_request_parameter(request, "error_description"),
             response: PresentationResponse::default(),
         }
     }
@@ -50,7 +60,36 @@ impl<'a> PresentationResponseRequest<'a> {
             ));
         }
 
-        Ok(oid4vp_json_response("{}"))
+        if self.response.wallet_error.is_some() {
+            let state = self.response.state_claims.as_ref().ok_or_else(|| {
+                OAuthError::invalid_token_response("presentation state must be validated")
+            })?;
+            return Ok(authorization_error_redirect_response(
+                &state.authorization_redirect_uri,
+                self.response
+                    .wallet_error
+                    .as_deref()
+                    .unwrap_or("invalid_request"),
+                self.error_description.as_deref(),
+                state.authorization_state.as_deref(),
+            ));
+        }
+
+        let state = self.response.state_claims.as_ref().ok_or_else(|| {
+            OAuthError::invalid_token_response("presentation state must be validated")
+        })?;
+        let authorization_code = self.response.authorization_code.as_ref().ok_or_else(|| {
+            OAuthError::invalid_token_response("presentation response requires authorization code")
+        })?;
+        let mut parameters = vec![("code", authorization_code.value.as_str())];
+        if let Some(client_state) = state.authorization_state.as_deref() {
+            parameters.push(("state", client_state));
+        }
+
+        Ok(authorization_request_redirect_response(
+            &state.authorization_redirect_uri,
+            &parameters,
+        ))
     }
 }
 
@@ -69,8 +108,26 @@ impl presentation_submission::ValidateWalletError for PresentationResponseReques
         self.vp_token.as_deref()
     }
 
+    fn request_presentation_submission(&self) -> Option<&str> {
+        self.presentation_submission.as_deref()
+    }
+
     fn add_wallet_error(&mut self, error: String) {
         self.response.wallet_error = Some(error);
+    }
+}
+
+impl presentation_submission::Validate for PresentationResponseRequest<'_> {
+    fn request_presentation_submission(&self) -> Option<&str> {
+        self.presentation_submission.as_deref()
+    }
+
+    fn presentation_state_claims(&self) -> Option<&PresentationStateClaims> {
+        self.response.state_claims.as_ref()
+    }
+
+    fn mark_presentation_submission_validated(&mut self) {
+        self.response.presentation_submission_validated = true;
     }
 }
 
@@ -93,7 +150,47 @@ impl verifiable_presentation::Validate for PresentationResponseRequest<'_> {
         self.response.state_claims.as_ref()
     }
 
+    fn presentation_submission_validated(&self) -> bool {
+        self.response.presentation_submission_validated
+    }
+
     fn add_validated_presentation(&mut self, presentation: ValidatedPresentation) {
         self.response.presentation = Some(presentation);
+    }
+}
+
+impl authorization_code::Generate for PresentationResponseRequest<'_> {
+    fn previous_authorization_code(&self) -> Option<&str> {
+        None
+    }
+
+    fn client_id(&self) -> Option<&str> {
+        self.response
+            .state_claims
+            .as_ref()
+            .map(|state| state.authorization_client_id.as_str())
+    }
+
+    fn id_token(&self) -> Option<&str> {
+        None
+    }
+
+    fn username(&self) -> Option<&str> {
+        self.response
+            .presentation
+            .as_ref()
+            .map(|presentation| presentation.subject.as_str())
+    }
+
+    fn add_authorization_code(&mut self, authorization_code: AuthorizationCode) {
+        self.response.authorization_code = Some(authorization_code);
+    }
+
+    fn require_id_token(&self) -> bool {
+        false
+    }
+
+    fn require_username(&self) -> bool {
+        true
     }
 }

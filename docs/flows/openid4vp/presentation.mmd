@@ -1,16 +1,21 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    begin[Verifier creates presentation request] --> request_host{Verifier Host valid?}
-    request_host -- no --> request_error["`**HTTP 400** invalid_request`"]
-    request_host -- yes --> protect{Encrypt fresh nonce and context in COSE state?}
+    begin[Verifier creates presentation request] --> verifier[Use configured issuer as verifier]
+    verifier --> issuer{Credential issuer Host valid?}
+    issuer -- no --> request_error["`**HTTP 400** invalid_request`"]
+    issuer -- yes --> protect{Encrypt fresh nonce and context in COSE state?}
     protect -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
-    protect -- yes --> authorization["`**HTTP 200** DCQL direct-post authorization request`"]
+    protect -- yes --> sign{Sign presentation request object?}
+    sign -- no --> generation_error
+    sign -- yes --> authorization["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and request JWT`"]
     authorization --> wallet{Wallet outcome?}
-    wallet -- protocol error --> post_error[POST state and wallet error]
-    wallet -- presentation --> post_vp[POST state and vp_token]
+    wallet -- protocol error --> post_error[POST wallet error to state-bound callback]
+    wallet -- presentation --> post_vp[POST vp_token and presentation_submission to state-bound callback]
     post_error --> error_state{State valid and error supported?}
-    error_state -- no --> response_error["`**HTTP 400** invalid_request`"]
-    error_state -- yes --> success["`**HTTP 200** response processed`"]
-    post_vp --> validate{VP shape, proofs, credential, query, and bindings valid?}
+    error_state -- no --> response_error["`**HTTP 400** local error before trusted state or **HTTP 302** client error redirect after trusted state`"]
+    error_state -- yes --> error_redirect["`**HTTP 302** client redirect with wallet error and state`"]
+    post_vp --> validate{Mapping, standard or compact VP claims, proof, credential, and subject binding valid?}
     validate -- no --> response_error
-    validate -- yes --> success
+    validate -- yes --> code{Authorization code generated?}
+    code -- no --> response_error
+    code -- yes --> success["`**HTTP 302** client redirect with code and state`"]

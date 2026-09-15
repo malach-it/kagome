@@ -30,6 +30,11 @@ the adjacent SVG files are rendered for direct review.
 
 ## Credential Endpoint
 
+The credential request may include a JWT proof. A valid asymmetric proof binds
+the issued credential subject and `cnf.jwk` to the wallet's DID and public key;
+the proof audience must be the credential issuer and its `iat` must be recent.
+Requests without a proof retain the access-token subject fallback.
+
 [Mermaid source](credential_endpoint.mmd)
 
 ![Credential endpoint](credential_endpoint.svg)

@@ -657,6 +657,7 @@ dependencies = [
  "ciborium",
  "coset",
  "jsonwebtoken",
+ "p256",
  "ring",
  "schemars",
  "serde",

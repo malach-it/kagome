@@ -1,9 +1,11 @@
 use crate::{
     errors::OAuthError,
     resources::{
-        access_token, authorization_code, client_credentials, federated_server, id_token,
-        metadata_policy, pre_authorized_code, resource_owner,
+        access_token, authorization_code, client_credentials, credential_issuer, federated_server,
+        id_token, metadata_policy, pre_authorized_code, presentation_request, presentation_state,
+        resource_owner,
         response_type::{self, ResponseType},
+        verifier,
     },
     unit::KagomeRequest,
 };
@@ -13,6 +15,10 @@ use super::responses::{log_timestamp, logged_response, login_error_response};
 pub use crate::requests::{AuthorizeCodeRequest, AuthorizeLoginRequest};
 
 pub fn handle_authorize(request: &KagomeRequest) -> String {
+    if !request.method.eq_ignore_ascii_case("GET") && is_oid4vp_authorization_request(request) {
+        return not_found_response();
+    }
+
     match request.method.to_ascii_uppercase().as_str() {
         "GET" => handle_authorization_request(request),
         "POST" => handle_authentication(request),
@@ -20,14 +26,39 @@ pub fn handle_authorize(request: &KagomeRequest) -> String {
     }
 }
 
+fn is_oid4vp_authorization_request(request: &KagomeRequest) -> bool {
+    request
+        .query_params
+        .iter()
+        .any(|(name, value)| name == "response_type" && value == "vp_token")
+}
+
 fn handle_authorization_request(request: &KagomeRequest) -> String {
     let authorize_request = validate_authorize(AuthorizeLoginRequest::from_request(request))
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate);
 
+    if authorize_request.as_ref().is_ok_and(|request| {
+        matches!(
+            request.response.response_types.as_slice(),
+            [ResponseType::VpToken]
+        )
+    }) {
+        return match authorize_request
+            .and_then(generate_login_response)
+            .and_then(logged_response)
+        {
+            Ok(response) => response,
+            Err(error) => {
+                log_authorize_failure(&error);
+                authorize_error_response(request, error)
+            }
+        };
+    }
+
     match authorize_request.and_then(resource_owner::validate_optional) {
         Ok(authorize_request) if authorize_request.has_resource_owner() => {
-            match generate_response(authorize_request).and_then(logged_response) {
+            match generate_login_response(authorize_request).and_then(logged_response) {
                 Ok(response) => response,
                 Err(error) => {
                     log_authorize_failure(&error);
@@ -55,7 +86,7 @@ fn handle_authentication(request: &KagomeRequest) -> String {
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate)
         .and_then(resource_owner::validate)
-        .and_then(generate_response)
+        .and_then(generate_code_response)
         .and_then(logged_response)
     {
         Ok(response) => response,
@@ -73,29 +104,12 @@ where
     response_type::validate(authorize_request).and_then(client_credentials::validate)
 }
 
-trait GenerateAuthorizeResponse {
-    fn response_types(&self) -> &[ResponseType];
-    fn is_authenticated(&self) -> bool;
-}
-
-impl GenerateAuthorizeResponse for AuthorizeLoginRequest<'_> {
-    fn response_types(&self) -> &[ResponseType] {
-        &self.response.response_types
-    }
-
-    fn is_authenticated(&self) -> bool {
-        self.response.username.is_some() || self.response.federated_access_token.is_some()
-    }
-}
-
-impl GenerateAuthorizeResponse for AuthorizeCodeRequest<'_> {
-    fn response_types(&self) -> &[ResponseType] {
-        &self.response.response_types
-    }
-
-    fn is_authenticated(&self) -> bool {
-        self.response.username.is_some()
-    }
+pub fn validate_siop_authorize(
+    authorize_request: AuthorizeLoginRequest<'_>,
+) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
+    validate_authorize(authorize_request)
+        .and_then(authorization_code::validate_optional)
+        .and_then(metadata_policy::validate)
 }
 
 pub fn continue_federated_authorize(
@@ -106,19 +120,23 @@ pub fn continue_federated_authorize(
         .and_then(metadata_policy::validate)
         .and_then(federated_server::request_access_token)
         .and_then(federated_server::fetch_identity)
-        .and_then(generate_response)
+        .and_then(generate_login_response)
 }
 
-fn generate_response<T>(authorize_request: T) -> Result<T, OAuthError>
-where
-    T: GenerateAuthorizeResponse
-        + access_token::Generate
-        + authorization_code::Generate
-        + id_token::Generate
-        + pre_authorized_code::Generate,
-{
-    match authorize_request.response_types() {
-        [ResponseType::PreAuthorizedCode] if authorize_request.is_authenticated() => {
+pub fn continue_siop_authorize(
+    authorize_request: AuthorizeLoginRequest<'_>,
+) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
+    validate_siop_authorize(authorize_request).and_then(generate_login_response)
+}
+
+fn generate_login_response(
+    authorize_request: AuthorizeLoginRequest<'_>,
+) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
+    let is_authenticated = authorize_request.response.username.is_some()
+        || authorize_request.response.federated_access_token.is_some();
+
+    match authorize_request.response.response_types.as_slice() {
+        [ResponseType::PreAuthorizedCode] if is_authenticated => {
             pre_authorized_code::generate(authorize_request)
         }
         [ResponseType::PreAuthorizedCode] => Err(OAuthError::missing_username()),
@@ -126,28 +144,70 @@ where
             ResponseType::Code,
             ResponseType::IdToken,
             ResponseType::Token,
-        ] if authorize_request.is_authenticated() => {
-            authorization_code::generate(authorize_request)
-                .and_then(id_token::generate)
-                .and_then(access_token::generate)
-        }
-        [ResponseType::Code, ResponseType::Token] if authorize_request.is_authenticated() => {
+        ] if is_authenticated => authorization_code::generate(authorize_request)
+            .and_then(id_token::generate)
+            .and_then(access_token::generate),
+        [ResponseType::Code, ResponseType::Token] if is_authenticated => {
             authorization_code::generate(authorize_request).and_then(access_token::generate)
         }
-        [ResponseType::Code, ResponseType::IdToken] if authorize_request.is_authenticated() => {
+        [ResponseType::Code, ResponseType::IdToken] if is_authenticated => {
             authorization_code::generate(authorize_request).and_then(id_token::generate)
         }
-        [ResponseType::IdToken, ResponseType::Token] if authorize_request.is_authenticated() => {
+        [ResponseType::IdToken, ResponseType::Token] if is_authenticated => {
             id_token::generate(authorize_request).and_then(access_token::generate)
         }
         [ResponseType::IdToken, ResponseType::Token] => Err(OAuthError::missing_username()),
-        [ResponseType::Token] if authorize_request.is_authenticated() => {
-            access_token::generate(authorize_request)
-        }
+        [ResponseType::Token] if is_authenticated => access_token::generate(authorize_request),
         [ResponseType::Token] => Err(OAuthError::missing_username()),
-        [ResponseType::IdToken] if authorize_request.is_authenticated() => {
-            id_token::generate(authorize_request)
+        [ResponseType::IdToken] if is_authenticated => id_token::generate(authorize_request),
+        [ResponseType::IdToken] => Err(OAuthError::missing_username()),
+        [ResponseType::VpToken] => verifier::validate(authorize_request)
+            .and_then(credential_issuer::validate)
+            .and_then(presentation_state::generate)
+            .and_then(presentation_request::generate),
+        [ResponseType::Code, ..] => authorization_code::generate(authorize_request),
+        [] => Err(OAuthError::unsupported_response_type(
+            &response_type::SUPPORTED_RESPONSE_TYPES,
+        )),
+        [ResponseType::IdToken, ..]
+        | [ResponseType::PreAuthorizedCode, ..]
+        | [ResponseType::Token, ..]
+        | [ResponseType::VpToken, ..] => Err(OAuthError::unsupported_response_type(
+            &response_type::SUPPORTED_RESPONSE_TYPES,
+        )),
+    }
+}
+
+fn generate_code_response(
+    authorize_request: AuthorizeCodeRequest<'_>,
+) -> Result<AuthorizeCodeRequest<'_>, OAuthError> {
+    let is_authenticated = authorize_request.response.username.is_some();
+
+    match authorize_request.response.response_types.as_slice() {
+        [ResponseType::PreAuthorizedCode] if is_authenticated => {
+            pre_authorized_code::generate(authorize_request)
         }
+        [ResponseType::PreAuthorizedCode] => Err(OAuthError::missing_username()),
+        [
+            ResponseType::Code,
+            ResponseType::IdToken,
+            ResponseType::Token,
+        ] if is_authenticated => authorization_code::generate(authorize_request)
+            .and_then(id_token::generate)
+            .and_then(access_token::generate),
+        [ResponseType::Code, ResponseType::Token] if is_authenticated => {
+            authorization_code::generate(authorize_request).and_then(access_token::generate)
+        }
+        [ResponseType::Code, ResponseType::IdToken] if is_authenticated => {
+            authorization_code::generate(authorize_request).and_then(id_token::generate)
+        }
+        [ResponseType::IdToken, ResponseType::Token] if is_authenticated => {
+            id_token::generate(authorize_request).and_then(access_token::generate)
+        }
+        [ResponseType::IdToken, ResponseType::Token] => Err(OAuthError::missing_username()),
+        [ResponseType::Token] if is_authenticated => access_token::generate(authorize_request),
+        [ResponseType::Token] => Err(OAuthError::missing_username()),
+        [ResponseType::IdToken] if is_authenticated => id_token::generate(authorize_request),
         [ResponseType::IdToken] => Err(OAuthError::missing_username()),
         [ResponseType::Code, ..] => authorization_code::generate(authorize_request),
         [] => Err(OAuthError::unsupported_response_type(
@@ -155,7 +215,8 @@ where
         )),
         [ResponseType::IdToken, ..]
         | [ResponseType::PreAuthorizedCode, ..]
-        | [ResponseType::Token, ..] => Err(OAuthError::unsupported_response_type(
+        | [ResponseType::Token, ..]
+        | [ResponseType::VpToken, ..] => Err(OAuthError::unsupported_response_type(
             &response_type::SUPPORTED_RESPONSE_TYPES,
         )),
     }

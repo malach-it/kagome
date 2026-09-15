@@ -9,6 +9,7 @@ base64 = "0.22.1"
 ciborium = "0.2.2"
 coset = "0.4.2"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+p256 = "0.13.2"
 ring = "0.17.14"
 schemars = "1.2"
 serde = { version = "1", features = ["derive"] }

@@ -32,6 +32,8 @@ flowchart TD
     bearer -- no --> bearer_error["`**HTTP 401** invalid_token with CORS header`"]
     bearer -- yes --> configuration{JSON request has authorized credential identifier?}
     configuration -- no --> credential_error["`**HTTP 400** credential request error with CORS header`"]
-    configuration -- yes --> issue{Ed25519 jwt_vc generated?}
+    configuration -- yes --> proof{Optional wallet JWT proof valid?}
+    proof -- no --> credential_error
+    proof -- yes --> issue{Ed25519 jwt_vc generated for proof or token subject?}
     issue -- no --> generation_error
     issue -- yes --> success["`**HTTP 200** jwt_vc credential with CORS header`"]
