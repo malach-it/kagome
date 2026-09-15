@@ -14,10 +14,10 @@ flowchart TD
     wallet -- protocol error --> post_error[POST wallet error to state-bound callback]
     wallet -- presentation --> post_vp[POST vp_token and presentation_submission to state-bound callback]
     post_error --> error_state{State valid and error supported?}
-    error_state -- no --> response_error["`**HTTP 400** local error before trusted state or **HTTP 302** client error redirect after trusted state`"]
+    error_state -- no --> response_error["`**HTTP 400** local HTML error before trusted redirect URI or **HTTP 302** error at trusted redirect URI`"]
     error_state -- yes --> error_redirect["`**HTTP 302** client redirect with wallet error and state`"]
-    post_vp --> validate{Mapping, wallet and optional ID-token signatures, VP claims, credential, and subject binding valid?}
+    post_vp --> validate{State client and redirect URI, mapping, signatures, VP claims, credential, and subject binding valid?}
     validate -- no --> response_error
     validate -- yes --> code{Authorization code generated?}
     code -- no --> response_error
-    code -- yes --> success["`**HTTP 302** client redirect with code and state`"]
+    code -- yes --> success["`**HTTP 302** trusted redirect URI with code and state`"]

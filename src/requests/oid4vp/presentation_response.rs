@@ -5,6 +5,7 @@ use crate::{
     },
     resources::{
         authorization_code::{self, AuthorizationCode},
+        client_credentials,
         presentation_state::{self, PresentationStateClaims},
         presentation_submission,
         verifiable_presentation::{self, ValidatedPresentation},
@@ -31,6 +32,7 @@ pub struct PresentationResponse {
     pub presentation_submission_validated: bool,
     pub wallet_error: Option<String>,
     pub authorization_code: Option<AuthorizationCode>,
+    pub authorization_redirect_uri: Option<String>,
 }
 
 impl<'a> PresentationResponseRequest<'a> {
@@ -54,6 +56,11 @@ impl<'a> PresentationResponseRequest<'a> {
                 "presentation state must be validated",
             ));
         }
+        if self.response.authorization_redirect_uri.is_none() {
+            return Err(OAuthError::invalid_token_response(
+                "presentation redirect_uri must be validated",
+            ));
+        }
         if self.response.presentation.is_none() && self.response.wallet_error.is_none() {
             return Err(OAuthError::invalid_token_response(
                 "presentation response must be processed",
@@ -65,7 +72,14 @@ impl<'a> PresentationResponseRequest<'a> {
                 OAuthError::invalid_token_response("presentation state must be validated")
             })?;
             return Ok(authorization_error_redirect_response(
-                &state.authorization_redirect_uri,
+                self.response
+                    .authorization_redirect_uri
+                    .as_deref()
+                    .ok_or_else(|| {
+                        OAuthError::invalid_token_response(
+                            "presentation redirect_uri must be validated",
+                        )
+                    })?,
                 self.response
                     .wallet_error
                     .as_deref()
@@ -87,7 +101,14 @@ impl<'a> PresentationResponseRequest<'a> {
         }
 
         Ok(authorization_request_redirect_response(
-            &state.authorization_redirect_uri,
+            self.response
+                .authorization_redirect_uri
+                .as_deref()
+                .ok_or_else(|| {
+                    OAuthError::invalid_token_response(
+                        "presentation redirect_uri must be validated",
+                    )
+                })?,
             &parameters,
         ))
     }
@@ -138,6 +159,37 @@ impl presentation_state::Validate for PresentationResponseRequest<'_> {
 
     fn add_presentation_state_claims(&mut self, claims: PresentationStateClaims) {
         self.response.state_claims = Some(claims);
+    }
+}
+
+impl client_credentials::Validate for PresentationResponseRequest<'_> {
+    fn request_client_id(&self) -> Option<&str> {
+        self.response
+            .state_claims
+            .as_ref()
+            .map(|state| state.authorization_client_id.as_str())
+    }
+
+    fn require_client_secret(&self) -> bool {
+        false
+    }
+
+    fn request_redirect_uri(&self) -> Option<&str> {
+        self.response
+            .state_claims
+            .as_ref()
+            .map(|state| state.authorization_redirect_uri.as_str())
+    }
+
+    fn require_redirect_uri(&self) -> bool {
+        true
+    }
+
+    fn add_client_credentials(
+        &mut self,
+        client_credentials: client_credentials::ClientCredentials,
+    ) {
+        self.response.authorization_redirect_uri = client_credentials.redirect_uri;
     }
 }
 

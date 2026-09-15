@@ -3,14 +3,16 @@ flowchart TD
     start[Request /presentation-response] --> method{POST request?}
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> media{Form Content-Type?}
-    media -- no --> request_error["`**HTTP 400** local invalid_request`"]
+    media -- no --> request_error["`**HTTP 400** local HTML invalid_request`"]
     media -- yes --> source{State in callback query or form body?}
     source -- no --> request_error
     source -- yes --> state{State valid and current?}
     state -- no --> request_error
-    state -- yes --> kind{Response kind?}
+    state -- yes --> redirect{State client and redirect URI still configured and trusted?}
+    redirect -- no --> request_error
+    redirect -- yes --> kind{Response kind?}
     kind -- wallet error --> wallet{Supported error without vp_token?}
-    wallet -- no --> redirect_error["`**HTTP 302** client redirect with error, error_description, and state`"]
+    wallet -- no --> redirect_error["`**HTTP 302** trusted redirect URI with error, error_description, and state`"]
     wallet -- yes --> redirect_error
     kind -- vp_token --> shape{Standard or credential-bound submission valid?}
     shape -- no --> redirect_error
@@ -26,4 +28,4 @@ flowchart TD
     binding -- no --> redirect_error
     binding -- yes --> code{Authorization code generated?}
     code -- no --> redirect_error
-    code -- yes --> success["`**HTTP 302** client redirect with code and state`"]
+    code -- yes --> success["`**HTTP 302** trusted redirect URI with code and state`"]

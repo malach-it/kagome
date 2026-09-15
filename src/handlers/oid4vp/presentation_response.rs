@@ -1,10 +1,11 @@
 use crate::{
     handlers::responses::{
-        authorization_error_redirect_response, logged_response, oid4vp_error_response,
+        authorization_error_redirect_response, logged_response, oauth_error_html_response,
     },
     requests::PresentationResponseRequest,
     resources::{
-        authorization_code, presentation_state, presentation_submission, verifiable_presentation,
+        authorization_code, client_credentials, presentation_state, presentation_submission,
+        verifiable_presentation,
     },
     unit::KagomeRequest,
 };
@@ -13,18 +14,21 @@ pub fn handle_presentation_response(request: &KagomeRequest) -> String {
     let validated_state = presentation_submission::validate_encoding(
         PresentationResponseRequest::from_request(request),
     )
-    .and_then(presentation_state::validate);
+    .and_then(presentation_state::validate)
+    .and_then(client_credentials::validate);
 
     let request = match validated_state {
         Ok(request) => request,
-        Err(error) => return oid4vp_error_response(&error),
+        Err(error) => {
+            return oauth_error_html_response(&error.error, Some(&error.error_description));
+        }
     };
-    let destination = request.response.state_claims.as_ref().map(|state| {
-        (
-            state.authorization_redirect_uri.clone(),
-            state.authorization_state.clone(),
-        )
-    });
+    let destination = request
+        .response
+        .authorization_redirect_uri
+        .as_ref()
+        .zip(request.response.state_claims.as_ref())
+        .map(|(redirect_uri, state)| (redirect_uri.clone(), state.authorization_state.clone()));
     let result = if request.error.is_some() {
         presentation_submission::validate_wallet_error(request)
     } else {
@@ -43,7 +47,7 @@ pub fn handle_presentation_response(request: &KagomeRequest) -> String {
                 Some(&error.error_description),
                 state.as_deref(),
             ),
-            None => oid4vp_error_response(&error),
+            None => oauth_error_html_response(&error.error, Some(&error.error_description)),
         },
     }
 }

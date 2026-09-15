@@ -38,8 +38,8 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - state value: valid | missing | invalid | expired | replayed
 // - response kind: vp_token | supported wallet error | unsupported wallet error |
 //   neither | both (invalid)
-// - response destination: validated client redirect with code/error and client
-//   state | local JSON error when presentation state cannot be trusted
+// - response destination: trusted redirect URI with code/error and client state |
+//   local HTML error when presentation state or redirect URI cannot be trusted
 // - presentation submission representation: definition-bound standard map |
 //   credential-bound Boruta wallet map with any non-empty nested identifier.
 //   Both are equivalent after validation.
@@ -363,6 +363,15 @@ fn rejects_invalid_presentation_state() {
     let response = submit("invalid", Some("{}"), None, FORM_CONTENT_TYPE);
 
     assert_error(&response, "state is invalid or expired");
+}
+
+#[test]
+fn returns_html_instead_of_redirecting_to_unregistered_state_redirect_uri() {
+    let state = presentation_state_with_redirect_uri("https://attacker.example/callback");
+    let response = submit(&state, None, None, FORM_CONTENT_TYPE);
+
+    assert_error(&response, "redirect_uri is invalid");
+    assert!(!response.contains("location:"));
 }
 
 #[test]
@@ -1354,19 +1363,31 @@ fn issued_credential_with_proof(proof: Option<&str>) -> String {
 }
 
 fn expired_state() -> String {
+    encoded_presentation_state(1, 2, AUTHORIZE_REDIRECT_URI)
+}
+
+fn presentation_state_with_redirect_uri(redirect_uri: &str) -> String {
+    let iat = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    encoded_presentation_state(iat, iat + 300, redirect_uri)
+}
+
+fn encoded_presentation_state(iat: u64, exp: u64, redirect_uri: &str) -> String {
     let claims = kagome::resources::presentation_state::PresentationStateClaims {
         nonce: "expired-nonce".to_owned(),
         client_id: CLIENT_ID.to_owned(),
         verifier: "http://localhost:4000".to_owned(),
         credential_issuer: "https://issuer.example.com".to_owned(),
         authorization_client_id: AUTHORIZE_CLIENT_ID.to_owned(),
-        authorization_redirect_uri: AUTHORIZE_REDIRECT_URI.to_owned(),
+        authorization_redirect_uri: redirect_uri.to_owned(),
         authorization_state: Some("client-state".to_owned()),
         id_token_public_jwk: None,
         presentation_definition_id: PRESENTATION_DEFINITION_ID.to_owned(),
         input_descriptor_id: INPUT_DESCRIPTOR_ID.to_owned(),
-        iat: 1,
-        exp: 2,
+        iat,
+        exp,
     };
     let mut plaintext = Vec::new();
     ciborium::into_writer(&claims, &mut plaintext).unwrap();
@@ -1650,9 +1671,9 @@ fn assert_error(response: &str, description: &str) {
         response.starts_with("HTTP/1.1 400 Bad Request\r\n"),
         "{response}"
     );
-    let body = json_body(response);
-    assert_eq!(body["error"], "invalid_request");
-    assert_eq!(body["error_description"], description);
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>authorization error</title>"));
+    assert!(response.contains(&format!("<p role=\"alert\">{description}</p>")));
 }
 
 fn assert_authorize_error(response: &str, description: &str) {

@@ -55,9 +55,11 @@ issuer and subject to match.
 After successful presentation validation, Kagome generates an authorization
 code for the original validated authorize client and redirects to that client's
 redirect URI with `code` and the original client `state`. Wallet errors and
-validation failures occurring after presentation-state validation redirect to
-the same URI with `error`, `error_description`, and `state`. Failures before the
-encrypted state is trusted remain local JSON errors.
+validation failures occurring after presentation-state validation and current
+client/redirect-URI revalidation redirect to the same URI with `error`,
+`error_description`, and `state`. This revalidated destination is the trusted
+redirect URI. Failures before a trusted redirect URI is established return an
+escaped local HTML error page.
 
 [Mermaid source](presentation_request_endpoint.mmd)
 
