@@ -26,6 +26,18 @@ pub fn logged_response<T: ResponseLog>(response: T) -> Result<String, OAuthError
     Ok(http_response)
 }
 
+pub fn cors_response(response: String) -> String {
+    let Some((status_line, remainder)) = response.split_once("\r\n") else {
+        return response;
+    };
+
+    format!("{status_line}\r\naccess-control-allow-origin: *\r\n{remainder}")
+}
+
+pub fn cors_preflight_response() -> String {
+    "HTTP/1.1 204 No Content\r\naccess-control-allow-origin: *\r\naccess-control-allow-methods: POST, OPTIONS\r\naccess-control-allow-headers: content-type, authorization\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
+}
+
 pub fn log_timestamp() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -133,12 +145,7 @@ pub fn credential_offer_redirect_response(
         ],
         "grants": {
             pre_authorized_code::GRANT_TYPE: {
-                "pre-authorized_code": pre_authorized_code,
-                "tx_code": {
-                    "input_mode": "numeric",
-                    "length": 6,
-                    "description": "Enter the transaction code supplied by the issuer"
-                }
+                "pre-authorized_code": pre_authorized_code
             }
         }
     })

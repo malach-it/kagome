@@ -58,14 +58,14 @@ fn returns_dcql_direct_post_presentation_request() {
     assert_eq!(request.body["dcql_query"]["credentials"][0]["id"], QUERY_ID);
     assert_eq!(
         request.body["dcql_query"]["credentials"][0]["format"],
-        "jwt_vc_json"
+        "jwt_vc"
     );
     assert_eq!(
         request.body["dcql_query"]["credentials"][0]["meta"]["type_values"][0][1],
         "UniversityDegreeCredential"
     );
     assert_eq!(
-        request.body["client_metadata"]["vp_formats_supported"]["jwt_vc_json"]["alg_values"][0],
+        request.body["client_metadata"]["vp_formats_supported"]["jwt_vc"]["alg_values"][0],
         "EdDSA"
     );
 }
@@ -661,7 +661,7 @@ fn issued_credential() -> String {
         .unwrap()
         .to_owned();
     let credential_body = json!({
-        "credential_configuration_id": "UniversityDegreeCredential"
+        "credential_identifier": "UniversityDegreeCredential"
     })
     .to_string();
     let credential_response = post(
@@ -671,7 +671,7 @@ fn issued_credential() -> String {
         &credential_body,
     );
 
-    json_body(&credential_response)["credentials"][0]["credential"]
+    json_body(&credential_response)["credential"]
         .as_str()
         .unwrap()
         .to_owned()

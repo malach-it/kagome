@@ -45,12 +45,7 @@ impl<'a> CredentialOfferRequest<'a> {
             "credential_configuration_ids": [CREDENTIAL_CONFIGURATION_ID],
             "grants": {
                 pre_authorized_code::GRANT_TYPE: {
-                    "pre-authorized_code": pre_authorized_code,
-                    "tx_code": {
-                        "input_mode": "numeric",
-                        "length": 6,
-                        "description": "Enter the transaction code supplied by the issuer"
-                    }
+                    "pre-authorized_code": pre_authorized_code
                 }
             }
         })

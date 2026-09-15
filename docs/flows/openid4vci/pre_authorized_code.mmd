@@ -16,16 +16,22 @@ flowchart TD
     authorize_offer --> token
     token --> code{Encrypted code present and valid?}
     code -- no --> token_error["`**HTTP 400** invalid_request or invalid_grant`"]
-    code -- yes --> tx{Transaction code present and valid?}
-    tx -- no --> token_error
-    tx -- yes --> access{Credential access token generated?}
+    code -- yes --> tx_present{Transaction code supplied?}
+    tx_present -- no --> access{Credential access token generated?}
+    tx_present -- yes --> tx_valid{Transaction code valid?}
+    tx_valid -- no --> token_error
+    tx_valid -- yes --> access
     access -- no --> generation_error
-    access -- yes --> token_success["`**HTTP 200** bearer access token`"]
-    token_success --> credential[POST /credential]
+    access -- yes --> token_success["`**HTTP 200** bearer access token with authorization details`"]
+    token_success --> credential_request[Request /credential]
+    credential_request --> credential_method{Method?}
+    credential_method -- OPTIONS --> credential_preflight["`**HTTP 204** CORS preflight response`"]
+    credential_method -- unsupported --> credential_not_found["`**HTTP 404** not found`"]
+    credential_method -- POST --> credential[Validate credential request]
     credential --> bearer{Bearer token valid?}
-    bearer -- no --> bearer_error["`**HTTP 401** invalid_token`"]
-    bearer -- yes --> configuration{JSON request has authorized configuration?}
-    configuration -- no --> credential_error["`**HTTP 400** credential request error`"]
-    configuration -- yes --> issue{Ed25519 JWT VC generated?}
+    bearer -- no --> bearer_error["`**HTTP 401** invalid_token with CORS header`"]
+    bearer -- yes --> configuration{JSON request has authorized credential identifier?}
+    configuration -- no --> credential_error["`**HTTP 400** credential request error with CORS header`"]
+    configuration -- yes --> issue{Ed25519 jwt_vc generated?}
     issue -- no --> generation_error
-    issue -- yes --> success["`**HTTP 200** credentials array`"]
+    issue -- yes --> success["`**HTTP 200** jwt_vc credential with CORS header`"]

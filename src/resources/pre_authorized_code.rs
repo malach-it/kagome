@@ -70,11 +70,9 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let code = request
         .request_pre_authorized_code()
         .ok_or_else(|| OAuthError::invalid_request("pre-authorized_code is required"))?;
-    let tx_code = request
-        .request_tx_code()
-        .ok_or_else(|| OAuthError::invalid_request("tx_code is required"))?;
-
-    if tx_code != TX_CODE {
+    if let Some(tx_code) = request.request_tx_code()
+        && tx_code != TX_CODE
+    {
         return Err(OAuthError::invalid_grant("tx_code is invalid"));
     }
 

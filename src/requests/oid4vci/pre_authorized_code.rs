@@ -37,10 +37,24 @@ impl<'a> PreAuthorizedCodeRequest<'a> {
         let access_token = self.response.access_token.as_ref().ok_or_else(|| {
             OAuthError::invalid_token_response("token response requires access_token")
         })?;
+        let credential_configuration_id = self
+            .response
+            .credential_configuration_id
+            .as_deref()
+            .ok_or_else(|| {
+                OAuthError::invalid_token_response(
+                    "token response requires credential configuration",
+                )
+            })?;
         let response_body = serde_json::json!({
             "access_token": access_token.value,
             "token_type": "Bearer",
             "expires_in": access_token.expires_in,
+            "authorization_details": [{
+                "type": "openid_credential",
+                "format": crate::resources::credential_issuer::CREDENTIAL_FORMAT,
+                "credential_configuration_id": credential_configuration_id,
+            }],
         })
         .to_string();
 

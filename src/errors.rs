@@ -76,7 +76,7 @@ impl OAuthError {
         Self::new(
             OAuthErrorCode::UnknownCredentialConfiguration,
             "unknown_credential_configuration",
-            "credential_configuration_id is unknown",
+            "credential_identifier is unknown",
         )
     }
 

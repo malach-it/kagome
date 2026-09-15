@@ -32,6 +32,16 @@ struct JwtVcClaims<'a> {
     exp: u64,
     jti: String,
     cnf: Confirmation,
+    #[serde(rename = "@context")]
+    context: [&'static str; 1],
+    id: String,
+    #[serde(rename = "type")]
+    credential_types: [&'static str; 2],
+    issuer: &'a str,
+    #[serde(rename = "issuanceDate")]
+    issuance_date: String,
+    #[serde(rename = "credentialSubject")]
+    credential_subject: CredentialSubjects<'a>,
     vc: VerifiableCredentialClaims<'a>,
 }
 
@@ -59,13 +69,20 @@ struct VerifiableCredentialClaims<'a> {
     credential_subject: CredentialSubject<'a>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct CredentialSubject<'a> {
     id: &'a str,
     degree: Degree,
 }
 
 #[derive(Debug, Serialize)]
+struct CredentialSubjects<'a> {
+    #[serde(rename = "UniversityDegreeCredential")]
+    university_degree_credential: CredentialSubject<'a>,
+    id: &'a str,
+}
+
+#[derive(Clone, Debug, Serialize)]
 struct Degree {
     #[serde(rename = "type")]
     degree_type: &'static str,
@@ -90,6 +107,17 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?
         .as_secs();
     let credential_id = format!("{issuer}/credentials/{}", random_identifier()?);
+    let issuance_date = OffsetDateTime::from_unix_timestamp(iat as i64)
+        .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?
+        .format(&Rfc3339)
+        .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?;
+    let credential_subject = CredentialSubject {
+        id: subject,
+        degree: Degree {
+            degree_type: "BachelorDegree",
+            name: "Bachelor of Science and Arts",
+        },
+    };
     let claims = JwtVcClaims {
         iss: issuer,
         sub: subject,
@@ -104,21 +132,21 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
                 x: HOLDER_PUBLIC_KEY_X,
             },
         },
+        context: ["https://www.w3.org/ns/credentials/v2"],
+        id: credential_id.clone(),
+        credential_types: ["VerifiableCredential", CREDENTIAL_TYPE],
+        issuer,
+        issuance_date: issuance_date.clone(),
+        credential_subject: CredentialSubjects {
+            university_degree_credential: credential_subject.clone(),
+            id: subject,
+        },
         vc: VerifiableCredentialClaims {
             id: credential_id,
             credential_types: ["VerifiableCredential", CREDENTIAL_TYPE],
             issuer,
-            issuance_date: OffsetDateTime::from_unix_timestamp(iat as i64)
-                .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?
-                .format(&Rfc3339)
-                .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?,
-            credential_subject: CredentialSubject {
-                id: subject,
-                degree: Degree {
-                    degree_type: "BachelorDegree",
-                    name: "Bachelor of Science and Arts",
-                },
-            },
+            issuance_date,
+            credential_subject,
         },
     };
     let mut header = Header::new(Algorithm::EdDSA);

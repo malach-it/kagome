@@ -8,7 +8,7 @@ use crate::{
     unit::KagomeRequest,
 };
 
-use super::responses::{log_timestamp, logged_response};
+use super::responses::{cors_response, log_timestamp, logged_response};
 
 pub use crate::requests::{
     AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
@@ -17,7 +17,7 @@ pub use crate::requests::{
 };
 
 pub fn handle_token(request: &KagomeRequest) -> String {
-    match grant_type::validate(GrantTypeRequest::from_request(request))
+    let response = match grant_type::validate(GrantTypeRequest::from_request(request))
         .and_then(|token_request| handle_validated_grant_type(token_request, request))
     {
         Ok(response) => response,
@@ -25,7 +25,9 @@ pub fn handle_token(request: &KagomeRequest) -> String {
             log_token_failure(&error);
             error.to_response()
         }
-    }
+    };
+
+    cors_response(response)
 }
 
 fn handle_validated_grant_type(

@@ -19,6 +19,10 @@ pub fn route_request(request: &KagomeRequest) -> String {
         return crate::handlers::token::handle_token(request);
     }
 
+    if request.method.eq_ignore_ascii_case("OPTIONS") && request.path == "/token" {
+        return crate::handlers::responses::cors_preflight_response();
+    }
+
     if request.method.eq_ignore_ascii_case("GET")
         && request.path == "/.well-known/openid-credential-issuer"
     {
@@ -41,6 +45,10 @@ pub fn route_request(request: &KagomeRequest) -> String {
 
     if request.method.eq_ignore_ascii_case("POST") && request.path == "/credential" {
         return crate::handlers::oid4vci::credential::handle_credential(request);
+    }
+
+    if request.method.eq_ignore_ascii_case("OPTIONS") && request.path == "/credential" {
+        return crate::handlers::responses::cors_preflight_response();
     }
 
     if request.method.eq_ignore_ascii_case("GET") && request.path == "/presentation-request" {

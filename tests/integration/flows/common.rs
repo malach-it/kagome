@@ -2,7 +2,8 @@ use super::oauth::*;
 
 // Branch matrix:
 // - grant_type: missing | unsupported form value | unsupported JSON value
-// - token endpoint method: POST | non-POST
+// - token endpoint method: POST | OPTIONS preflight | unsupported
+// - CORS response: successful token | OAuth error
 // Supported grant types are covered by their specification-specific flow modules.
 
 #[test]
@@ -40,4 +41,17 @@ fn returns_not_found_for_non_post_token_request() {
     assert!(response.contains("content-type: text/plain\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.ends_with("not found"));
+}
+
+#[test]
+fn returns_token_cors_preflight_response() {
+    let response = send_request(
+        "OPTIONS /token HTTP/1.1\r\nhost: example.com\r\norigin: https://client.example.com\r\naccess-control-request-method: POST\r\naccess-control-request-headers: content-type, authorization\r\n\r\n",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 204 No Content\r\n"));
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
+    assert!(response.contains("access-control-allow-methods: POST, OPTIONS\r\n"));
+    assert!(response.contains("access-control-allow-headers: content-type, authorization\r\n"));
+    assert!(response.contains("content-length: 0\r\n"));
 }

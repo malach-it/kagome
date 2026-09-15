@@ -4,10 +4,10 @@ use crate::{
     unit::KagomeRequest,
 };
 
-use crate::handlers::responses::{credential_error_response, logged_response};
+use crate::handlers::responses::{cors_response, credential_error_response, logged_response};
 
 pub fn handle_credential(request: &KagomeRequest) -> String {
-    match credential_issuer::validate(CredentialRequest::from_request(request))
+    let response = match credential_issuer::validate(CredentialRequest::from_request(request))
         .and_then(credential_access_token::validate)
         .and_then(credential_issuer::validate_configuration)
         .and_then(verifiable_credential::generate)
@@ -15,5 +15,7 @@ pub fn handle_credential(request: &KagomeRequest) -> String {
     {
         Ok(response) => response,
         Err(error) => credential_error_response(&error),
-    }
+    };
+
+    cors_response(response)
 }

@@ -2,7 +2,7 @@ use crate::errors::OAuthError;
 
 pub const CREDENTIAL_CONFIGURATION_ID: &str = "UniversityDegreeCredential";
 pub const CREDENTIAL_SCOPE: &str = "UniversityDegree";
-pub const CREDENTIAL_FORMAT: &str = "jwt_vc_json";
+pub const CREDENTIAL_FORMAT: &str = "jwt_vc";
 pub const CREDENTIAL_TYPE: &str = "UniversityDegreeCredential";
 
 pub trait Validate {
@@ -29,7 +29,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
 
 pub trait ValidateConfiguration {
     fn request_content_type(&self) -> Option<&str>;
-    fn request_credential_configuration_id(&self) -> Option<&str>;
+    fn request_credential_identifier(&self) -> Option<&str>;
     fn authorized_credential_configuration_id(&self) -> Option<&str>;
     fn add_credential_configuration(&mut self, credential_configuration_id: String);
 }
@@ -45,10 +45,10 @@ pub fn validate_configuration<T: ValidateConfiguration>(mut request: T) -> Resul
         ));
     }
 
-    let credential_configuration_id = match request.request_credential_configuration_id() {
+    let credential_configuration_id = match request.request_credential_identifier() {
         None => {
             return Err(OAuthError::invalid_credential_request(
-                "credential_configuration_id is required",
+                "credential_identifier is required",
             ));
         }
         Some(CREDENTIAL_CONFIGURATION_ID) => CREDENTIAL_CONFIGURATION_ID,

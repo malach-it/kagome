@@ -15,7 +15,7 @@ pub struct CredentialRequest<'a> {
     pub host: Option<String>,
     pub access_token: Option<String>,
     pub content_type: Option<String>,
-    pub credential_configuration_id: Option<String>,
+    pub credential_identifier: Option<String>,
     pub response: CredentialResponse,
 }
 
@@ -35,10 +35,7 @@ impl<'a> CredentialRequest<'a> {
             host: request_header(request, "host"),
             access_token: bearer_token(request_header(request, "authorization").as_deref()),
             content_type: request_header(request, "content-type"),
-            credential_configuration_id: parse_request_parameter(
-                request,
-                "credential_configuration_id",
-            ),
+            credential_identifier: parse_request_parameter(request, "credential_identifier"),
             response: CredentialResponse::default(),
         }
     }
@@ -48,7 +45,8 @@ impl<'a> CredentialRequest<'a> {
             OAuthError::invalid_token_response("credential response requires credential")
         })?;
         let response_body = serde_json::json!({
-            "credentials": [{"credential": credential.value}],
+            "format": credential_issuer::CREDENTIAL_FORMAT,
+            "credential": credential.value,
         })
         .to_string();
 
@@ -83,8 +81,8 @@ impl credential_issuer::ValidateConfiguration for CredentialRequest<'_> {
         self.content_type.as_deref()
     }
 
-    fn request_credential_configuration_id(&self) -> Option<&str> {
-        self.credential_configuration_id.as_deref()
+    fn request_credential_identifier(&self) -> Option<&str> {
+        self.credential_identifier.as_deref()
     }
 
     fn authorized_credential_configuration_id(&self) -> Option<&str> {

@@ -10,17 +10,18 @@ const RESPONSE_TYPE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_
 
 // Branch matrix:
 // - discovery endpoint: issuer metadata | authorization-server metadata | JWKS
-// - endpoint method: supported | unsupported
+// - endpoint method: supported | credential OPTIONS preflight | unsupported
 // - Host: valid | missing | invalid
 // - token representation: form | JSON
 // - pre-authorized_code: valid | missing | invalid | expired
-// - tx_code: valid | missing | invalid
+// - tx_code: valid | omitted | invalid
+// - successful token authorization_details: credential configuration | format | type
 // - redemption count: first | repeated (equivalent because this stateless profile
 //   deliberately permits reuse until expiration)
 // - bearer token: valid | missing | malformed | invalid
 // - credential request media type: application/json (case-insensitive, parameters
 //   allowed) | missing | unsupported
-// - credential_configuration_id: supported | missing | unknown
+// - credential_identifier: supported | missing | legacy credential_configuration_id | unknown
 // - authorize response type: authenticated | unauthenticated | combined with another type
 // A token/configuration mismatch is unreachable because this profile advertises
 // and issues exactly one credential configuration.
@@ -38,7 +39,7 @@ fn returns_credential_issuer_metadata() {
     );
     assert_eq!(
         body["credential_configurations_supported"][CONFIGURATION_ID]["format"],
-        "jwt_vc_json"
+        "jwt_vc"
     );
     assert_eq!(
         body["credential_configurations_supported"][CONFIGURATION_ID]["credential_signing_alg_values_supported"]
@@ -88,8 +89,7 @@ fn returns_pre_authorized_credential_offer_with_cose_code() {
 
     assert_ok_json(&response);
     assert_eq!(body["credential_configuration_ids"][0], CONFIGURATION_ID);
-    assert_eq!(grant["tx_code"]["input_mode"], "numeric");
-    assert_eq!(grant["tx_code"]["length"], 6);
+    assert!(grant.get("tx_code").is_none());
     assert!(!code.contains('.'));
     assert!(
         base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, code).is_ok()
@@ -106,7 +106,7 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert_eq!(offer["credential_issuer"], "http://localhost:4000");
     assert_eq!(offer["credential_configuration_ids"][0], CONFIGURATION_ID);
-    assert_eq!(grant["tx_code"]["length"], 6);
+    assert!(grant.get("tx_code").is_none());
 
     let token_response = token_request(&format!(
         "grant_type={GRANT_TYPE}&pre-authorized_code={code}&tx_code=493536"
@@ -117,7 +117,7 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
         .to_owned();
     let credential_response =
         credential_request(Some(&access_token), "application/json", CONFIGURATION_ID);
-    let credential = json_body(&credential_response)["credentials"][0]["credential"]
+    let credential = json_body(&credential_response)["credential"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -224,13 +224,26 @@ fn rejects_expired_pre_authorized_code() {
 }
 
 #[test]
-fn rejects_missing_transaction_code() {
+fn exchanges_pre_authorized_code_without_transaction_code() {
     let code = offered_code();
     let response = token_request(&format!(
         "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
 
-    assert_oauth_error(&response, "invalid_request", "tx_code is required");
+    assert_token_response(&response);
+}
+
+#[test]
+fn exchanges_json_pre_authorized_code_without_transaction_code() {
+    let code = offered_code();
+    let body = serde_json::json!({
+        "grant_type": GRANT_TYPE,
+        "pre-authorized_code": code
+    })
+    .to_string();
+    let response = post_json("/token", None, &body);
+
+    assert_token_response(&response);
 }
 
 #[test]
@@ -244,11 +257,25 @@ fn rejects_invalid_transaction_code() {
 }
 
 #[test]
+fn rejects_invalid_json_transaction_code() {
+    let code = offered_code();
+    let body = serde_json::json!({
+        "grant_type": GRANT_TYPE,
+        "pre-authorized_code": code,
+        "tx_code": "000000"
+    })
+    .to_string();
+    let response = post_json("/token", None, &body);
+
+    assert_oauth_error(&response, "invalid_grant", "tx_code is invalid");
+}
+
+#[test]
 fn issues_ed25519_signed_jwt_vc() {
     let access_token = access_token();
     let response = credential_request(Some(&access_token), "application/json", CONFIGURATION_ID);
     let body = json_body(&response);
-    let credential = body["credentials"][0]["credential"].as_str().unwrap();
+    let credential = body["credential"].as_str().unwrap();
     let mut validation = Validation::new(Algorithm::EdDSA);
     validation.validate_aud = false;
     let claims = jsonwebtoken::decode::<Value>(
@@ -260,14 +287,16 @@ fn issues_ed25519_signed_jwt_vc() {
     .claims;
 
     assert_ok_json(&response);
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
+    assert_eq!(body["format"], "jwt_vc");
     assert_eq!(claims["iss"], "https://issuer.example.com");
     assert_eq!(claims["sub"], "did:example:alice");
     assert_eq!(
-        claims["vc"]["type"],
+        claims["type"],
         serde_json::json!(["VerifiableCredential", CONFIGURATION_ID])
     );
     assert_eq!(
-        claims["vc"]["credentialSubject"]["degree"]["name"],
+        claims["credentialSubject"][CONFIGURATION_ID]["degree"]["name"],
         "Bachelor of Science and Arts"
     );
 }
@@ -292,6 +321,19 @@ fn rejects_missing_bearer_token() {
 }
 
 #[test]
+fn returns_credential_cors_preflight_response() {
+    let response = send_request(
+        "OPTIONS /credential HTTP/1.1\r\nhost: issuer.example.com\r\norigin: https://wallet.example.com\r\naccess-control-request-method: POST\r\naccess-control-request-headers: content-type, authorization\r\n\r\n",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 204 No Content\r\n"));
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
+    assert!(response.contains("access-control-allow-methods: POST, OPTIONS\r\n"));
+    assert!(response.contains("access-control-allow-headers: content-type, authorization\r\n"));
+    assert!(response.contains("content-length: 0\r\n"));
+}
+
+#[test]
 fn rejects_malformed_bearer_authorization() {
     let response = post_json(
         "/credential",
@@ -310,26 +352,46 @@ fn rejects_invalid_bearer_token() {
 }
 
 #[test]
-fn rejects_missing_credential_configuration() {
+fn rejects_missing_credential_identifier() {
     let access_token = access_token();
     let response = post_json("/credential", Some(&format!("Bearer {access_token}")), "{}");
 
     assert_credential_error(
         &response,
         "invalid_credential_request",
-        "credential_configuration_id is required",
+        "credential_identifier is required",
     );
 }
 
 #[test]
-fn rejects_unknown_credential_configuration() {
+fn rejects_legacy_credential_configuration_id_request_parameter() {
+    let access_token = access_token();
+    let body = serde_json::json!({
+        "credential_configuration_id": CONFIGURATION_ID
+    })
+    .to_string();
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {access_token}")),
+        &body,
+    );
+
+    assert_credential_error(
+        &response,
+        "invalid_credential_request",
+        "credential_identifier is required",
+    );
+}
+
+#[test]
+fn rejects_unknown_credential_identifier() {
     let access_token = access_token();
     let response = credential_request(Some(&access_token), "application/json", "UnknownCredential");
 
     assert_credential_error(
         &response,
         "unknown_credential_configuration",
-        "credential_configuration_id is unknown",
+        "credential_identifier is unknown",
     );
 }
 
@@ -490,14 +552,14 @@ fn token_request(body: &str) -> String {
 fn credential_request(
     access_token: Option<&str>,
     content_type: &str,
-    credential_configuration_id: &str,
+    credential_identifier: &str,
 ) -> String {
     let authorization = access_token.map(|token| format!("Bearer {token}"));
     post(
         "/credential",
         authorization.as_deref(),
         content_type,
-        &credential_body(credential_configuration_id),
+        &credential_body(credential_identifier),
     )
 }
 
@@ -515,8 +577,8 @@ fn post(path: &str, authorization: Option<&str>, content_type: &str, body: &str)
     ))
 }
 
-fn credential_body(credential_configuration_id: &str) -> String {
-    serde_json::json!({"credential_configuration_id": credential_configuration_id}).to_string()
+fn credential_body(credential_identifier: &str) -> String {
+    serde_json::json!({"credential_identifier": credential_identifier}).to_string()
 }
 
 fn json_body(response: &str) -> Value {
@@ -534,6 +596,14 @@ fn assert_token_response(response: &str) {
     let body = json_body(response);
     assert_eq!(body["token_type"], "Bearer");
     assert_eq!(body["expires_in"], 3600);
+    assert_eq!(
+        body["authorization_details"],
+        serde_json::json!([{
+            "type": "openid_credential",
+            "format": "jwt_vc",
+            "credential_configuration_id": CONFIGURATION_ID,
+        }])
+    );
     assert!(
         body["access_token"]
             .as_str()
@@ -551,11 +621,13 @@ fn assert_oauth_error(response: &str, error: &str, description: &str) {
 fn assert_credential_error(response: &str, error: &str, description: &str) {
     assert_oauth_error(response, error, description);
     assert!(response.contains("cache-control: no-store\r\n"));
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
 }
 
 fn assert_bearer_error(response: &str, description: &str) {
     assert!(response.starts_with("HTTP/1.1 401 Unauthorized\r\n"));
     assert!(response.contains("www-authenticate: Bearer error=\"invalid_token\"\r\n"));
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
     let body = json_body(response);
     assert_eq!(body["error"], "invalid_token");
     assert_eq!(body["error_description"], description);

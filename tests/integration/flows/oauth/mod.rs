@@ -11,6 +11,7 @@ pub(super) fn assert_unsupported_grant_type_response(response: &str) {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
     assert!(response.contains("\"error\":\"unsupported_grant_type\""));
     assert!(response.contains(
         "\"error_description\":\"grant_type must be one of: client_credentials, password, code_chain, authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code\""
