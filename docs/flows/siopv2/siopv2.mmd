@@ -22,7 +22,8 @@ flowchart TD
     validate -- yes --> restore[Restore SIOP request response type, authorization attributes, and optional code]
     restore --> generate{Response pipeline succeeds without wallet-binding requirement?}
     generate -- no --> response_error
-    generate -- yes --> identity_success["`**HTTP 302** redirect with requested OAuth response`"]
+    generate -- yes --> continuation_delivery[Force redirect delivery and ignore client qr_code policy]
+    continuation_delivery --> identity_success["`**HTTP 302** redirect with requested OAuth response`"]
     response_error[Error response] --> destination{Trusted client redirect URI available?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
     destination -- no --> html_error["`**HTTP 400** HTML error page`"]

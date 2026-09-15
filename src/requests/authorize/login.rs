@@ -6,7 +6,8 @@ use crate::{
         code_access_token_redirect_response, code_id_token_access_token_redirect_response,
         code_id_token_redirect_response, code_redirect_response,
         federated_authorize_redirect_response, id_token_access_token_redirect_response,
-        id_token_redirect_response, not_implemented_response, wallet_authorization_response,
+        id_token_redirect_response, not_implemented_response,
+        wallet_authorization_redirect_response, wallet_authorization_response,
     },
     requests::{FederationCallbackRequest, SiopResponseRequest},
     resources::{
@@ -174,7 +175,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 ],
             );
 
-            return wallet_authorization_response(
+            return self.wallet_authorization_response(
                 &state.claims.authorization_client_id,
                 &authorization_uri,
             );
@@ -194,7 +195,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 pre_authorized_code,
             );
 
-            return wallet_authorization_response(client_id, &authorization_uri);
+            return self.wallet_authorization_response(client_id, &authorization_uri);
         }
 
         if let (Some(authorization_code), Some(id_token), Some(access_token)) = (
@@ -314,6 +315,18 @@ impl<'a> AuthorizeLoginRequest<'a> {
         })?;
 
         Ok(code_redirect_response(redirect_uri, authorization_code))
+    }
+
+    fn wallet_authorization_response(
+        &self,
+        client_id: &str,
+        authorization_uri: &str,
+    ) -> Result<String, OAuthError> {
+        if self.response.siop_authenticated {
+            return Ok(wallet_authorization_redirect_response(authorization_uri));
+        }
+
+        wallet_authorization_response(client_id, authorization_uri)
     }
 
     fn validated_authorization_code_client_id(&self) -> Option<&str> {

@@ -25,6 +25,8 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
 // - authorization request delivery: redirect | QR-code HTML with matching deep link
+// - authenticated continuation delivery: redirect even when the client enables QR
+//   pages; pre-authorized offer | OpenID4VP request
 // - response media type: form (case-insensitive, parameters allowed) | missing |
 //   unsupported
 // - state source: callback query | form body; value valid | missing | invalid |
@@ -293,6 +295,40 @@ fn does_not_require_wallet_binding_for_siopv2_continuation() {
         ),
         "{response}"
     );
+}
+
+#[test]
+fn redirects_qr_client_preauthorized_offer_after_siopv2_response() {
+    let fixture =
+        qr_authorization_request("urn:ietf:params:oauth:response-type:pre-authorized_code");
+    let did = did_key();
+    let token = id_token(&fixture, &did, &did, None, TokenOverrides::default());
+    let response = submit(&fixture, &token, None);
+
+    assert!(
+        response.starts_with(
+            "HTTP/1.1 302 Found\r\nlocation: https://qr.example.com/callback?credential_offer="
+        ),
+        "{response}"
+    );
+    assert!(!response.contains("<svg"), "{response}");
+}
+
+#[test]
+fn redirects_qr_client_openid4vp_request_after_siopv2_response() {
+    let fixture = qr_authorization_request("vp_token");
+    let did = did_key();
+    let token = id_token(&fixture, &did, &did, None, TokenOverrides::default());
+    let response = submit(&fixture, &token, None);
+
+    assert!(
+        response.starts_with(
+            "HTTP/1.1 302 Found\r\nlocation: https://qr.example.com/callback?client_id="
+        ),
+        "{response}"
+    );
+    assert!(response.contains("&response_type=vp_token"), "{response}");
+    assert!(!response.contains("<svg"), "{response}");
 }
 
 #[test]
@@ -664,6 +700,18 @@ fn authorization_request_for_client(
     AuthorizationFixture { response, body }
 }
 
+fn qr_authorization_request(response_type: &str) -> AuthorizationFixture {
+    let response = send_request(&format!(
+        "GET /siopv2-request?response_type={}&client_id=qr_client&redirect_uri={}&state=client-state HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        form_encode(response_type),
+        form_encode("https://qr.example.com/callback"),
+    ));
+    let deep_link = super::common::qr_page_deep_link(&response);
+    let body = uri_parameters(&deep_link);
+
+    AuthorizationFixture { response, body }
+}
+
 fn response_header<'a>(response: &'a str, name: &str) -> Option<&'a str> {
     response.lines().find_map(|line| {
         let (header_name, value) = line.split_once(':')?;
@@ -675,7 +723,11 @@ fn response_header<'a>(response: &'a str, name: &str) -> Option<&'a str> {
 
 fn redirect_parameters(response: &str) -> Value {
     let location = response_header(response, "location").unwrap();
-    let query = location.split_once('?').unwrap().1;
+    uri_parameters(location)
+}
+
+fn uri_parameters(uri: &str) -> Value {
+    let query = uri.split_once('?').unwrap().1;
     let query = query.split_once('#').map_or(query, |(query, _)| query);
     let parameters = query
         .split('&')
