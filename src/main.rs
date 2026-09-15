@@ -1,8 +1,19 @@
-use std::io;
+use std::{error::Error, process::ExitCode};
 
-fn main() -> io::Result<()> {
-    let address = kagome::http_server::address_from_environment();
-    let workers = kagome::http_server::worker_count_from_environment();
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
 
-    kagome::http_server::serve_with_workers(address, workers)
+fn run() -> Result<(), Box<dyn Error>> {
+    let config = kagome::config::Config::load()?;
+
+    kagome::http_server::serve_with_workers(config.server.address, config.server.workers)?;
+
+    Ok(())
 }

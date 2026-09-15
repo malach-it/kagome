@@ -1,30 +1,11 @@
 use std::{
-    env,
     io::{self, BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
     sync::{Arc, Mutex, mpsc},
     thread,
 };
 
-pub const ADDRESS_ENV_VAR: &str = "KAGOME_SERVER_ADDRESS";
-pub const DEFAULT_ADDRESS: &str = "0.0.0.0:4000";
-pub const WORKERS_ENV_VAR: &str = "KAGOME_WORKERS";
 pub const DEFAULT_WORKERS: usize = 4;
-
-pub fn address_from_environment() -> String {
-    env::var(ADDRESS_ENV_VAR).unwrap_or_else(|_| DEFAULT_ADDRESS.to_owned())
-}
-
-pub fn worker_count_from_environment() -> usize {
-    worker_count_from_value(env::var(WORKERS_ENV_VAR).ok().as_deref())
-}
-
-pub fn worker_count_from_value(value: Option<&str>) -> usize {
-    value
-        .and_then(|value| value.parse().ok())
-        .filter(|worker_count| *worker_count > 0)
-        .unwrap_or(DEFAULT_WORKERS)
-}
 
 pub fn serve(address: impl ToSocketAddrs) -> io::Result<()> {
     serve_with_workers(address, DEFAULT_WORKERS)

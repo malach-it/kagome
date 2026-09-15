@@ -1,0 +1,4 @@
+# yaml-language-server: $schema=./kagome.schema.json
+server:
+  address: 0.0.0.0:4000
+  workers: 4

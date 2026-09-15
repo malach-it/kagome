@@ -3,6 +3,33 @@
 Proof of concept of OAuth 2.0 and satellite specifications implementation in
 Rust
 
+## Server configuration
+
+Copy the example configuration before starting Kagome:
+
+```bash
+cp kagome.example.yaml kagome.yaml
+```
+
+Kagome loads `kagome.yaml` when it starts. The file has this structure:
+
+```yaml
+server:
+  address: 0.0.0.0:4000
+  workers: 4
+```
+
+Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
+error when the file cannot be read, contains invalid YAML or unknown fields, or
+configures an empty address or zero workers. The local `kagome.yaml` is ignored
+by Git. [`kagome.schema.json`](kagome.schema.json) provides editor validation
+and completion for the example. After changing the Rust configuration types,
+regenerate it with:
+
+```bash
+cargo run --example generate_config_schema > kagome.schema.json
+```
+
 ## OpenID for Verifiable Credential Issuance
 
 Kagome implements a bounded profile of the OpenID for Verifiable Credential

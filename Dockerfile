@@ -11,9 +11,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/kagome /usr/local/bin/kagome
+COPY --from=builder /app/kagome.example.yaml /etc/kagome/kagome.yaml
 
-ENV KAGOME_SERVER_ADDRESS=0.0.0.0:4000
-ENV KAGOME_WORKERS=4
+ENV KAGOME_CONFIG=/etc/kagome/kagome.yaml
 ENV KAGOME_PORT=4000
 
 EXPOSE ${KAGOME_PORT}

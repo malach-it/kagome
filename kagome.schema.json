@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "type": "object",
+  "properties": {
+    "server": {
+      "description": "HTTP server settings.",
+      "$ref": "#/$defs/ServerConfig"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "server"
+  ],
+  "$defs": {
+    "ServerConfig": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "Socket address on which the HTTP server listens.",
+          "type": "string",
+          "minLength": 1
+        },
+        "workers": {
+          "description": "Number of HTTP request worker threads.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "address",
+        "workers"
+      ]
+    }
+  }
+}
