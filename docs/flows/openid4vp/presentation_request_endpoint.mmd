@@ -17,4 +17,6 @@ flowchart TD
     state -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     state -- yes --> sign{Request object signed?}
     sign -- no --> generation_error
-    sign -- yes --> success["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and signed request`"]
+    sign -- yes --> delivery{Client qr_code enabled?}
+    delivery -- no --> success["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and signed request`"]
+    delivery -- yes --> qr["`**HTTP 200** HTML QR relay with wallet deep link`"]

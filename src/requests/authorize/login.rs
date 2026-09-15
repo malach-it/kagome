@@ -2,12 +2,11 @@ use crate::{
     config::Config,
     errors::OAuthError,
     handlers::responses::{
-        access_token_redirect_response, authorization_request_redirect_response,
-        authorize_redirect_response, code_access_token_redirect_response,
-        code_id_token_access_token_redirect_response, code_id_token_redirect_response,
-        code_redirect_response, credential_offer_redirect_response,
+        access_token_redirect_response, authorization_request_uri, authorize_redirect_response,
+        code_access_token_redirect_response, code_id_token_access_token_redirect_response,
+        code_id_token_redirect_response, code_redirect_response,
         federated_authorize_redirect_response, id_token_access_token_redirect_response,
-        id_token_redirect_response, not_implemented_response,
+        id_token_redirect_response, not_implemented_response, wallet_authorization_response,
     },
     requests::{FederationCallbackRequest, SiopResponseRequest},
     resources::{
@@ -165,7 +164,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
                     OAuthError::invalid_token_response("signed presentation request is required")
                 })?;
 
-            return Ok(authorization_request_redirect_response(
+            let authorization_uri = authorization_request_uri(
                 redirect_uri,
                 &[
                     ("client_id", &state.claims.client_id),
@@ -173,7 +172,12 @@ impl<'a> AuthorizeLoginRequest<'a> {
                     ("redirect_uri", &signed_request.redirect_uri),
                     ("request", &signed_request.value),
                 ],
-            ));
+            );
+
+            return wallet_authorization_response(
+                &state.claims.authorization_client_id,
+                &authorization_uri,
+            );
         }
 
         if let Some(pre_authorized_code) = self.response.pre_authorized_code.as_deref() {
@@ -181,11 +185,16 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 OAuthError::invalid_token_response("authorize response requires redirect_uri")
             })?;
 
-            return Ok(credential_offer_redirect_response(
+            let client_id = self.response.client_id.as_deref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires client_id")
+            })?;
+            let authorization_uri = crate::handlers::responses::credential_offer_uri(
                 redirect_uri,
                 &Config::global().server.issuer,
                 pre_authorized_code,
-            ));
+            );
+
+            return wallet_authorization_response(client_id, &authorization_uri);
         }
 
         if let (Some(authorization_code), Some(id_token), Some(access_token)) = (

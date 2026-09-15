@@ -33,6 +33,7 @@ fn loads_server_configuration_from_yaml() {
     );
     assert_eq!(config.clients[0].federated_server, None);
     assert!(!config.clients[0].require_wallet_binding);
+    assert!(!config.clients[0].qr_code);
 }
 
 #[test]
@@ -60,6 +61,7 @@ fn example_configuration_matches_server_defaults() {
         .expect("example client should load its password file");
     assert_eq!(usernames, ["username", "other_username"]);
     assert!(!config.clients[0].require_wallet_binding);
+    assert!(!config.clients[0].qr_code);
     let federated_server = config.clients[0]
         .federated_server
         .as_ref()
@@ -164,6 +166,7 @@ fn json_schema_describes_configuration_constraints() {
         client["properties"]["require_wallet_binding"]["default"],
         false
     );
+    assert_eq!(client["properties"]["qr_code"]["default"], false);
     assert_eq!(
         client["properties"]["redirect_uris"]["items"]["minLength"],
         1
@@ -221,6 +224,17 @@ fn loads_per_client_wallet_binding_policy() {
     let config = Config::load_from_path(file.path()).expect("wallet binding should load");
 
     assert!(config.clients[0].require_wallet_binding);
+}
+
+#[test]
+fn loads_per_client_qr_code_policy() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: [https://client.example.com/callback]\n    qr_code: true\n",
+    );
+
+    let config = Config::load_from_path(file.path()).expect("QR-code policy should load");
+
+    assert!(config.clients[0].qr_code);
 }
 
 #[test]

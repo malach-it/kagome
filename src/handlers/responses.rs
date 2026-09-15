@@ -1,4 +1,5 @@
 use crate::{
+    config::Config,
     errors::OAuthError,
     requests::{
         AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
@@ -9,9 +10,10 @@ use crate::{
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
-        id_token::IdToken, pre_authorized_code,
+        id_token::IdToken, pre_authorized_code, wallet_authorization,
     },
 };
+use qrcode::{EcLevel, QrCode, render::svg};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub trait ResponseLog {
@@ -121,6 +123,10 @@ pub fn authorization_request_redirect_response(
     redirect_uri: &str,
     parameters: &[(&str, &str)],
 ) -> String {
+    redirect_response(&authorization_request_uri(redirect_uri, parameters))
+}
+
+pub fn authorization_request_uri(redirect_uri: &str, parameters: &[(&str, &str)]) -> String {
     let (base_uri, fragment) = redirect_uri
         .split_once('#')
         .map_or((redirect_uri, None), |(base, fragment)| {
@@ -131,14 +137,62 @@ pub fn authorization_request_redirect_response(
         .fold(base_uri.to_owned(), |uri, (name, value)| {
             append_query_parameter(&uri, name, &percent_encode_query_value(value))
         });
-    let location = match fragment {
+    match fragment {
         Some(fragment) => format!("{location}#{fragment}"),
         None => location,
-    };
+    }
+}
 
+pub fn wallet_authorization_response(
+    client_id: &str,
+    authorization_uri: &str,
+) -> Result<String, OAuthError> {
+    if Config::global()
+        .client(client_id)
+        .is_some_and(|client| client.qr_code)
+    {
+        return qr_code_response(authorization_uri);
+    }
+
+    Ok(redirect_response(authorization_uri))
+}
+
+fn redirect_response(location: &str) -> String {
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {location}\r\ncache-control: no-store\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
     )
+}
+
+pub fn wallet_authorization_redirect_response(location: &str) -> String {
+    redirect_response(location)
+}
+
+fn qr_code_response(authorization_uri: &str) -> Result<String, OAuthError> {
+    let relay = wallet_authorization::store(authorization_uri)?;
+    let qr_code =
+        QrCode::with_error_correction_level(relay.uri.as_bytes(), EcLevel::M).map_err(|_| {
+            OAuthError::invalid_token_response(
+                "wallet authorization relay is too large for a QR code",
+            )
+        })?;
+    let svg = qr_code
+        .render::<svg::Color>()
+        .min_dimensions(320, 320)
+        .build();
+    let escaped_uri = escape_html(authorization_uri);
+    let escaped_qr_uri = escape_html(&relay.uri);
+    let script = "const button=document.getElementById('open-wallet');button.addEventListener('click',()=>window.open(button.dataset.deepLink,'_blank','popup,width=390,height=844,noopener,noreferrer'));";
+    let response_body = format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>authorization request</title></head><body><main><h1>scan authorization request</h1><figure data-qr-uri=\"{escaped_qr_uri}\">{svg}<figcaption>Scan this QR code with your wallet.</figcaption></figure><p><button id=\"open-wallet\" type=\"button\" data-deep-link=\"{escaped_uri}\">open in wallet</button><noscript><a href=\"{escaped_uri}\" target=\"_blank\" rel=\"noopener noreferrer\">open in wallet</a></noscript></p><details><summary>copy deep link</summary><code>{escaped_uri}</code></details></main><script nonce=\"{}\">{script}</script></body></html>",
+        relay.identifier
+    );
+
+    Ok(format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncache-control: no-store\r\ncontent-security-policy: default-src 'none'; script-src 'nonce-{}'; base-uri 'none'; frame-ancestors 'none'\r\nreferrer-policy: no-referrer\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        relay.identifier,
+        response_body.len(),
+        response_body
+    ))
 }
 
 pub fn siopv2_error_redirect_response(
@@ -202,6 +256,18 @@ pub fn credential_offer_redirect_response(
     credential_issuer: &str,
     pre_authorized_code: &str,
 ) -> String {
+    redirect_response(&credential_offer_uri(
+        redirect_uri,
+        credential_issuer,
+        pre_authorized_code,
+    ))
+}
+
+pub fn credential_offer_uri(
+    redirect_uri: &str,
+    credential_issuer: &str,
+    pre_authorized_code: &str,
+) -> String {
     let credential_offer = serde_json::json!({
         "credential_issuer": credential_issuer,
         "credential_configuration_ids": [
@@ -214,14 +280,10 @@ pub fn credential_offer_redirect_response(
         }
     })
     .to_string();
-    let location = append_query_parameter(
+    append_query_parameter(
         redirect_uri,
         "credential_offer",
         &percent_encode_query_value(&credential_offer),
-    );
-
-    format!(
-        "HTTP/1.1 302 Found\r\nlocation: {location}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
     )
 }
 

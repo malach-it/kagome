@@ -1,0 +1,9 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /wallet-authorization] --> method{GET request?}
+    method -- no --> not_found["`**HTTP 404** not found`"]
+    method -- yes --> identifier{Relay identifier present?}
+    identifier -- no --> missing["`**HTTP 400** HTML invalid_request`"]
+    identifier -- yes --> relay{Relay exists and is unexpired?}
+    relay -- no --> invalid["`**HTTP 400** HTML invalid_request`"]
+    relay -- yes --> success["`**HTTP 302** exact wallet authorization deep link`"]

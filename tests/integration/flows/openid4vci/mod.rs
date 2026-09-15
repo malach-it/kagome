@@ -24,6 +24,7 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - Host: valid | missing | invalid
 // - token representation: form | JSON
 // - pre-authorized_code: valid | missing | invalid | expired
+// - authorization response delivery: redirect | QR-code HTML with matching deep link
 // - tx_code: valid | omitted | invalid
 // - successful token authorization_details: credential configuration | format | type
 // - redemption count: first | repeated (equivalent because this stateless profile
@@ -153,6 +154,31 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
     .claims;
 
     assert_eq!(claims["sub"], "username");
+}
+
+#[test]
+fn renders_pre_authorized_credential_offer_as_qr_code_with_deep_link() {
+    let response = authorize_preauthorized_code_for_client(
+        "",
+        "qr_client",
+        "https://qr.example.com/callback",
+        None,
+        "username=username&password=password",
+    );
+    let deep_link = super::common::qr_page_deep_link(&response);
+    let encoded_offer = deep_link
+        .split_once('?')
+        .and_then(|(_, query)| {
+            query
+                .split('&')
+                .find_map(|value| value.strip_prefix("credential_offer="))
+        })
+        .expect("QR deep link should contain a credential offer");
+    let offer: Value = serde_json::from_str(&decode_form_value(encoded_offer)).unwrap();
+
+    assert!(deep_link.starts_with("https://qr.example.com/callback?credential_offer="));
+    assert_eq!(offer["credential_issuer"], "http://localhost:4000");
+    assert!(offer["grants"][GRANT_TYPE]["pre-authorized_code"].is_string());
 }
 
 #[test]

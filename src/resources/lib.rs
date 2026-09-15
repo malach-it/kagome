@@ -22,3 +22,4 @@ pub mod siopv2_state;
 pub mod verifiable_credential;
 pub mod verifiable_presentation;
 pub mod verifier;
+pub mod wallet_authorization;

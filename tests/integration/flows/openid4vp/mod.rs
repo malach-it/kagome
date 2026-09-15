@@ -31,6 +31,7 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 //   reachable with the process RNG and embedded encryption key)
 // - request object: signed ES256 JWT redirect | signing failure (not reachable
 //   with the embedded signing key)
+// - authorization request delivery: redirect | QR-code HTML with matching deep link
 // - response media type: form (case-insensitive, parameters allowed) | missing |
 //   unsupported
 // - state source: callback query | form body. These sources are intentionally
@@ -144,6 +145,20 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
         header.kid.as_deref(),
         Some(kagome::resources::request_object::KEY_ID)
     );
+}
+
+#[test]
+fn renders_presentation_request_as_qr_code_with_deep_link() {
+    let response = send_request(&format!(
+        "GET /authorize?response_type=vp_token&client_id=qr_client&redirect_uri={} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        form_encode("https://qr.example.com/callback")
+    ));
+    let deep_link = super::common::qr_page_deep_link(&response);
+
+    assert!(deep_link.starts_with("https://qr.example.com/callback?client_id="));
+    assert!(deep_link.contains("&response_type=vp_token"));
+    assert!(deep_link.contains("&redirect_uri="));
+    assert!(deep_link.contains("&request="));
 }
 
 #[test]

@@ -7,8 +7,11 @@ flowchart TD
     protect -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     protect -- yes --> sign{Request object signed?}
     sign -- no --> generation_error
-    sign -- yes --> authorization["`**HTTP 302** validated redirect URI with signed SIOPv2 query`"]
+    sign -- yes --> delivery{Client qr_code enabled?}
+    delivery -- no --> authorization["`**HTTP 302** validated redirect URI with signed SIOPv2 query`"]
+    delivery -- yes --> authorization_qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
     authorization --> wallet{Wallet outcome?}
+    authorization_qr --> wallet
     wallet -- protocol error --> post_error[POST wallet error to state-bound callback]
     wallet -- identity --> post_token[POST self-issued id_token to state-bound callback]
     post_error --> error_valid{State valid and error supported?}

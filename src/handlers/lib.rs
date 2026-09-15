@@ -6,3 +6,4 @@ pub mod oid4vp;
 pub mod responses;
 pub mod siopv2;
 pub mod token;
+pub mod wallet_authorization;

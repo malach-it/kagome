@@ -15,6 +15,7 @@ clients:
     redirect_uris:
       - https://client.example.com/callback
     require_wallet_binding: false
+    qr_code: false
     federated_server:
       client_id: kagome
       client_secret: federated_client_secret

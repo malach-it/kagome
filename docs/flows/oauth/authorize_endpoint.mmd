@@ -20,7 +20,9 @@ flowchart TD
     vp_state -- no --> error
     vp_state -- yes --> vp_sign{Presentation request object signed?}
     vp_sign -- no --> error
-    vp_sign -- yes --> vp_success["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and signed request`"]
+    vp_sign -- yes --> vp_delivery{Client qr_code enabled?}
+    vp_delivery -- no --> vp_success["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and signed request`"]
+    vp_delivery -- yes --> vp_qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
     flow -- OAuth --> get_or_post{GET or POST?}
     get_or_post -- GET --> optional_owner{Optional resource owner credentials valid for client password file?}
     optional_owner -- invalid --> error
@@ -32,6 +34,9 @@ flowchart TD
     required_owner -- no --> error
     required_owner -- yes --> generate{Generate requested response?}
     generate -- no --> error
+    generate -- pre-authorized code --> offer_delivery{Client qr_code enabled?}
+    offer_delivery -- no --> offer_redirect["`**HTTP 302** client redirect with credential_offer`"]
+    offer_delivery -- yes --> offer_qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
     generate -- code with remaining stages --> continue_chain["`**HTTP 302** /authorize with code and remaining response_type`"]
     generate -- final code --> code_redirect["`**HTTP 302** client redirect with code`"]
     generate -- token --> token_redirect["`**HTTP 302** client fragment with access_token, token_type, expires_in, and optional state`"]

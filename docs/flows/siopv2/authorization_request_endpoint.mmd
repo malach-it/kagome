@@ -9,4 +9,6 @@ flowchart TD
     state -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     state -- yes --> signed{ES256 request object generated?}
     signed -- no --> generation_error
-    signed -- yes --> success["`**HTTP 302** validated redirect URI with signed SIOPv2 query`"]
+    signed -- yes --> delivery{Client qr_code enabled?}
+    delivery -- no --> success["`**HTTP 302** validated redirect URI with signed SIOPv2 query`"]
+    delivery -- yes --> qr["`**HTTP 200** HTML QR relay with wallet deep link`"]

@@ -4,9 +4,9 @@ use crate::{
     handlers::responses::{
         access_token_redirect_response, authorize_redirect_response,
         code_access_token_redirect_response, code_id_token_access_token_redirect_response,
-        code_id_token_redirect_response, code_redirect_response,
-        credential_offer_redirect_response, id_token_access_token_redirect_response,
-        id_token_redirect_response,
+        code_id_token_redirect_response, code_redirect_response, credential_offer_uri,
+        id_token_access_token_redirect_response, id_token_redirect_response,
+        wallet_authorization_response,
     },
     resources::{
         access_token::{self, AccessToken},
@@ -75,11 +75,16 @@ impl<'a> AuthorizeCodeRequest<'a> {
                 OAuthError::invalid_token_response("authorize response requires redirect_uri")
             })?;
 
-            return Ok(credential_offer_redirect_response(
+            let client_id = self.response.client_id.as_deref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires client_id")
+            })?;
+            let authorization_uri = credential_offer_uri(
                 redirect_uri,
                 &Config::global().server.issuer,
                 pre_authorized_code,
-            ));
+            );
+
+            return wallet_authorization_response(client_id, &authorization_uri);
         }
 
         if let (Some(authorization_code), Some(id_token), Some(access_token)) = (

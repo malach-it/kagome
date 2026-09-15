@@ -69,6 +69,10 @@ pub fn route_request(request: &KagomeRequest) -> String {
         return crate::handlers::siopv2::response::handle_siop_response(request);
     }
 
+    if request.method.eq_ignore_ascii_case("GET") && request.path == "/wallet-authorization" {
+        return crate::handlers::wallet_authorization::handle_wallet_authorization(request);
+    }
+
     if request.path == "/echo" {
         return crate::handlers::echo::handle_echo(request);
     }

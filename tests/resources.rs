@@ -6,6 +6,7 @@ fn configured_clients() -> Vec<kagome::config::ClientConfig> {
         password_file: None,
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
         require_wallet_binding: false,
+        qr_code: false,
         federated_server: None,
     }]
 }

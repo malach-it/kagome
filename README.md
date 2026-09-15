@@ -28,6 +28,7 @@ clients:
     redirect_uris:
       - https://client.example.com/callback
     require_wallet_binding: false
+    qr_code: false
     federated_server:
       client_id: kagome
       client_secret: federated_client_secret
@@ -52,6 +53,14 @@ file with `htpasswd -B kagome.htpasswd username`. The
 optional per-client `require_wallet_binding` flag requires wallet presentation
 and credential-proof signatures to verify with the public key from the ID token
 carried by the incoming authorization `code`. Its default is `false`. The
+optional per-client `qr_code` flag changes successful SIOPv2, OpenID4VP, and
+pre-authorized-code wallet redirects into an HTML page containing an inline QR
+code, an `open in wallet` button, and a copyable URL. The button opens the exact
+deep link that would otherwise be returned in the `Location` header in a
+390-by-844 popup, with a normal link fallback when JavaScript is disabled. Because
+signed request URLs can exceed standard QR capacity, the QR contains a random,
+five-minute issuer relay URL that redirects to the same deep link and remains
+usable for retries until it expires. Its default is `false`. The
 optional per-client `federated_server` block configures the upstream OAuth
 client, its authorization and token endpoints, and identity endpoints. Each
 identity endpoint is called with the upstream bearer token; its dot-separated

@@ -145,6 +145,7 @@ fn start_server() -> String {
         .expect("example configuration should load");
     config.clients[0].public = Some("example.com".to_owned());
     let password_file = config.clients[0].password_file.clone();
+    let qr_password_file = password_file.clone();
     let mut federated_server = config.clients[0]
         .federated_server
         .take()
@@ -162,6 +163,7 @@ fn start_server() -> String {
             "https://configured.example.com/alternate".to_owned(),
         ],
         require_wallet_binding: false,
+        qr_code: false,
         federated_server: None,
     });
     config.clients.push(kagome::config::ClientConfig {
@@ -171,6 +173,7 @@ fn start_server() -> String {
         password_file: None,
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
         require_wallet_binding: false,
+        qr_code: false,
         federated_server: Some(federated_server),
     });
     config.clients.push(kagome::config::ClientConfig {
@@ -180,6 +183,17 @@ fn start_server() -> String {
         password_file,
         redirect_uris: vec!["https://wallet-bound.example.com/callback".to_owned()],
         require_wallet_binding: true,
+        qr_code: false,
+        federated_server: None,
+    });
+    config.clients.push(kagome::config::ClientConfig {
+        client_id: "qr_client".to_owned(),
+        public: None,
+        client_secret: "qr_secret".to_owned(),
+        password_file: qr_password_file,
+        redirect_uris: vec!["https://qr.example.com/callback".to_owned()],
+        require_wallet_binding: false,
+        qr_code: true,
         federated_server: None,
     });
     kagome::config::Config::set_global(config)

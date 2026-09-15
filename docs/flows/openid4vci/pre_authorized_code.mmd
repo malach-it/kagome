@@ -13,9 +13,12 @@ flowchart TD
     encrypt -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     encrypt -- yes --> delivery{Offer source?}
     delivery -- credential-offer endpoint --> offer["`**HTTP 200** credential offer`"]
-    delivery -- authorize response --> authorize_offer["`**HTTP 302** redirect with credential_offer`"]
+    delivery -- authorize response --> qr_policy{Client qr_code enabled?}
+    qr_policy -- no --> authorize_offer["`**HTTP 302** redirect with credential_offer`"]
+    qr_policy -- yes --> authorize_qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
     offer --> token[POST /token with pre-authorized-code grant]
     authorize_offer --> token
+    authorize_qr --> token
     token --> code{Encrypted code present and valid?}
     code -- no --> token_error["`**HTTP 400** invalid_request or invalid_grant`"]
     code -- yes --> key{Binding policy and ID-token key claims valid?}

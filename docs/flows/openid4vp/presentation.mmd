@@ -9,8 +9,11 @@ flowchart TD
     protect -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     protect -- yes --> sign{Sign presentation request object?}
     sign -- no --> generation_error
-    sign -- yes --> authorization["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and request JWT`"]
+    sign -- yes --> delivery{Client qr_code enabled?}
+    delivery -- no --> authorization["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and request JWT`"]
+    delivery -- yes --> authorization_qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
     authorization --> wallet{Wallet outcome?}
+    authorization_qr --> wallet
     wallet -- protocol error --> post_error[POST wallet error to state-bound callback]
     wallet -- presentation --> post_vp[POST vp_token and presentation_submission to state-bound callback]
     post_error --> error_state{State valid and error supported?}

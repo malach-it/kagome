@@ -1,6 +1,6 @@
 use crate::{
     errors::OAuthError,
-    handlers::responses::authorization_request_redirect_response,
+    handlers::responses::{authorization_request_uri, wallet_authorization_response},
     resources::{
         siopv2_request::{self, SignedSiopRequest},
         siopv2_state::{self, SiopAuthorizationParameters, SiopState},
@@ -50,8 +50,12 @@ impl<'a> SiopAuthorizationRequest<'a> {
         let redirect_uri = self.authorization.redirect_uri.as_deref().ok_or_else(|| {
             OAuthError::invalid_token_response("authorize redirect_uri is required")
         })?;
+        let client_id =
+            self.authorization.client_id.as_deref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize client_id is required")
+            })?;
 
-        Ok(authorization_request_redirect_response(
+        let authorization_uri = authorization_request_uri(
             redirect_uri,
             &[
                 ("client_id", &signed_request.client_id),
@@ -63,7 +67,9 @@ impl<'a> SiopAuthorizationRequest<'a> {
                 ("state", &state.value),
                 ("request", &signed_request.value),
             ],
-        ))
+        );
+
+        wallet_authorization_response(client_id, &authorization_uri)
     }
 }
 

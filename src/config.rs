@@ -103,6 +103,10 @@ pub struct ClientConfig {
     #[serde(default)]
     #[schemars(default)]
     pub require_wallet_binding: bool,
+    /// Render wallet authorization URLs as QR-code HTML instead of redirects.
+    #[serde(default)]
+    #[schemars(default)]
+    pub qr_code: bool,
     /// Upstream OAuth server used to federate identities for this client.
     pub federated_server: Option<FederatedServerConfig>,
 }

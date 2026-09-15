@@ -794,6 +794,7 @@ dependencies = [
  "htpasswd-verify",
  "jsonwebtoken",
  "p256",
+ "qrcode",
  "ring",
  "schemars",
  "serde",
@@ -1075,6 +1076,12 @@ dependencies = [
  "sha-1",
  "sha2 0.9.9",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quote"
