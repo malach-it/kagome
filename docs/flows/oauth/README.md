@@ -52,6 +52,11 @@ responses.
 
 ## `/federation_callback` Endpoint
 
+After the encrypted callback state validates the original client and redirect
+URI, callback, token-exchange, identity-fetch, and authorize-continuation errors
+redirect to that URI with `error`, `error_description`, and the original client
+`state`. Missing or invalid callback state remains a local JSON error.
+
 [Mermaid source](federation_callback.mmd)
 
 ![Federation callback endpoint](federation_callback.svg)

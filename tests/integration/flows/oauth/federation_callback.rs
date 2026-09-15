@@ -9,6 +9,8 @@ use super::*;
 // - identity endpoint: valid string claim | rejected request | malformed response |
 //   missing or non-string claim
 // - identity error response: error_description | message | error | HTTP status fallback
+// - error destination: validated redirect URI with error, description, and optional
+//   client state | local JSON error when callback state is missing or invalid
 // The upstream-error cases cover both explicit and fallback descriptions.
 // Missing and non-string identity claims intentionally share a validation path and response.
 
@@ -59,67 +61,72 @@ fn returns_credential_offer_for_federated_preauthorized_code_request() {
 fn rejects_federation_callback_when_token_request_fails() {
     let response = send_callback_request("code=rejected-code");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("federated token request failed"));
+    assert_callback_error(&response, "invalid_grant", "federated token request failed");
 }
 
 #[test]
 fn rejects_invalid_federated_token_response() {
     let response = send_callback_request("code=malformed-token");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("federated token response is invalid"));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated token response is invalid",
+    );
 }
 
 #[test]
 fn rejects_empty_federated_access_token() {
     let response = send_callback_request("code=empty-token");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("federated token response is invalid"));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated token response is invalid",
+    );
 }
 
 #[test]
 fn rejects_failed_federated_identity_request() {
     let response = send_callback_request("code=identity-rejected");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains(
-        "\"error_description\":\"federated identity request failed: federated access token expired\""
-    ));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity request failed: federated access token expired",
+    );
 }
 
 #[test]
 fn returns_federated_identity_error_code() {
     let response = send_callback_request("code=identity-error-code");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains(
-        "\"error_description\":\"federated identity request failed: insufficient_scope\""
-    ));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity request failed: insufficient_scope",
+    );
 }
 
 #[test]
 fn returns_federated_identity_message() {
     let response = send_callback_request("code=identity-message");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains(
-        "\"error_description\":\"federated identity request failed: profile unavailable\""
-    ));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity request failed: profile unavailable",
+    );
 }
 
 #[test]
 fn returns_federated_identity_http_status_without_message() {
     let response = send_callback_request("code=identity-no-message");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(
-        response.contains("\"error_description\":\"federated identity request failed: HTTP 502\"")
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity request failed: HTTP 502",
     );
 }
 
@@ -127,27 +134,33 @@ fn returns_federated_identity_http_status_without_message() {
 fn rejects_invalid_federated_identity_response() {
     let response = send_callback_request("code=identity-malformed");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("federated identity response is invalid"));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity response is invalid",
+    );
 }
 
 #[test]
 fn rejects_missing_federated_identity_claim() {
     let response = send_callback_request("code=identity-missing-claim");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("federated identity claim is missing or invalid"));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity claim is missing or invalid",
+    );
 }
 
 #[test]
 fn rejects_non_string_federated_identity_claim() {
     let response = send_callback_request("code=identity-non-string");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains("federated identity claim is missing or invalid"));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity claim is missing or invalid",
+    );
 }
 
 #[test]
@@ -156,22 +169,21 @@ fn returns_oauth_error_for_federation_callback_error() {
         "error=access_denied&error_description=resource%20owner%20denied%20access",
     );
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains(
-        "\"error_description\":\"federated server returned an error: resource owner denied access\""
-    ));
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated server returned an error: resource owner denied access",
+    );
 }
 
 #[test]
 fn uses_error_code_when_federation_callback_description_is_missing() {
     let response = send_callback_request("error=access_denied");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(
-        response.contains(
-            "\"error_description\":\"federated server returned an error: access_denied\""
-        )
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated server returned an error: access_denied",
     );
 }
 
@@ -179,34 +191,60 @@ fn uses_error_code_when_federation_callback_description_is_missing() {
 fn rejects_federation_callback_with_code_and_error() {
     let response = send_callback_request("code=federated-code&error=access_denied");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_request\""));
-    assert!(response.contains("federation callback must not include both code and error"));
+    assert_callback_error(
+        &response,
+        "invalid_request",
+        "federation callback must not include both code and error",
+    );
 }
 
 #[test]
 fn rejects_federation_callback_without_authorization_response() {
     let response = send_callback_request("");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("\"error\":\"invalid_request\""));
-    assert!(response.contains("federation callback requires code or error"));
+    assert_callback_error(
+        &response,
+        "invalid_request",
+        "federation callback requires code or error",
+    );
 }
 
 #[test]
 fn rejects_federation_callback_with_empty_code() {
     let response = send_callback_request("code=");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("federation callback code must not be empty"));
+    assert_callback_error(
+        &response,
+        "invalid_request",
+        "federation callback code must not be empty",
+    );
 }
 
 #[test]
 fn rejects_federation_callback_with_empty_error() {
     let response = send_callback_request("error=");
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("federation callback error must not be empty"));
+    assert_callback_error(
+        &response,
+        "invalid_request",
+        "federation callback error must not be empty",
+    );
+}
+
+#[test]
+fn redirects_federation_callback_error_with_client_state() {
+    let state = federation_state_for(
+        "response_type=code&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&state=client%20state",
+    );
+    let response = send_request(&format!(
+        "GET /federation_callback?error=access_denied&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+    let parameters = callback_error_parameters(&response);
+
+    assert_eq!(
+        parameters.get("state").map(String::as_str),
+        Some("client state")
+    );
 }
 
 #[test]
@@ -287,4 +325,53 @@ fn authorization_code_from_response(response: &str) -> String {
         })
         .expect("downstream authorization response should contain a code")
         .to_owned()
+}
+
+fn assert_callback_error(response: &str, error: &str, description: &str) {
+    let parameters = callback_error_parameters(response);
+
+    assert_eq!(parameters.get("error").map(String::as_str), Some(error));
+    assert_eq!(
+        parameters.get("error_description").map(String::as_str),
+        Some(description)
+    );
+    assert!(!parameters.contains_key("state"));
+}
+
+fn callback_error_parameters(response: &str) -> std::collections::BTreeMap<String, String> {
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"), "{response}");
+    let location = response
+        .lines()
+        .find_map(|line| line.strip_prefix("location: "))
+        .expect("callback error response should contain a location");
+    assert!(location.starts_with("https://client.example.com/callback?"));
+
+    location
+        .split_once('?')
+        .unwrap()
+        .1
+        .split('&')
+        .filter_map(|parameter| parameter.split_once('='))
+        .map(|(name, value)| (decode_form_value(name), decode_form_value(value)))
+        .collect()
+}
+
+fn decode_form_value(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => decoded.push(b' '),
+            b'%' if index + 2 < bytes.len() => {
+                let byte = u8::from_str_radix(&value[index + 1..index + 3], 16).unwrap();
+                decoded.push(byte);
+                index += 2;
+            }
+            byte => decoded.push(byte),
+        }
+        index += 1;
+    }
+
+    String::from_utf8(decoded).unwrap()
 }

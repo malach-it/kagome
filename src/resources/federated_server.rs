@@ -77,6 +77,11 @@ pub trait ValidateCallback {
     fn add_authorization_code(&mut self, authorization_code: String);
 }
 
+pub trait ValidateCallbackState {
+    fn request_state(&self) -> Option<&str>;
+    fn add_federation_state(&mut self, state: FederationState);
+}
+
 pub trait ExchangeToken {
     fn federation_authorization_code(&self) -> Option<&str>;
     fn federation_client_id(&self) -> Option<&str>;
@@ -158,6 +163,35 @@ pub fn validate_callback<T: ValidateCallback>(mut request: T) -> Result<T, OAuth
             "federation callback requires code or error",
         )),
     }
+}
+
+pub fn validate_callback_state<T: ValidateCallbackState>(mut request: T) -> Result<T, OAuthError> {
+    let encoded_state = request
+        .request_state()
+        .ok_or_else(|| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
+    let state = decrypt_state(encoded_state)?;
+    let client = Config::global()
+        .clients
+        .iter()
+        .find(|client| client.client_id == state.client_id)
+        .ok_or_else(|| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
+    let parameters = &state.request_parameters;
+    if parameters.client_id.as_deref() != Some(state.client_id.as_str())
+        || !parameters
+            .redirect_uri
+            .as_ref()
+            .is_some_and(|redirect_uri| {
+                client
+                    .redirect_uris
+                    .iter()
+                    .any(|configured| configured == redirect_uri)
+            })
+    {
+        return Err(OAuthError::invalid_request(INVALID_FEDERATION_STATE));
+    }
+
+    request.add_federation_state(state);
+    Ok(request)
 }
 
 pub fn decrypt_state(encoded: &str) -> Result<FederationState, OAuthError> {

@@ -88,10 +88,9 @@ impl<'a> AuthorizeLoginRequest<'a> {
         callback: FederationCallbackRequest,
         request: &'a KagomeRequest,
     ) -> Result<Self, OAuthError> {
-        let encoded_state = callback.state.as_deref().ok_or_else(|| {
+        let state = callback.response.federation_state.ok_or_else(|| {
             OAuthError::invalid_request("federation callback state is invalid or expired")
         })?;
-        let state = federated_server::decrypt_state(encoded_state)?;
         let parameters = state.request_parameters;
 
         if parameters.client_id.as_deref() != Some(state.client_id.as_str()) {

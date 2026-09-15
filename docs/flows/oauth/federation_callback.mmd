@@ -2,17 +2,17 @@
 flowchart TD
     start[Request /federation_callback] --> method{HTTP method GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> response{Authorization response?}
-    response -- code and error --> conflicting["`**HTTP 400** invalid_request: code and error conflict`"]
-    response -- empty code or error --> empty["`**HTTP 400** invalid_request: empty value`"]
-    response -- code --> state{AuthorizeLoginRequest from encrypted state?}
-    state -- no --> invalid_state["`**HTTP 400** invalid_request: invalid or expired state`"]
-    state -- yes --> token{Token request and response valid?}
-    token -- no --> token_error["`**HTTP 400** invalid_grant: token exchange failed`"]
+    method -- yes --> state{Encrypted state validates client and redirect URI?}
+    state -- no --> invalid_state["`**HTTP 400** local invalid_request: invalid or expired state`"]
+    state -- yes --> response{Authorization response?}
+    response -- code and error --> redirect_error["`**HTTP 302** client redirect with error, error_description, and state`"]
+    response -- empty code or error --> redirect_error
+    response -- code --> token{Token request and response valid?}
+    token -- no --> redirect_error
     token -- yes --> identity{Identity endpoint responses and configured claims valid?}
-    identity -- no --> identity_error["`**HTTP 400** invalid_grant: identity fetch failed with upstream message or HTTP status`"]
+    identity -- no --> redirect_error
     identity -- yes --> authorize{Continued authorize response generated?}
-    authorize -- no --> authorize_error["`**HTTP 400** authorize response error`"]
+    authorize -- no --> redirect_error
     authorize -- yes --> accepted["`**HTTP 302** downstream authorize response`"]
-    response -- error --> upstream_error["`**HTTP 400** invalid_grant: federated server error`"]
-    response -- missing --> missing["`**HTTP 400** invalid_request: code or error required`"]
+    response -- error --> redirect_error
+    response -- missing --> redirect_error

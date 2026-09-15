@@ -15,6 +15,7 @@ pub struct FederationCallbackRequest {
 #[derive(Debug)]
 pub struct FederationCallbackResponse {
     pub authorization_code: Option<String>,
+    pub federation_state: Option<federated_server::FederationState>,
 }
 
 impl FederationCallbackRequest {
@@ -22,12 +23,23 @@ impl FederationCallbackRequest {
         Self {
             response: FederationCallbackResponse {
                 authorization_code: None,
+                federation_state: None,
             },
             code: parse_query_parameter(request, "code"),
             error: parse_query_parameter(request, "error"),
             error_description: parse_query_parameter(request, "error_description"),
             state: parse_query_parameter(request, "state"),
         }
+    }
+}
+
+impl federated_server::ValidateCallbackState for FederationCallbackRequest {
+    fn request_state(&self) -> Option<&str> {
+        self.state.as_deref()
+    }
+
+    fn add_federation_state(&mut self, state: federated_server::FederationState) {
+        self.response.federation_state = Some(state);
     }
 }
 

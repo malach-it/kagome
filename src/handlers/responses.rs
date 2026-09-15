@@ -474,7 +474,7 @@ fn client_id_username(client_id: &str) -> Option<&str> {
     (!username.is_empty()).then_some(username)
 }
 
-fn query_error_response(redirect_uri: &str, error: &OAuthError, state: Option<&str>) -> String {
+pub fn query_error_response(redirect_uri: &str, error: &OAuthError, state: Option<&str>) -> String {
     let location = append_query_parameter(
         &append_query_parameter(
             redirect_uri,

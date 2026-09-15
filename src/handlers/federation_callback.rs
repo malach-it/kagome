@@ -2,7 +2,7 @@ use crate::{
     errors::OAuthError,
     handlers::{
         authorize,
-        responses::{log_timestamp, logged_response},
+        responses::{log_timestamp, logged_response, query_error_response},
     },
     requests::{AuthorizeLoginRequest, FederationCallbackRequest},
     resources::federated_server,
@@ -17,16 +17,49 @@ pub fn handle_federation_callback(request: &KagomeRequest) -> String {
 }
 
 fn handle_authorization_response(request: &KagomeRequest) -> String {
-    match federated_server::validate_callback(FederationCallbackRequest::from_request(request))
+    let callback = match federated_server::validate_callback_state(
+        FederationCallbackRequest::from_request(request),
+    ) {
+        Ok(callback) => callback,
+        Err(error) => return federation_callback_error_response(error, None),
+    };
+    let error_redirect = callback
+        .response
+        .federation_state
+        .as_ref()
+        .and_then(|state| {
+            state
+                .request_parameters
+                .redirect_uri
+                .as_deref()
+                .map(|redirect_uri| {
+                    (
+                        redirect_uri.to_owned(),
+                        state.request_parameters.state.clone(),
+                    )
+                })
+        });
+
+    match federated_server::validate_callback(callback)
         .and_then(|callback| AuthorizeLoginRequest::from_state(callback, request))
         .and_then(authorize::continue_federated_authorize)
         .and_then(logged_response)
     {
         Ok(response) => response,
-        Err(error) => {
-            log_federation_callback_failure(&error);
-            error.to_response()
+        Err(error) => federation_callback_error_response(error, error_redirect),
+    }
+}
+
+fn federation_callback_error_response(
+    error: OAuthError,
+    redirect: Option<(String, Option<String>)>,
+) -> String {
+    log_federation_callback_failure(&error);
+    match redirect {
+        Some((redirect_uri, state)) => {
+            query_error_response(&redirect_uri, &error, state.as_deref())
         }
+        None => error.to_response(),
     }
 }
 
