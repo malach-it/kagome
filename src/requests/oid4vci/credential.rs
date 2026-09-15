@@ -1,4 +1,5 @@
 use crate::{
+    config::Config,
     errors::OAuthError,
     handlers::responses::oid4vci_json_response,
     resources::{
@@ -126,8 +127,8 @@ impl credential_proof::Validate for CredentialRequest<'_> {
         self.proof.as_ref()
     }
 
-    fn credential_issuer(&self) -> Option<&str> {
-        self.response.credential_issuer.as_deref()
+    fn proof_audience(&self) -> Option<&str> {
+        Some(&Config::global().server.issuer)
     }
 
     fn id_token_public_jwk(&self) -> Option<&serde_json::Value> {

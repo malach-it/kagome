@@ -40,7 +40,7 @@ struct ProofIssuer {
 
 pub trait Validate {
     fn request_proof(&self) -> Option<&Value>;
-    fn credential_issuer(&self) -> Option<&str>;
+    fn proof_audience(&self) -> Option<&str>;
     fn id_token_public_jwk(&self) -> Option<&Value> {
         None
     }
@@ -114,10 +114,10 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     if claims.iss != claims.sub {
         return Err(invalid("proof jwt issuer must equal subject"));
     }
-    let credential_issuer = request
-        .credential_issuer()
-        .ok_or_else(|| invalid("credential issuer must be validated before proof"))?;
-    if !audience_contains(&claims.aud, credential_issuer) {
+    let proof_audience = request
+        .proof_audience()
+        .ok_or_else(|| invalid("proof audience must be configured before proof"))?;
+    if !audience_contains(&claims.aud, proof_audience) {
         return Err(invalid("proof jwt audience is invalid"));
     }
     let now = get_current_timestamp() as f64;

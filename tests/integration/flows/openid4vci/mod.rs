@@ -32,8 +32,9 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - credential request media type: application/json (case-insensitive, parameters
 //   allowed) | missing | unsupported
 // - credential_identifier: supported | missing | legacy credential_configuration_id | unknown
-// - credential proof: absent (access-token subject fallback) | valid JWT proof |
-//   malformed | invalid signature | wrong audience | wallet-bound signature
+// - credential proof: absent (access-token subject fallback) | valid JWT proof with configured
+//   issuer audience | malformed | invalid signature | Host-derived or unrelated audience |
+//   wallet-bound signature
 //   matching/mismatching the ID-token public key. A wallet-binding client also
 //   rejects a missing code key or proof. A valid proof binds the issued subject
 //   and cnf.jwk to its wallet DID and public key.
@@ -337,7 +338,7 @@ fn issues_ed25519_signed_jwt_vc() {
 fn issues_credential_bound_to_wallet_proof_subject_and_key() {
     let access_token = access_token();
     let did = proof_did_key();
-    let proof = credential_proof(&did, "https://issuer.example.com");
+    let proof = credential_proof(&did, "http://localhost:4000");
     let response = post_json(
         "/credential",
         Some(&format!("Bearer {access_token}")),
@@ -357,7 +358,7 @@ fn issues_credential_bound_to_wallet_proof_subject_and_key() {
 fn verifies_credential_proof_signature_against_code_id_token_public_key() {
     let access_token = wallet_bound_access_token(&id_token(PROOF_PRIVATE_KEY, proof_jwk()));
     let did = proof_did_key();
-    let proof = credential_proof(&did, "https://issuer.example.com");
+    let proof = credential_proof(&did, "http://localhost:4000");
     let response = post_json(
         "/credential",
         Some(&format!("Bearer {access_token}")),
@@ -371,7 +372,7 @@ fn verifies_credential_proof_signature_against_code_id_token_public_key() {
 fn rejects_credential_proof_signature_not_matching_code_id_token_public_key() {
     let access_token = wallet_bound_access_token(&id_token(OTHER_PRIVATE_KEY, other_jwk()));
     let did = proof_did_key();
-    let proof = credential_proof(&did, "https://issuer.example.com");
+    let proof = credential_proof(&did, "http://localhost:4000");
     let response = post_json(
         "/credential",
         Some(&format!("Bearer {access_token}")),
@@ -415,7 +416,7 @@ fn rejects_wallet_bound_authorize_request_without_code_id_token_key() {
 fn rejects_credential_proof_with_invalid_signature() {
     let access_token = access_token();
     let did = proof_did_key();
-    let mut proof = credential_proof(&did, "https://issuer.example.com");
+    let mut proof = credential_proof(&did, "http://localhost:4000");
     proof.push('x');
     let response = post_json(
         "/credential",
@@ -435,6 +436,24 @@ fn rejects_credential_proof_with_wrong_audience() {
     let access_token = access_token();
     let did = proof_did_key();
     let proof = credential_proof(&did, "https://attacker.example.com");
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {access_token}")),
+        &credential_body_with_proof(CONFIGURATION_ID, &proof),
+    );
+
+    assert_credential_error(
+        &response,
+        "invalid_credential_request",
+        "proof jwt audience is invalid",
+    );
+}
+
+#[test]
+fn rejects_credential_proof_with_host_derived_audience() {
+    let access_token = access_token();
+    let did = proof_did_key();
+    let proof = credential_proof(&did, "https://issuer.example.com");
     let response = post_json(
         "/credential",
         Some(&format!("Bearer {access_token}")),

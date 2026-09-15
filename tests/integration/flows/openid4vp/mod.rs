@@ -1309,7 +1309,7 @@ fn issued_credential_for_subject(subject: &str) -> String {
     let claims = json!({
         "iss": subject,
         "sub": subject,
-        "aud": "https://issuer.example.com",
+        "aud": "http://localhost:4000",
         "iat": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
     });
     let mut header = Header::new(Algorithm::ES256);

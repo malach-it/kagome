@@ -38,7 +38,7 @@ flowchart TD
     configuration -- no --> credential_error["`**HTTP 400** credential request error with CORS header`"]
     configuration -- yes --> required{Binding policy permits missing proof?}
     required -- no --> credential_error
-    required -- yes --> proof{Wallet JWT proof and optional ID-token signature valid?}
+    required -- yes --> proof{Wallet JWT proof uses configured issuer audience and optional ID-token signature is valid?}
     proof -- no --> credential_error
     proof -- yes --> issue{Ed25519 jwt_vc generated for proof or token subject?}
     issue -- no --> generation_error
