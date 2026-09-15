@@ -28,6 +28,14 @@ pub struct PreAuthorizedCodeClaims {
 
 pub trait Generate {
     fn add_pre_authorized_code(&mut self, pre_authorized_code: String);
+
+    fn subject(&self) -> Option<&str> {
+        None
+    }
+
+    fn require_subject(&self) -> bool {
+        false
+    }
 }
 
 pub trait Validate {
@@ -38,9 +46,14 @@ pub trait Validate {
 
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let iat = now("pre-authorized code generation failed")?;
+    let subject = match (request.subject(), request.require_subject()) {
+        (Some(subject), _) => subject.to_owned(),
+        (None, true) => return Err(OAuthError::missing_username()),
+        (None, false) => "did:example:alice".to_owned(),
+    };
     let claims = PreAuthorizedCodeClaims {
         credential_configuration_id: CREDENTIAL_CONFIGURATION_ID.to_owned(),
-        subject: "did:example:alice".to_owned(),
+        subject,
         iat,
         exp: iat + TTL_SECONDS,
     };

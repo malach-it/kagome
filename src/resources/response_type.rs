@@ -1,11 +1,13 @@
 use crate::errors::OAuthError;
 
-pub const SUPPORTED_RESPONSE_TYPES: [&str; 3] = ["code", "token", "id_token"];
+pub const PRE_AUTHORIZED_CODE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_code";
+pub const SUPPORTED_RESPONSE_TYPES: [&str; 4] = ["code", "token", "id_token", PRE_AUTHORIZED_CODE];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResponseType {
     Code,
     IdToken,
+    PreAuthorizedCode,
     Token,
 }
 
@@ -14,6 +16,7 @@ impl ResponseType {
         match self {
             ResponseType::Code => "code",
             ResponseType::IdToken => "id_token",
+            ResponseType::PreAuthorizedCode => PRE_AUTHORIZED_CODE,
             ResponseType::Token => "token",
         }
     }
@@ -50,6 +53,7 @@ fn parse(response_type: Option<&str>) -> Result<Vec<ResponseType>, OAuthError> {
         .map(|response_type| match response_type {
             "code" => Ok(ResponseType::Code),
             "id_token" => Ok(ResponseType::IdToken),
+            PRE_AUTHORIZED_CODE => Ok(ResponseType::PreAuthorizedCode),
             "token" => Ok(ResponseType::Token),
             _ => Err(OAuthError::unsupported_response_type(
                 &SUPPORTED_RESPONSE_TYPES,
@@ -61,6 +65,10 @@ fn parse(response_type: Option<&str>) -> Result<Vec<ResponseType>, OAuthError> {
         return Err(OAuthError::unsupported_response_type(
             &SUPPORTED_RESPONSE_TYPES,
         ));
+    }
+
+    if response_types.contains(&ResponseType::PreAuthorizedCode) && response_types.len() != 1 {
+        return Err(OAuthError::invalid_final_response_type());
     }
 
     validate_final_response_type_is_final(&response_types)?;

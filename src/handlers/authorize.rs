@@ -2,7 +2,7 @@ use crate::{
     errors::OAuthError,
     resources::{
         access_token, authorization_code, client_credentials, federated_server, id_token,
-        metadata_policy, resource_owner,
+        metadata_policy, pre_authorized_code, resource_owner,
         response_type::{self, ResponseType},
     },
     unit::KagomeRequest,
@@ -114,9 +114,14 @@ where
     T: GenerateAuthorizeResponse
         + access_token::Generate
         + authorization_code::Generate
-        + id_token::Generate,
+        + id_token::Generate
+        + pre_authorized_code::Generate,
 {
     match authorize_request.response_types() {
+        [ResponseType::PreAuthorizedCode] if authorize_request.is_authenticated() => {
+            pre_authorized_code::generate(authorize_request)
+        }
+        [ResponseType::PreAuthorizedCode] => Err(OAuthError::missing_username()),
         [
             ResponseType::Code,
             ResponseType::IdToken,
@@ -148,9 +153,11 @@ where
         [] => Err(OAuthError::unsupported_response_type(
             &response_type::SUPPORTED_RESPONSE_TYPES,
         )),
-        [ResponseType::IdToken, ..] | [ResponseType::Token, ..] => Err(
-            OAuthError::unsupported_response_type(&response_type::SUPPORTED_RESPONSE_TYPES),
-        ),
+        [ResponseType::IdToken, ..]
+        | [ResponseType::PreAuthorizedCode, ..]
+        | [ResponseType::Token, ..] => Err(OAuthError::unsupported_response_type(
+            &response_type::SUPPORTED_RESPONSE_TYPES,
+        )),
     }
 }
 

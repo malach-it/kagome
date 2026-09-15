@@ -1,4 +1,7 @@
-use crate::{resources::pre_authorized_code, unit::KagomeRequest};
+use crate::{
+    resources::{pre_authorized_code, response_type},
+    unit::KagomeRequest,
+};
 
 use super::metadata::issuer_response;
 
@@ -9,7 +12,7 @@ pub fn handle_authorization_server_metadata(request: &KagomeRequest) -> String {
             "authorization_endpoint": format!("{issuer}/authorize"),
             "token_endpoint": format!("{issuer}/token"),
             "jwks_uri": format!("{issuer}/jwks"),
-            "response_types_supported": ["code"],
+            "response_types_supported": ["code", response_type::PRE_AUTHORIZED_CODE],
             "grant_types_supported": [
                 "authorization_code",
                 pre_authorized_code::GRANT_TYPE

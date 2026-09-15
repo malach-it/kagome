@@ -9,7 +9,7 @@ use crate::{
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
-        id_token::IdToken,
+        id_token::IdToken, pre_authorized_code,
     },
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -118,6 +118,39 @@ pub fn code_redirect_response(
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
         location
+    )
+}
+
+pub fn credential_offer_redirect_response(
+    redirect_uri: &str,
+    credential_issuer: &str,
+    pre_authorized_code: &str,
+) -> String {
+    let credential_offer = serde_json::json!({
+        "credential_issuer": credential_issuer,
+        "credential_configuration_ids": [
+            crate::resources::credential_issuer::CREDENTIAL_CONFIGURATION_ID
+        ],
+        "grants": {
+            pre_authorized_code::GRANT_TYPE: {
+                "pre-authorized_code": pre_authorized_code,
+                "tx_code": {
+                    "input_mode": "numeric",
+                    "length": 6,
+                    "description": "Enter the transaction code supplied by the issuer"
+                }
+            }
+        }
+    })
+    .to_string();
+    let location = append_query_parameter(
+        redirect_uri,
+        "credential_offer",
+        &percent_encode_query_value(&credential_offer),
+    );
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {location}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
     )
 }
 
@@ -394,7 +427,9 @@ impl ResponseLog for AuthorizeLoginRequest<'_> {
     }
 
     fn log_success(&self) {
-        let flow = if self.response.federated_authorization.is_some() {
+        let flow = if self.response.pre_authorized_code.is_some() {
+            "pre_authorized_code"
+        } else if self.response.federated_authorization.is_some() {
             "federated_redirect"
         } else if self.response.federated_access_token.is_some() {
             "federation_callback"
@@ -413,9 +448,14 @@ impl ResponseLog for AuthorizeCodeRequest<'_> {
 
     fn log_success(&self) {
         let authorization_code = self.response.authorization_code.as_ref();
+        let flow = if self.response.pre_authorized_code.is_some() {
+            "pre_authorized_code"
+        } else {
+            "code"
+        };
 
         log_authorize_success(
-            "code",
+            flow,
             &[
                 (
                     "request.response_type",

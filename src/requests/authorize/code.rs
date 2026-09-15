@@ -1,17 +1,19 @@
 use crate::{
+    config::Config,
     errors::OAuthError,
     handlers::responses::{
         access_token_redirect_response, authorize_redirect_response,
         code_access_token_redirect_response, code_id_token_access_token_redirect_response,
         code_id_token_redirect_response, code_redirect_response,
-        id_token_access_token_redirect_response, id_token_redirect_response,
+        credential_offer_redirect_response, id_token_access_token_redirect_response,
+        id_token_redirect_response,
     },
     resources::{
         access_token::{self, AccessToken},
         authorization_code::{self, AuthorizationCode},
         client_credentials,
         id_token::{self, IdToken},
-        metadata_policy, resource_owner,
+        metadata_policy, pre_authorized_code, resource_owner,
         response_type::{self, ResponseType},
     },
     unit::{KagomeRequest, parse_query_parameter, parse_request_parameter},
@@ -40,6 +42,7 @@ pub struct AuthorizeCodeResponse {
     pub access_token: Option<AccessToken>,
     pub authorization_code: Option<AuthorizationCode>,
     pub id_token: Option<IdToken>,
+    pub pre_authorized_code: Option<String>,
     pub previous_authorization_code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
@@ -67,6 +70,18 @@ impl<'a> AuthorizeCodeRequest<'a> {
     }
 
     pub fn to_response(&self) -> Result<String, OAuthError> {
+        if let Some(pre_authorized_code) = self.response.pre_authorized_code.as_deref() {
+            let redirect_uri = self.response.redirect_uri.as_deref().ok_or_else(|| {
+                OAuthError::invalid_token_response("authorize response requires redirect_uri")
+            })?;
+
+            return Ok(credential_offer_redirect_response(
+                redirect_uri,
+                &Config::global().server.issuer,
+                pre_authorized_code,
+            ));
+        }
+
         if let (Some(authorization_code), Some(id_token), Some(access_token)) = (
             self.response.authorization_code.as_ref(),
             self.response.id_token.as_ref(),
@@ -179,6 +194,7 @@ impl AuthorizeCodeResponse {
             access_token: None,
             authorization_code: None,
             id_token: None,
+            pre_authorized_code: None,
             previous_authorization_code: None,
             client_id: None,
             client_secret: None,
@@ -350,5 +366,19 @@ impl<'a> id_token::Generate for AuthorizeCodeRequest<'a> {
 
     fn add_generated_id_token(&mut self, id_token: IdToken) {
         self.response.id_token = Some(id_token);
+    }
+}
+
+impl pre_authorized_code::Generate for AuthorizeCodeRequest<'_> {
+    fn subject(&self) -> Option<&str> {
+        self.response.username.as_deref()
+    }
+
+    fn require_subject(&self) -> bool {
+        true
+    }
+
+    fn add_pre_authorized_code(&mut self, pre_authorized_code: String) {
+        self.response.pre_authorized_code = Some(pre_authorized_code);
     }
 }

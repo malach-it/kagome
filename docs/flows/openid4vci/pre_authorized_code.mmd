@@ -1,11 +1,19 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[GET /credential-offer] --> host{Host valid?}
+    endpoint[GET /credential-offer] --> host{Host valid?}
     host -- no --> offer_error["`**HTTP 400** invalid_request`"]
     host -- yes --> encrypt{COSE pre-authorized code generated?}
+    authorize[GET or POST /authorize with pre-authorized-code response type] --> authorize_valid{Client and redirect URI valid?}
+    authorize_valid -- no --> authorize_error["`**HTTP 400** login error or **HTTP 302** error redirect`"]
+    authorize_valid -- yes --> authenticated{Resource owner authenticated?}
+    authenticated -- no --> authentication["`**HTTP 200** login page or **HTTP 302** federation redirect`"]
+    authenticated -- yes --> encrypt
     encrypt -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
-    encrypt -- yes --> offer["`**HTTP 200** credential offer`"]
+    encrypt -- yes --> delivery{Offer source?}
+    delivery -- credential-offer endpoint --> offer["`**HTTP 200** credential offer`"]
+    delivery -- authorize response --> authorize_offer["`**HTTP 302** redirect with credential_offer`"]
     offer --> token[POST /token with pre-authorized-code grant]
+    authorize_offer --> token
     token --> code{Encrypted code present and valid?}
     code -- no --> token_error["`**HTTP 400** invalid_request or invalid_grant`"]
     code -- yes --> tx{Transaction code present and valid?}

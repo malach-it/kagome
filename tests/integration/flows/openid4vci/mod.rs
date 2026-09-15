@@ -6,6 +6,7 @@ use super::super::server::send_request;
 const HOST: &str = "issuer.example.com";
 const CONFIGURATION_ID: &str = "UniversityDegreeCredential";
 const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
+const RESPONSE_TYPE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_code";
 
 // Branch matrix:
 // - discovery endpoint: issuer metadata | authorization-server metadata | JWKS
@@ -20,6 +21,7 @@ const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
 // - credential request media type: application/json (case-insensitive, parameters
 //   allowed) | missing | unsupported
 // - credential_configuration_id: supported | missing | unknown
+// - authorize response type: authenticated | unauthenticated | combined with another type
 // A token/configuration mismatch is unreachable because this profile advertises
 // and issues exactly one credential configuration.
 
@@ -58,6 +60,7 @@ fn returns_authorization_server_metadata() {
     assert_ok_json(&response);
     assert_eq!(body["issuer"], "https://issuer.example.com");
     assert_eq!(body["token_endpoint"], "https://issuer.example.com/token");
+    assert_eq!(body["response_types_supported"][1], RESPONSE_TYPE);
     assert_eq!(body["grant_types_supported"][1], GRANT_TYPE);
     assert_eq!(
         body["pre-authorized_grant_anonymous_access_supported"],
@@ -91,6 +94,62 @@ fn returns_pre_authorized_credential_offer_with_cose_code() {
     assert!(
         base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, code).is_ok()
     );
+}
+
+#[test]
+fn redirects_authenticated_authorize_request_with_credential_offer() {
+    let response = authorize_preauthorized_code("", "username=username&password=password");
+    let offer = redirected_credential_offer(&response);
+    let grant = &offer["grants"][GRANT_TYPE];
+    let code = grant["pre-authorized_code"].as_str().unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert_eq!(offer["credential_issuer"], "http://localhost:4000");
+    assert_eq!(offer["credential_configuration_ids"][0], CONFIGURATION_ID);
+    assert_eq!(grant["tx_code"]["length"], 6);
+
+    let token_response = token_request(&format!(
+        "grant_type={GRANT_TYPE}&pre-authorized_code={code}&tx_code=493536"
+    ));
+    let access_token = json_body(&token_response)["access_token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let credential_response =
+        credential_request(Some(&access_token), "application/json", CONFIGURATION_ID);
+    let credential = json_body(&credential_response)["credentials"][0]["credential"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut validation = Validation::new(Algorithm::EdDSA);
+    validation.validate_aud = false;
+    let claims = jsonwebtoken::decode::<Value>(
+        &credential,
+        &DecodingKey::from_ed_pem(kagome::resources::verifiable_credential::PUBLIC_KEY).unwrap(),
+        &validation,
+    )
+    .unwrap()
+    .claims;
+
+    assert_eq!(claims["sub"], "username");
+}
+
+#[test]
+fn returns_login_for_unauthenticated_preauthorized_code_request() {
+    let response = send_request(&format!(
+        "GET /authorize?response_type={RESPONSE_TYPE}&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("<title>kagome login</title>"));
+}
+
+#[test]
+fn rejects_preauthorized_code_combined_with_another_response_type() {
+    let response = authorize_preauthorized_code("code+", "username=username&password=password");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("invalid final response type"));
 }
 
 #[test]
@@ -335,6 +394,51 @@ fn rejects_missing_or_invalid_host_for_issuer_endpoints() {
 
 fn credential_offer() -> String {
     get("/credential-offer")
+}
+
+fn authorize_preauthorized_code(prefix: &str, body: &str) -> String {
+    send_request(&format!(
+        "POST /authorize?response_type={prefix}{RESPONSE_TYPE}&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    ))
+}
+
+fn redirected_credential_offer(response: &str) -> Value {
+    let location = response
+        .lines()
+        .find_map(|line| line.strip_prefix("location: "))
+        .expect("authorize response should contain a location");
+    let encoded_offer = location
+        .split_once('?')
+        .and_then(|(_, query)| {
+            query
+                .split('&')
+                .find_map(|value| value.strip_prefix("credential_offer="))
+        })
+        .expect("authorize response should contain a credential offer");
+
+    serde_json::from_str(&decode_form_value(encoded_offer)).unwrap()
+}
+
+fn decode_form_value(value: &str) -> String {
+    let mut decoded = Vec::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => decoded.push(b' '),
+            b'%' if index + 2 < bytes.len() => {
+                let byte = u8::from_str_radix(&value[index + 1..index + 3], 16).unwrap();
+                decoded.push(byte);
+                index += 2;
+            }
+            byte => decoded.push(byte),
+        }
+        index += 1;
+    }
+
+    String::from_utf8(decoded).unwrap()
 }
 
 fn offered_code() -> String {

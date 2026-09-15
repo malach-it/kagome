@@ -42,6 +42,20 @@ fn restores_parsed_request_attributes_for_implicit_authorize_continuation() {
 }
 
 #[test]
+fn returns_credential_offer_for_federated_preauthorized_code_request() {
+    let state = federation_state_for(
+        "response_type=urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
+    );
+    let response = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?credential_offer="));
+    assert!(!response.contains("federated-code"));
+}
+
+#[test]
 fn rejects_federation_callback_when_token_request_fails() {
     let response = send_callback_request("code=rejected-code");
 

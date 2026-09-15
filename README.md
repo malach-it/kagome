@@ -79,6 +79,7 @@ Issuance 1.0 Final specification:
 - OAuth Authorization Server metadata at
   `/.well-known/oauth-authorization-server`
 - A Credential Offer by reference at `/credential-offer`
+- A pre-authorized-code `/authorize` response that redirects with a Credential Offer
 - The Pre-Authorized Code grant at `/token`
 - Immediate issuance of one `jwt_vc_json` University Degree Credential at
   `/credential`
