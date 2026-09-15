@@ -5,10 +5,11 @@ use serde_json::Value;
 
 use crate::errors::OAuthError;
 
-use super::{authorization_code, credential_issuer::CREDENTIAL_CONFIGURATION_ID, crypto};
+use super::{
+    authorization_code, credential_issuer::CREDENTIAL_CONFIGURATION_ID, crypto,
+    crypto::EncryptedArtifact,
+};
 
-pub const SECRET: &str = "static_pre_authorized_code_secret";
-pub const COSE_EXTERNAL_AAD: &[u8] = b"kagome.pre_authorized_code";
 const COSE_ENCRYPT0_ERRORS: crypto::CoseEncrypt0Errors = crypto::CoseEncrypt0Errors {
     invalid_cose: "pre-authorized_code must be a cose_encrypt0",
     missing_ciphertext: "pre-authorized_code ciphertext is required",
@@ -94,7 +95,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let mut claims_bytes = Vec::new();
     ciborium::into_writer(&claims, &mut claims_bytes)
         .map_err(|_| OAuthError::invalid_token_response("pre-authorized code generation failed"))?;
-    let code = crypto::encode_cose_encrypt0(&claims_bytes, SECRET, COSE_EXTERNAL_AAD)?;
+    let code = crypto::encode_cose_encrypt0(&claims_bytes, EncryptedArtifact::PreAuthorizedCode)?;
 
     request.add_pre_authorized_code(code);
     Ok(request)
@@ -110,9 +111,12 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         return Err(OAuthError::invalid_grant("tx_code is invalid"));
     }
 
-    let claims_bytes =
-        crypto::decode_cose_encrypt0(code, SECRET, COSE_EXTERNAL_AAD, COSE_ENCRYPT0_ERRORS)
-            .map_err(|_| OAuthError::invalid_grant("pre-authorized_code is invalid or expired"))?;
+    let claims_bytes = crypto::decode_cose_encrypt0(
+        code,
+        EncryptedArtifact::PreAuthorizedCode,
+        COSE_ENCRYPT0_ERRORS,
+    )
+    .map_err(|_| OAuthError::invalid_grant("pre-authorized_code is invalid or expired"))?;
     let claims: PreAuthorizedCodeClaims = ciborium::from_reader(claims_bytes.as_slice())
         .map_err(|_| OAuthError::invalid_grant("pre-authorized_code is invalid or expired"))?;
     let now = now("pre-authorized code validation failed")?;

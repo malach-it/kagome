@@ -1,14 +1,30 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use coset::{CborSerializable, CoseEncrypt0, CoseEncrypt0Builder, HeaderBuilder, iana};
-use ring::{
-    aead::{self, Aad, LessSafeKey, Nonce, UnboundKey},
-    digest,
-    rand::{SecureRandom, SystemRandom},
-};
+use jsonwebtoken::DecodingKey;
+use ring::rand::{SecureRandom, SystemRandom};
+use serde::Serialize;
+use serde_json::Value;
 
-use crate::errors::OAuthError;
+use crate::{config::Config, errors::OAuthError, key_management::AES_GCM_NONCE_LEN};
 
-const AES_GCM_NONCE_LEN: usize = 12;
+pub use crate::key_management::{EncryptedArtifact, SigningArtifact};
+
+impl SigningArtifact {
+    pub fn public_jwk(self) -> Value {
+        Config::key_manager().public_jwk(self)
+    }
+
+    pub fn decoding_key(self) -> Result<DecodingKey, jsonwebtoken::errors::Error> {
+        Config::key_manager().decoding_key(self)
+    }
+}
+
+pub fn sign_jwt<T: Serialize>(
+    claims: &T,
+    artifact: SigningArtifact,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    Config::key_manager().sign(claims, artifact)
+}
 
 #[derive(Clone, Copy)]
 pub struct CoseEncrypt0Errors {
@@ -20,8 +36,7 @@ pub struct CoseEncrypt0Errors {
 
 pub fn encode_cose_encrypt0(
     plaintext: &[u8],
-    secret: &str,
-    external_aad: &[u8],
+    artifact: EncryptedArtifact,
 ) -> Result<String, OAuthError> {
     let nonce = generate_nonce()?;
     let cose = CoseEncrypt0Builder::new()
@@ -31,8 +46,10 @@ pub fn encode_cose_encrypt0(
                 .build(),
         )
         .unprotected(HeaderBuilder::new().iv(nonce.to_vec()).build())
-        .try_create_ciphertext(plaintext, external_aad, |plaintext, aad| {
-            encrypt_aes_gcm(plaintext, aad, nonce, secret)
+        .try_create_ciphertext(plaintext, artifact.external_aad(), |plaintext, aad| {
+            Config::key_manager()
+                .encrypt_aes_gcm(plaintext, aad, nonce, artifact)
+                .map_err(|_| OAuthError::invalid_token_response("cose encryption failed"))
         })?
         .build();
     let cose_bytes = cose
@@ -44,8 +61,7 @@ pub fn encode_cose_encrypt0(
 
 pub fn decode_cose_encrypt0(
     encoded_cose: &str,
-    secret: &str,
-    external_aad: &[u8],
+    artifact: EncryptedArtifact,
     errors: CoseEncrypt0Errors,
 ) -> Result<Vec<u8>, OAuthError> {
     let cose_bytes = URL_SAFE_NO_PAD
@@ -56,9 +72,13 @@ pub fn decode_cose_encrypt0(
     let nonce = cose_nonce(&cose, errors.missing_nonce)?;
 
     cose.decrypt_ciphertext(
-        external_aad,
+        artifact.external_aad(),
         || OAuthError::invalid_authorization_code(errors.missing_ciphertext),
-        |ciphertext, aad| decrypt_aes_gcm(ciphertext, aad, nonce, secret, errors.decryption_failed),
+        |ciphertext, aad| {
+            Config::key_manager()
+                .decrypt_aes_gcm(ciphertext, aad, nonce, artifact)
+                .map_err(|_| OAuthError::invalid_authorization_code(errors.decryption_failed))
+        },
     )
 }
 
@@ -69,46 +89,6 @@ fn generate_nonce() -> Result<[u8; AES_GCM_NONCE_LEN], OAuthError> {
         .map_err(|_| OAuthError::invalid_token_response("cose encryption failed"))?;
 
     Ok(nonce)
-}
-
-fn encrypt_aes_gcm(
-    plaintext: &[u8],
-    aad: &[u8],
-    nonce: [u8; AES_GCM_NONCE_LEN],
-    secret: &str,
-) -> Result<Vec<u8>, OAuthError> {
-    let key = aes_gcm_key(secret)
-        .map_err(|_| OAuthError::invalid_token_response("cose encryption failed"))?;
-    let mut ciphertext = plaintext.to_vec();
-    key.seal_in_place_append_tag(
-        Nonce::assume_unique_for_key(nonce),
-        Aad::from(aad),
-        &mut ciphertext,
-    )
-    .map_err(|_| OAuthError::invalid_token_response("cose encryption failed"))?;
-
-    Ok(ciphertext)
-}
-
-fn decrypt_aes_gcm(
-    ciphertext: &[u8],
-    aad: &[u8],
-    nonce: [u8; AES_GCM_NONCE_LEN],
-    secret: &str,
-    decryption_failed_error: &'static str,
-) -> Result<Vec<u8>, OAuthError> {
-    let key = aes_gcm_key(secret)
-        .map_err(|_| OAuthError::invalid_authorization_code(decryption_failed_error))?;
-    let mut plaintext = ciphertext.to_vec();
-    let plaintext = key
-        .open_in_place(
-            Nonce::assume_unique_for_key(nonce),
-            Aad::from(aad),
-            &mut plaintext,
-        )
-        .map_err(|_| OAuthError::invalid_authorization_code(decryption_failed_error))?;
-
-    Ok(plaintext.to_vec())
 }
 
 fn cose_nonce(
@@ -122,9 +102,72 @@ fn cose_nonce(
         .map_err(|_| OAuthError::invalid_authorization_code(missing_nonce_error))
 }
 
-fn aes_gcm_key(secret: &str) -> Result<LessSafeKey, ring::error::Unspecified> {
-    let key = digest::digest(&digest::SHA256, secret.as_bytes());
-    let unbound_key = UnboundKey::new(&aead::AES_256_GCM, key.as_ref())?;
+#[cfg(test)]
+mod tests {
+    use jsonwebtoken::{Algorithm, Validation, decode, decode_header};
+    use serde_json::{Value, json};
 
-    Ok(LessSafeKey::new(unbound_key))
+    use super::*;
+
+    const ERRORS: CoseEncrypt0Errors = CoseEncrypt0Errors {
+        invalid_cose: "invalid artifact",
+        missing_ciphertext: "invalid artifact",
+        missing_nonce: "invalid artifact",
+        decryption_failed: "invalid artifact",
+    };
+
+    #[test]
+    fn encrypts_and_decrypts_with_the_matching_artifact_context() {
+        let encrypted =
+            encode_cose_encrypt0(b"confidential", EncryptedArtifact::AccessToken).unwrap();
+
+        assert_eq!(
+            decode_cose_encrypt0(&encrypted, EncryptedArtifact::AccessToken, ERRORS).unwrap(),
+            b"confidential"
+        );
+        assert!(
+            decode_cose_encrypt0(&encrypted, EncryptedArtifact::CredentialAccessToken, ERRORS,)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn signs_each_jwt_with_its_registered_key_and_algorithm() {
+        for artifact in [
+            SigningArtifact::Credential,
+            SigningArtifact::IdToken,
+            SigningArtifact::RequestObject,
+        ] {
+            let token = sign_jwt(&json!({"purpose": artifact.key_id()}), artifact).unwrap();
+            let header = decode_header(&token).unwrap();
+            let mut validation = Validation::new(artifact.algorithm());
+            validation.required_spec_claims.clear();
+            validation.validate_exp = false;
+            validation.validate_aud = false;
+            let claims = decode::<Value>(&token, &artifact.decoding_key().unwrap(), &validation)
+                .unwrap()
+                .claims;
+
+            assert_eq!(header.kid.as_deref(), Some(artifact.key_id()));
+            assert_eq!(claims["purpose"], artifact.key_id());
+        }
+    }
+
+    #[test]
+    fn does_not_accept_a_signature_from_another_registered_key() {
+        let token = sign_jwt(&json!({"purpose": "id_token"}), SigningArtifact::IdToken).unwrap();
+        let mut validation = Validation::new(Algorithm::EdDSA);
+        validation.required_spec_claims.clear();
+        validation.validate_exp = false;
+        validation.validate_aud = false;
+
+        assert!(
+            decode::<Value>(
+                &token,
+                &SigningArtifact::Credential.decoding_key().unwrap(),
+                &validation,
+            )
+            .is_err()
+        );
+    }
 }

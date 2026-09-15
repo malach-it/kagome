@@ -6,10 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{config::Config, errors::OAuthError};
 
-use super::crypto;
+use super::crypto::{self, EncryptedArtifact};
 
-pub const SECRET: &str = "static_siopv2_authorization_state_secret";
-pub const COSE_EXTERNAL_AAD: &[u8] = b"kagome:siopv2:authorization-state:v1";
 pub const TTL_SECONDS: u64 = 300;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -66,7 +64,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let mut plaintext = Vec::new();
     ciborium::into_writer(&claims, &mut plaintext)
         .map_err(|_| OAuthError::invalid_token_response("state generation failed"))?;
-    let value = crypto::encode_cose_encrypt0(&plaintext, SECRET, COSE_EXTERNAL_AAD)?;
+    let value = crypto::encode_cose_encrypt0(&plaintext, EncryptedArtifact::Siopv2State)?;
 
     request.add_siop_state(SiopState { value, claims });
     Ok(request)
@@ -78,8 +76,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         .ok_or_else(|| OAuthError::invalid_request("state is required"))?;
     let plaintext = crypto::decode_cose_encrypt0(
         state,
-        SECRET,
-        COSE_EXTERNAL_AAD,
+        EncryptedArtifact::Siopv2State,
         crypto::CoseEncrypt0Errors {
             invalid_cose: "state is invalid",
             missing_ciphertext: "state is invalid",

@@ -2,6 +2,7 @@ use super::*;
 
 // Branch matrix:
 // - representation: form | JSON (success exercises both parser branches)
+// - generated artifacts: COSE_Encrypt0 authorization code | optional access token
 // - client_id: valid | missing | invalid
 // - client_secret: valid | missing | invalid
 // - id_token: valid asymmetric | missing | malformed | symmetric algorithm |

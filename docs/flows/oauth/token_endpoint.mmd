@@ -24,9 +24,9 @@ flowchart TD
     chain_result -- error --> oauth_error
     combined_result -- error --> oauth_error
     pre_authorized_result -- error --> oauth_error
-    client_result -- success --> access_success["`**HTTP 200** bearer access token with CORS header`"]
+    client_result -- success --> access_success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token with CORS header`"]
     password_result -- success --> access_success
     auth_result -- success --> access_success
     chain_result -- success --> code_success["`**HTTP 200** authorization code with CORS header`"]
     combined_result -- success --> access_success
-    pre_authorized_result -- success --> credential_access_success["`**HTTP 200** bearer access token with authorization details and CORS header`"]
+    pre_authorized_result -- success --> credential_access_success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token with authorization details and CORS header`"]

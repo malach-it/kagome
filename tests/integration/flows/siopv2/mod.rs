@@ -77,7 +77,9 @@ fn returns_signed_direct_post_siop_authorization_request() {
             .as_array()
             .unwrap()
             .iter()
-            .find(|key| key["kid"] == kagome::resources::request_object::KEY_ID)
+            .find(|key| {
+                key["kid"] == kagome::resources::crypto::SigningArtifact::RequestObject.key_id()
+            })
             .unwrap()
             .clone(),
     )
@@ -444,8 +446,7 @@ fn rejects_expired_siop_state() {
     ciborium::into_writer(&claims, &mut plaintext).unwrap();
     let state = kagome::resources::crypto::encode_cose_encrypt0(
         &plaintext,
-        kagome::resources::siopv2_state::SECRET,
-        kagome::resources::siopv2_state::COSE_EXTERNAL_AAD,
+        kagome::resources::crypto::EncryptedArtifact::Siopv2State,
     )
     .unwrap();
     let response = post(
@@ -482,8 +483,7 @@ fn rejects_siop_state_bound_to_a_different_issuer() {
     ciborium::into_writer(&claims, &mut plaintext).unwrap();
     let state = kagome::resources::crypto::encode_cose_encrypt0(
         &plaintext,
-        kagome::resources::siopv2_state::SECRET,
-        kagome::resources::siopv2_state::COSE_EXTERNAL_AAD,
+        kagome::resources::crypto::EncryptedArtifact::Siopv2State,
     )
     .unwrap();
     let response = post(
@@ -520,8 +520,7 @@ fn rejects_mismatched_request_response_type_in_state() {
     ciborium::into_writer(&claims, &mut plaintext).unwrap();
     let state = kagome::resources::crypto::encode_cose_encrypt0(
         &plaintext,
-        kagome::resources::siopv2_state::SECRET,
-        kagome::resources::siopv2_state::COSE_EXTERNAL_AAD,
+        kagome::resources::crypto::EncryptedArtifact::Siopv2State,
     )
     .unwrap();
     let response = post(
@@ -653,8 +652,7 @@ impl AuthorizationFixture {
     fn state_claims(&self) -> kagome::resources::siopv2_state::SiopStateClaims {
         let plaintext = kagome::resources::crypto::decode_cose_encrypt0(
             self.state(),
-            kagome::resources::siopv2_state::SECRET,
-            kagome::resources::siopv2_state::COSE_EXTERNAL_AAD,
+            kagome::resources::crypto::EncryptedArtifact::Siopv2State,
             kagome::resources::crypto::CoseEncrypt0Errors {
                 invalid_cose: "invalid state",
                 missing_ciphertext: "invalid state",

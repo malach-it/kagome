@@ -24,12 +24,12 @@ flowchart TD
     code -- yes --> key{Binding policy and ID-token key claims valid?}
     key -- no --> token_error
     key -- yes --> tx_present{Transaction code supplied?}
-    tx_present -- no --> access{Credential access token generated?}
+    tx_present -- no --> access{COSE_Encrypt0 credential access token generated?}
     tx_present -- yes --> tx_valid{Transaction code valid?}
     tx_valid -- no --> token_error
     tx_valid -- yes --> access
     access -- no --> generation_error
-    access -- yes --> token_success["`**HTTP 200** bearer access token with authorization details`"]
+    access -- yes --> token_success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token with authorization details`"]
     token_success --> credential_request[Request /credential]
     credential_request --> credential_method{Method?}
     credential_method -- OPTIONS --> credential_preflight["`**HTTP 204** CORS preflight response`"]

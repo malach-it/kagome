@@ -10,6 +10,8 @@ use std::{
 use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings};
 use serde::Deserialize;
 
+use crate::key_management::{KeyManagementError, KeyManager};
+
 pub const CONFIG_PATH_ENV_VAR: &str = "KAGOME_CONFIG";
 pub const DEFAULT_CONFIG_PATH: &str = "kagome.yaml";
 pub const DEFAULT_ACCESS_TOKEN_TTL_SECONDS: u64 = 3600;
@@ -23,6 +25,8 @@ static CONFIG: OnceLock<Config> = OnceLock::new();
 pub struct Config {
     /// HTTP server settings.
     pub server: ServerConfig,
+    /// External file containing encryption secrets and signing key pairs.
+    pub crypto: CryptoConfig,
     /// Lifetimes, in seconds, for OAuth tokens and authorization codes.
     #[serde(default)]
     #[schemars(default)]
@@ -33,6 +37,16 @@ pub struct Config {
     #[serde(skip)]
     #[schemars(skip)]
     client_password_files: HashMap<PathBuf, ClientPasswordFile>,
+    #[serde(skip)]
+    #[schemars(skip)]
+    key_manager: KeyManager,
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CryptoConfig {
+    /// YAML file loaded once at startup with encryption secrets and signing keys.
+    pub key_file: PathBuf,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -175,6 +189,24 @@ impl Config {
         CONFIG.get().map(|config| config.tokens).unwrap_or_default()
     }
 
+    pub(crate) fn key_manager() -> &'static KeyManager {
+        if let Some(config) = CONFIG.get() {
+            return &config.key_manager;
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            static TEST_KEYS: OnceLock<KeyManager> = OnceLock::new();
+            TEST_KEYS.get_or_init(|| {
+                KeyManager::from_yaml(include_str!("../tests/fixtures/kagome.crypto.yaml"))
+                    .expect("test crypto key file must be valid")
+            })
+        }
+
+        #[cfg(not(debug_assertions))]
+        panic!("configuration must be initialized at startup")
+    }
+
     pub fn client(&self, client_id: &str) -> Option<&ClientConfig> {
         self.clients
             .iter()
@@ -227,9 +259,37 @@ impl Config {
             })?;
 
         config.validate(path)?;
+        config.load_key_manager(path)?;
         config.load_client_password_files(path)?;
 
         Ok(config)
+    }
+
+    fn load_key_manager(&mut self, config_path: &Path) -> Result<(), ConfigError> {
+        let configured_path = &self.crypto.key_file;
+        if configured_path.as_os_str().is_empty() {
+            return Err(ConfigError::Validation {
+                path: config_path.to_owned(),
+                message: "crypto.key_file must not be empty".to_owned(),
+            });
+        }
+        let key_file = resolve_relative_path(config_path, configured_path);
+        self.key_manager = KeyManager::load(&key_file).map_err(|error| match error {
+            KeyManagementError::Read(source) => ConfigError::CryptoFileRead {
+                path: key_file.clone(),
+                source,
+            },
+            KeyManagementError::Parse(source) => ConfigError::CryptoFileParse {
+                path: key_file.clone(),
+                source,
+            },
+            KeyManagementError::Validation(message) => ConfigError::Validation {
+                path: key_file,
+                message,
+            },
+        })?;
+
+        Ok(())
     }
 
     fn load_client_password_files(&mut self, config_path: &Path) -> Result<(), ConfigError> {
@@ -237,14 +297,7 @@ impl Config {
             let Some(configured_path) = client.password_file.as_ref() else {
                 continue;
             };
-            let password_file = if configured_path.is_absolute() {
-                configured_path.clone()
-            } else {
-                config_path
-                    .parent()
-                    .unwrap_or_else(|| Path::new(""))
-                    .join(configured_path)
-            };
+            let password_file = resolve_relative_path(config_path, configured_path);
             let contents = fs::read_to_string(&password_file).map_err(|source| {
                 ConfigError::PasswordFileRead {
                     path: password_file.clone(),
@@ -442,6 +495,17 @@ impl Config {
     }
 }
 
+fn resolve_relative_path(config_path: &Path, configured_path: &Path) -> PathBuf {
+    if configured_path.is_absolute() {
+        configured_path.to_owned()
+    } else {
+        config_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(configured_path)
+    }
+}
+
 fn is_http_endpoint(endpoint: &str) -> bool {
     let authority_and_path = endpoint
         .strip_prefix("https://")
@@ -519,6 +583,14 @@ pub enum ConfigError {
         path: PathBuf,
         source: serde_yaml_ng::Error,
     },
+    CryptoFileRead {
+        path: PathBuf,
+        source: io::Error,
+    },
+    CryptoFileParse {
+        path: PathBuf,
+        source: serde_yaml_ng::Error,
+    },
     PasswordFileRead {
         path: PathBuf,
         source: io::Error,
@@ -547,6 +619,20 @@ impl fmt::Display for ConfigError {
                     path.display()
                 )
             }
+            Self::CryptoFileRead { path, source } => {
+                write!(
+                    formatter,
+                    "failed to read crypto key file {}: {source}",
+                    path.display()
+                )
+            }
+            Self::CryptoFileParse { path, source } => {
+                write!(
+                    formatter,
+                    "failed to parse crypto key file {}: {source}",
+                    path.display()
+                )
+            }
             Self::PasswordFileRead { path, source } => {
                 write!(
                     formatter,
@@ -571,6 +657,8 @@ impl Error for ConfigError {
             Self::AlreadyInitialized => None,
             Self::Read { source, .. } => Some(source),
             Self::Parse { source, .. } => Some(source),
+            Self::CryptoFileRead { source, .. } => Some(source),
+            Self::CryptoFileParse { source, .. } => Some(source),
             Self::PasswordFileRead { source, .. } => Some(source),
             Self::Validation { .. } => None,
         }

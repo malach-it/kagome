@@ -7,10 +7,8 @@ use serde_json::Value;
 
 use crate::errors::OAuthError;
 
-use super::{authorization_code, crypto, verifier};
+use super::{authorization_code, crypto, crypto::EncryptedArtifact, verifier};
 
-pub const SECRET: &str = "static_openid4vp_presentation_state_secret";
-pub const COSE_EXTERNAL_AAD: &[u8] = b"kagome:openid4vp:presentation-state:v1";
 pub const TTL_SECONDS: u64 = 300;
 pub const PRESENTATION_DEFINITION_ID: &str = "degree_presentation";
 pub const INPUT_DESCRIPTOR_ID: &str = "degree_credential";
@@ -98,7 +96,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let mut plaintext = Vec::new();
     ciborium::into_writer(&claims, &mut plaintext)
         .map_err(|_| OAuthError::invalid_token_response("state generation failed"))?;
-    let value = crypto::encode_cose_encrypt0(&plaintext, SECRET, COSE_EXTERNAL_AAD)?;
+    let value = crypto::encode_cose_encrypt0(&plaintext, EncryptedArtifact::PresentationState)?;
 
     request.add_presentation_state(PresentationState { value, claims });
     Ok(request)
@@ -110,8 +108,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         .ok_or_else(|| OAuthError::invalid_request("state is required"))?;
     let plaintext = crypto::decode_cose_encrypt0(
         state,
-        SECRET,
-        COSE_EXTERNAL_AAD,
+        EncryptedArtifact::PresentationState,
         crypto::CoseEncrypt0Errors {
             invalid_cose: "state is invalid",
             missing_ciphertext: "state is invalid",

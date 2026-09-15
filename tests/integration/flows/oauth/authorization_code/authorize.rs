@@ -1,6 +1,3 @@
-use base64::Engine;
-use serde::de::DeserializeOwned;
-
 use super::super::*;
 
 // Branch matrix:
@@ -14,6 +11,7 @@ use super::super::*;
 //   missing | invalid
 // - metadata policy: missing | valid string | valid username superset | invalid |
 //   username mismatch
+// - generated artifacts: COSE_Encrypt0 code/access token | EdDSA ID token
 // - federation: configured redirect | local authentication not implemented
 // Error rendering: validated redirect | missing, invalid, or another client's redirect;
 // HTML and redirect response formats. Public client response representations are covered
@@ -929,29 +927,24 @@ fn redirect_fragment_parameter(response: &str, name: &str) -> Option<String> {
     query_parameter(fragment, name)
 }
 
-fn decode_access_token_payload(access_token: &str) -> AccessTokenPayload {
-    decode_jwt_payload(access_token)
+fn decode_access_token_payload(
+    access_token: &str,
+) -> kagome::resources::access_token::AccessTokenClaims {
+    kagome::resources::access_token::decode_cose_payload(access_token).unwrap()
 }
 
 fn decode_id_token_payload(id_token: &str) -> IdTokenPayload {
-    decode_jwt_payload(id_token)
-}
-
-fn decode_jwt_payload<T: DeserializeOwned>(token: &str) -> T {
-    let encoded_payload = token
-        .split('.')
-        .nth(1)
-        .expect("token response should contain a JWT payload");
-    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(encoded_payload)
-        .expect("JWT payload should use base64url encoding");
-
-    serde_json::from_slice(&payload).expect("JWT payload should contain JSON")
-}
-
-#[derive(serde::Deserialize)]
-struct AccessTokenPayload {
-    client_id: String,
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::EdDSA);
+    validation.validate_aud = false;
+    jsonwebtoken::decode(
+        id_token,
+        &kagome::resources::crypto::SigningArtifact::IdToken
+            .decoding_key()
+            .unwrap(),
+        &validation,
+    )
+    .expect("ID token should have a valid centralized EdDSA signature")
+    .claims
 }
 
 #[derive(serde::Deserialize)]

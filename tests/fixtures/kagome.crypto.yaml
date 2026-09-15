@@ -1,0 +1,49 @@
+# Test-only cryptographic material. Never use these keys outside the test suite.
+encryption:
+  access_token: test_access_token_secret
+  authorization_code: test_authorization_code_secret
+  credential_access_token: test_credential_access_token_secret
+  federation_state: test_federation_state_secret
+  pre_authorized_code: test_pre_authorized_code_secret
+  presentation_state: test_openid4vp_presentation_state_secret
+  siopv2_state: test_siopv2_authorization_state_secret
+signing:
+  credential:
+    private_key: |-
+      -----BEGIN PRIVATE KEY-----
+      MC4CAQAwBQYDK2VwBCIEIDt2IW+OSTJfZcs+QLnyHa+IoZthF8Pbf7sBWYsElCKk
+      -----END PRIVATE KEY-----
+    public_jwk:
+      kty: OKP
+      crv: Ed25519
+      alg: EdDSA
+      use: sig
+      kid: kagome-credential-signing-key
+      x: mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g
+  id_token:
+    private_key: |-
+      -----BEGIN PRIVATE KEY-----
+      MC4CAQAwBQYDK2VwBCIEIOiMgU6WSxZNP7ZJkwB4IqPCTe/Usl5LthTXRx9ssD7g
+      -----END PRIVATE KEY-----
+    public_jwk:
+      kty: OKP
+      crv: Ed25519
+      alg: EdDSA
+      use: sig
+      kid: kagome-id-token-signing-key
+      x: JCcXzMbE0lrZdP6YlYfGBAv21p8FEUXzdOANLJlhZUY
+  request_object:
+    private_key: |-
+      -----BEGIN PRIVATE KEY-----
+      MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt
+      bha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt
+      Wvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7
+      -----END PRIVATE KEY-----
+    public_jwk:
+      kty: EC
+      crv: P-256
+      alg: ES256
+      use: sig
+      kid: kagome-request-signing-key
+      x: fZxTjqb9GBJdanaBB3uPe-vXcalkLVr6uokEndezZuI
+      y: KEthkspMaXerL9EPTAnHjr5PMCSv4P4G0HZG7UP8HPs

@@ -2,6 +2,7 @@ use super::*;
 
 // Branch matrix:
 // - representation: form | JSON (success exercises both parser branches)
+// - access-token artifact: opaque COSE_Encrypt0
 // - client_id: first configured | second configured | public username@host | missing |
 //   unconfigured
 // - client_secret: matching | missing | invalid
@@ -20,6 +21,11 @@ fn returns_token_response_for_form_client_credentials_grant_type() {
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));
+    assert!(
+        !json_string_field(&response, "access_token")
+            .unwrap()
+            .contains('.')
+    );
     assert!(response.contains("\"expires_in\":3600"));
     assert!(!response.contains("\"authorization_code\""));
     assert!(!response.contains("\"client_id\""));
@@ -38,6 +44,11 @@ fn returns_token_response_for_json_client_credentials_grant_type() {
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));
+    assert!(
+        !json_string_field(&response, "access_token")
+            .unwrap()
+            .contains('.')
+    );
     assert!(response.contains("\"expires_in\":3600"));
     assert!(!response.contains("\"authorization_code\""));
     assert!(!response.contains("\"client_id\""));

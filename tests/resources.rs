@@ -14,7 +14,7 @@ fn configured_clients() -> Vec<kagome::config::ClientConfig> {
 mod resources {
     mod access_token {
         #[test]
-        fn generates_hs512_jwt_containing_client_id() {
+        fn generates_cose_encrypt0_containing_client_id() {
             let request = token_request(Some("client_id"));
             let mut token_response =
                 kagome::handlers::token::ClientCredentialsRequest::empty(&request);
@@ -33,6 +33,7 @@ mod resources {
 
             let payload = decode_payload(&access_token.value);
 
+            assert!(!access_token.value.contains('.'));
             assert_eq!(
                 payload.token_type,
                 kagome::resources::access_token::TOKEN_TYPE
@@ -69,20 +70,8 @@ mod resources {
 
         fn decode_payload(
             access_token: &str,
-        ) -> kagome::resources::access_token::AccessTokenJwtPayload {
-            let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS512);
-            validation.validate_exp = false;
-            validation.required_spec_claims.clear();
-
-            jsonwebtoken::decode::<kagome::resources::access_token::AccessTokenJwtPayload>(
-                access_token,
-                &jsonwebtoken::DecodingKey::from_secret(
-                    kagome::resources::access_token::SECRET.as_bytes(),
-                ),
-                &validation,
-            )
-            .unwrap()
-            .claims
+        ) -> kagome::resources::access_token::AccessTokenClaims {
+            kagome::resources::access_token::decode_cose_payload(access_token).unwrap()
         }
 
         fn issued_at_timestamp() -> u64 {

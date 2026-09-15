@@ -13,6 +13,6 @@ flowchart TD
     federated_post -- yes --> request_error
     federated_post -- no --> required_owner{Submitted username and password valid for client password file?}
     required_owner -- no --> owner_error
-    required_owner -- yes --> generate{Access token generated?}
+    required_owner -- yes --> generate{COSE_Encrypt0 access token generated?}
     generate -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     generate -- yes --> redirect["`**HTTP 302** client fragment with access_token, token_type, expires_in, and optional state`"]

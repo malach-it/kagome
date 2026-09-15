@@ -9,6 +9,7 @@ Copy the example configuration before starting Kagome:
 
 ```bash
 cp kagome.example.yaml kagome.yaml
+./scripts/generate-crypto-config.sh
 ```
 
 Kagome loads `kagome.yaml` when it starts. The file has this structure:
@@ -18,6 +19,8 @@ server:
   address: 0.0.0.0:4000
   issuer: http://localhost:4000
   workers: 4
+crypto:
+  key_file: kagome.crypto.yaml
 tokens:
   access_token_ttl: 3600
   authorization_code_ttl: 600
@@ -44,6 +47,20 @@ Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
 error when the file cannot be read, contains invalid YAML or unknown fields, or
 configures invalid server settings or clients. Client IDs must be unique, and
 each client must have a non-empty secret and at least one redirect URI. The
+required `crypto.key_file` is resolved relative to the main configuration and
+loaded once at startup. It contains the distinct COSE encryption secrets plus
+the private and public JWK material for credential, ID-token, and request-object
+signatures. Startup verifies the configured algorithms, key IDs, public-key
+shape, and every private/public key pairing. Keep the local key file out of
+version control; `kagome.crypto.yaml` is ignored. The generator creates fresh
+encryption secrets, Ed25519 credential and ID-token pairs, and a P-256 request-
+object pair without overwriting an existing file. It requires OpenSSL and writes
+the result with owner-only permissions. Restrict the local file to the server
+account (for example,
+`chmod 600 kagome.crypto.yaml`). Replacing an encryption secret invalidates all
+outstanding artifacts in that context; replacing a signing pair immediately
+changes its published JWK and invalidates signatures made with the previous
+key. Coordinate rotation with the configured token and state lifetimes. The
 optional per-client `password_file` points to an nginx-style
 `name:password[:comment]` file. Relative paths are resolved from the YAML file,
 and credentials are loaded once at startup. A client without `password_file`
@@ -102,12 +119,21 @@ Issuance 1.0 Final specification:
 - The Pre-Authorized Code grant at `/token`
 - Immediate issuance of one `jwt_vc_json` University Degree Credential at
   `/credential`
-- The Ed25519 credential-signing public key at `/jwks`
+- Centralized public signing keys for credentials, ID tokens, and request
+  objects at `/jwks`
 
 The Pre-Authorized Code is a five-minute COSE_Encrypt0 artifact containing the
 authorized credential configuration and subject. Its transaction code is
 `493536`. The profile is stateless, so a Pre-Authorized Code can be exchanged
 more than once until it expires; no redemption store is used.
+
+OAuth access tokens and credential access tokens are opaque COSE_Encrypt0
+artifacts. Encryption is centralized and domain-separated by artifact-specific
+keys and external authenticated data, so an artifact cannot be substituted in
+another protocol context. Server-generated credentials and ID tokens use
+separate centralized Ed25519 signing identities; request objects retain their
+centralized ES256 identity for wallet interoperability. All public keys are
+published by the JWKS endpoint.
 
 The issued JWT VC is signed with Ed25519 and bound through its `cnf` claim to
 the demonstration holder key used by the presentation profile. This proof of
@@ -154,7 +180,7 @@ critic reviews it, and a writer produces the final reply locally.
 Each agent has its own signing key. When an agent receives a message, it signs
 an `id_token` and calls the local `/token` endpoint with the `code_chain` grant
 before processing that message. The `id_token` remains a JWT, while issued
-authorization codes are COSE_Mac0 values.
+authorization codes are COSE_Encrypt0 values.
 
 Optional environment variables:
 

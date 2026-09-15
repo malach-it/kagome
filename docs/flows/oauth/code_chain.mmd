@@ -18,4 +18,4 @@ flowchart TD
     exchange -- no --> exchange_error["`**HTTP 400** invalid_grant`"]
     exchange -- yes --> access{Access token generated?}
     access -- no --> access_error["`**HTTP 400** invalid_token_response`"]
-    access -- yes --> token_success["`**HTTP 200** bearer access token`"]
+    access -- yes --> token_success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token`"]

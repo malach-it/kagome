@@ -4,4 +4,4 @@ flowchart TD
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> host{Host present and valid?}
     host -- no --> error["`**HTTP 400** CORS invalid_request`"]
-    host -- yes --> success["`**HTTP 200** CORS credential and ES256 request JWKs`"]
+    host -- yes --> success["`**HTTP 200** CORS loaded EdDSA credential and ID-token JWKs plus loaded ES256 request JWK`"]

@@ -11,6 +11,10 @@
       },
       "minItems": 1
     },
+    "crypto": {
+      "description": "External file containing encryption secrets and signing key pairs.",
+      "$ref": "#/$defs/CryptoConfig"
+    },
     "server": {
       "description": "HTTP server settings.",
       "$ref": "#/$defs/ServerConfig"
@@ -23,6 +27,7 @@
   "additionalProperties": false,
   "required": [
     "server",
+    "crypto",
     "clients"
   ],
   "$defs": {
@@ -92,6 +97,19 @@
         "client_id",
         "client_secret",
         "redirect_uris"
+      ]
+    },
+    "CryptoConfig": {
+      "type": "object",
+      "properties": {
+        "key_file": {
+          "description": "YAML file loaded once at startup with encryption secrets and signing keys.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key_file"
       ]
     },
     "FederatedIdentityEndpointConfig": {

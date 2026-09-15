@@ -1,3 +1,7 @@
 target
 .git
 .github
+kagome.yaml
+kagome.crypto.yaml
+kagome.htpasswd
+.ssh

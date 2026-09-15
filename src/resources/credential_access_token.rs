@@ -1,15 +1,20 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use jsonwebtoken::{
-    Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, get_current_timestamp,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::errors::OAuthError;
+use crate::{
+    errors::OAuthError,
+    resources::crypto::{self, CoseEncrypt0Errors, EncryptedArtifact},
+};
 
-const SECRET: &str = "static_credential_access_token_secret";
 pub const TTL_SECONDS: u64 = 3600;
+const COSE_ENCRYPT0_ERRORS: CoseEncrypt0Errors = CoseEncrypt0Errors {
+    invalid_cose: "credential access token must be a cose_encrypt0",
+    missing_ciphertext: "credential access token ciphertext is required",
+    missing_nonce: "credential access token nonce is required",
+    decryption_failed: "credential access token decryption failed",
+};
 
 #[derive(Debug)]
 pub struct CredentialAccessToken {
@@ -63,13 +68,12 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         iat,
         exp: iat + TTL_SECONDS,
     };
+    let mut plaintext = Vec::new();
+    ciborium::into_writer(&claims, &mut plaintext)
+        .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?;
     let access_token = CredentialAccessToken {
-        value: encode(
-            &Header::new(Algorithm::HS512),
-            &claims,
-            &EncodingKey::from_secret(SECRET.as_bytes()),
-        )
-        .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?,
+        value: crypto::encode_cose_encrypt0(&plaintext, EncryptedArtifact::CredentialAccessToken)
+            .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?,
         expires_in: TTL_SECONDS,
     };
 
@@ -81,16 +85,22 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let access_token = request
         .request_access_token()
         .ok_or_else(|| OAuthError::invalid_access_token("bearer access token is required"))?;
-    let validation = Validation::new(Algorithm::HS512);
-    let claims = decode::<CredentialAccessTokenClaims>(
+    let plaintext = crypto::decode_cose_encrypt0(
         access_token,
-        &DecodingKey::from_secret(SECRET.as_bytes()),
-        &validation,
+        EncryptedArtifact::CredentialAccessToken,
+        COSE_ENCRYPT0_ERRORS,
     )
-    .map_err(|_| OAuthError::invalid_access_token("bearer access token is invalid or expired"))?
-    .claims;
+    .map_err(|_| OAuthError::invalid_access_token("bearer access token is invalid or expired"))?;
+    let claims: CredentialAccessTokenClaims =
+        ciborium::from_reader(plaintext.as_slice()).map_err(|_| {
+            OAuthError::invalid_access_token("bearer access token is invalid or expired")
+        })?;
 
-    if claims.iat > get_current_timestamp() || claims.exp <= claims.iat {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| OAuthError::invalid_access_token("bearer access token is invalid or expired"))?
+        .as_secs();
+    if claims.iat > now || claims.exp <= claims.iat || claims.exp <= now {
         return Err(OAuthError::invalid_access_token(
             "bearer access token is invalid or expired",
         ));

@@ -1,9 +1,8 @@
-use base64::Engine;
-
 use super::*;
 
 // Branch matrix:
 // - representation: form | JSON
+// - access-token artifact: opaque COSE_Encrypt0
 // - client_id: valid | missing | invalid
 // - client_secret: valid | missing | invalid
 // - client password file: configured | omitted
@@ -142,19 +141,12 @@ fn assert_access_token_response(response: &str, client_id: &str, username: &str)
 
     let access_token = json_string_field(response, "access_token")
         .expect("password grant response should contain an access token");
-    let payload = access_token
-        .split('.')
-        .nth(1)
-        .and_then(|payload| {
-            base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(payload)
-                .ok()
-        })
-        .and_then(|payload| serde_json::from_slice::<serde_json::Value>(&payload).ok())
-        .expect("password grant access token should contain a JSON JWT payload");
+    assert!(!access_token.contains('.'));
+    let payload = kagome::resources::access_token::decode_cose_payload(&access_token)
+        .expect("password grant access token should contain valid encrypted claims");
 
-    assert_eq!(payload["client_id"], client_id);
-    assert_eq!(payload["username"], username);
+    assert_eq!(payload.client_id, client_id);
+    assert_eq!(payload.username.as_deref(), Some(username));
 }
 
 fn assert_invalid_grant_response(response: &str, description: &str) {

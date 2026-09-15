@@ -140,9 +140,26 @@ fn server_address() -> &'static str {
 }
 
 fn start_server() -> String {
-    let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kagome.example.yaml");
-    let mut config = kagome::config::Config::load_from_path(config_path)
+    let manifest_directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let crypto_path = manifest_directory.join("tests/fixtures/kagome.crypto.yaml");
+    let password_path = manifest_directory.join("kagome.htpasswd.example");
+    let config_path = std::env::temp_dir().join(format!(
+        "kagome-integration-config-{}.yaml",
+        std::process::id()
+    ));
+    let config_yaml = include_str!("../../kagome.example.yaml")
+        .replace(
+            "key_file: kagome.crypto.yaml",
+            &format!("key_file: {}", crypto_path.display()),
+        )
+        .replace(
+            "password_file: kagome.htpasswd.example",
+            &format!("password_file: {}", password_path.display()),
+        );
+    std::fs::write(&config_path, config_yaml).expect("integration configuration should be written");
+    let mut config = kagome::config::Config::load_from_path(&config_path)
         .expect("example configuration should load");
+    let _ = std::fs::remove_file(config_path);
     config.clients[0].public = Some("example.com".to_owned());
     let password_file = config.clients[0].password_file.clone();
     let qr_password_file = password_file.clone();

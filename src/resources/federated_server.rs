@@ -7,10 +7,8 @@ use crate::{
     errors::OAuthError,
 };
 
-use super::crypto::{self, CoseEncrypt0Errors};
+use super::crypto::{self, CoseEncrypt0Errors, EncryptedArtifact};
 
-const FEDERATION_STATE_SECRET: &str = "static_federation_state_secret";
-const FEDERATION_STATE_EXTERNAL_AAD: &[u8] = b"kagome.federation_state";
 const FEDERATION_STATE_TTL_SECONDS: u64 = 300;
 const TOKEN_REQUEST_TIMEOUT_SECONDS: u64 = 10;
 const INVALID_FEDERATION_STATE: &str = "federation callback state is invalid or expired";
@@ -343,11 +341,7 @@ fn encode_state(
     let plaintext = serde_json::to_vec(&state)
         .map_err(|_| OAuthError::invalid_token_response("federation state generation failed"))?;
 
-    crypto::encode_cose_encrypt0(
-        &plaintext,
-        FEDERATION_STATE_SECRET,
-        FEDERATION_STATE_EXTERNAL_AAD,
-    )
+    crypto::encode_cose_encrypt0(&plaintext, EncryptedArtifact::FederationState)
 }
 
 fn decode_state(encoded: &str, now: u64) -> Result<FederationState, OAuthError> {
@@ -357,13 +351,9 @@ fn decode_state(encoded: &str, now: u64) -> Result<FederationState, OAuthError> 
         missing_nonce: INVALID_FEDERATION_STATE,
         decryption_failed: INVALID_FEDERATION_STATE,
     };
-    let plaintext = crypto::decode_cose_encrypt0(
-        encoded,
-        FEDERATION_STATE_SECRET,
-        FEDERATION_STATE_EXTERNAL_AAD,
-        errors,
-    )
-    .map_err(|_| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
+    let plaintext =
+        crypto::decode_cose_encrypt0(encoded, EncryptedArtifact::FederationState, errors)
+            .map_err(|_| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
     let state: FederationState = serde_json::from_slice(&plaintext)
         .map_err(|_| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
 

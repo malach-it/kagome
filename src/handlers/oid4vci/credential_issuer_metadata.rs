@@ -1,7 +1,4 @@
-use crate::{
-    resources::{credential_issuer, verifiable_credential},
-    unit::KagomeRequest,
-};
+use crate::{resources::credential_issuer, unit::KagomeRequest};
 
 use super::metadata::issuer_response;
 
@@ -15,7 +12,7 @@ pub fn handle_credential_issuer_metadata(request: &KagomeRequest) -> String {
                     "format": credential_issuer::CREDENTIAL_FORMAT,
                     "scope": credential_issuer::CREDENTIAL_SCOPE,
                     "credential_signing_alg_values_supported": [
-                        verifiable_credential::SIGNING_ALGORITHM
+                        crate::resources::crypto::SigningArtifact::Credential.algorithm_name()
                     ],
                     "proof_types_supported": {
                         "jwt": {

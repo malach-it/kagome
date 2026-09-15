@@ -1,23 +1,19 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::Serialize;
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-use crate::errors::OAuthError;
+use crate::{
+    errors::OAuthError,
+    resources::crypto::{self, SigningArtifact},
+};
 
 use super::credential_issuer::CREDENTIAL_TYPE;
 
-pub const SIGNING_ALGORITHM: &str = "EdDSA";
-pub const KEY_ID: &str = "kagome-credential-signing-key";
-pub const PUBLIC_KEY_X: &str = "mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g";
-pub const PUBLIC_KEY: &[u8] = b"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g=\n-----END PUBLIC KEY-----\n";
 pub const HOLDER_PUBLIC_KEY_X: &str = "nwivBoQHlj3Z7OlrsnliD0Sm-_mSSFmg1umcwdeV1e4";
 pub const TTL_SECONDS: u64 = 31_536_000;
-
-const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIDt2IW+OSTJfZcs+QLnyHa+IoZthF8Pbf7sBWYsElCKk\n-----END PRIVATE KEY-----\n";
 
 #[derive(Debug)]
 pub struct VerifiableCredential {
@@ -144,15 +140,8 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
             credential_subject,
         },
     };
-    let mut header = Header::new(Algorithm::EdDSA);
-    header.kid = Some(KEY_ID.to_owned());
-    let value = encode(
-        &header,
-        &claims,
-        &EncodingKey::from_ed_pem(PRIVATE_KEY)
-            .map_err(|_| OAuthError::invalid_token_response("credential signing key is invalid"))?,
-    )
-    .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?;
+    let value = crypto::sign_jwt(&claims, SigningArtifact::Credential)
+        .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?;
 
     request.add_verifiable_credential(VerifiableCredential { value });
     Ok(request)

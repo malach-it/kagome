@@ -20,6 +20,10 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.server.address, "127.0.0.1:4100");
     assert_eq!(config.server.issuer, "https://kagome.example.com");
     assert_eq!(config.server.workers, 8);
+    assert_eq!(
+        config.crypto.key_file.file_name().unwrap(),
+        file.crypto_file_name()
+    );
     assert_eq!(config.tokens.access_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
@@ -38,9 +42,9 @@ fn loads_server_configuration_from_yaml() {
 
 #[test]
 fn example_configuration_matches_server_defaults() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("kagome.example.yaml");
+    let file = example_configuration_file();
 
-    let config = Config::load_from_path(path).expect("example configuration should load");
+    let config = Config::load_from_path(file.path()).expect("example configuration should load");
 
     assert_eq!(config.server.address, "0.0.0.0:4000");
     assert_eq!(config.server.issuer, "http://localhost:4000");
@@ -90,15 +94,16 @@ fn example_configuration_matches_server_defaults() {
 
 #[test]
 fn initializes_global_configuration_only_once() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("kagome.example.yaml");
-    let config = Config::load_from_path(&path).expect("example configuration should load");
+    let file = example_configuration_file();
+    let config = Config::load_from_path(file.path()).expect("example configuration should load");
 
     let initialized = Config::set_global(config).expect("global configuration should initialize");
 
     assert!(std::ptr::eq(initialized, Config::global()));
     assert_eq!(initialized.clients[0].client_id, "client_id");
 
-    let second = Config::load_from_path(path).expect("example configuration should load again");
+    let second =
+        Config::load_from_path(file.path()).expect("example configuration should load again");
     let error = Config::set_global(second).expect_err("second initialization should fail");
 
     assert!(matches!(error, ConfigError::AlreadyInitialized));
@@ -125,6 +130,7 @@ fn json_schema_describes_configuration_constraints() {
     let identity_endpoint = &schema["$defs"]["FederatedIdentityEndpointConfig"];
     let identity_target = &schema["$defs"]["FederatedIdentityTarget"];
     let token_ttls = &schema["$defs"]["TokenTtlsConfig"];
+    let crypto = &schema["$defs"]["CryptoConfig"];
 
     assert_eq!(
         schema["$schema"],
@@ -132,6 +138,8 @@ fn json_schema_describes_configuration_constraints() {
     );
     assert_eq!(schema["additionalProperties"], false);
     assert_eq!(schema["properties"]["clients"]["minItems"], 1);
+    assert_eq!(crypto["additionalProperties"], false);
+    assert_eq!(crypto["required"], serde_json::json!(["key_file"]));
     assert_eq!(server["additionalProperties"], false);
     assert_eq!(server["properties"]["address"]["minLength"], 1);
     assert_eq!(server["properties"]["issuer"]["minLength"], 1);
@@ -450,6 +458,156 @@ fn rejects_malformed_yaml_configuration() {
     let error = Config::load_from_path(file.path()).expect_err("malformed YAML should fail");
 
     assert!(matches!(error, ConfigError::Parse { .. }));
+}
+
+#[test]
+fn rejects_missing_crypto_key_file() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n",
+    ));
+    fs::remove_file(&file.crypto_path).unwrap();
+
+    let error = Config::load_from_path(file.path()).expect_err("missing keys should fail");
+
+    assert!(matches!(error, ConfigError::CryptoFileRead { .. }));
+    assert!(error.to_string().contains("failed to read crypto key file"));
+}
+
+#[test]
+fn rejects_malformed_crypto_key_file() {
+    let file = ConfigFile::with_crypto(
+        &configuration_yaml(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n",
+        ),
+        "encryption: [\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("malformed keys should fail");
+
+    assert!(matches!(error, ConfigError::CryptoFileParse { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("failed to parse crypto key file")
+    );
+}
+
+#[test]
+fn rejects_empty_or_reused_encryption_secrets() {
+    for crypto in [
+        include_str!("fixtures/kagome.crypto.yaml").replace(
+            "access_token: test_access_token_secret",
+            "access_token: \"\"",
+        ),
+        include_str!("fixtures/kagome.crypto.yaml").replace(
+            "authorization_code: test_authorization_code_secret",
+            "authorization_code: test_access_token_secret",
+        ),
+    ] {
+        let file = ConfigFile::with_crypto(
+            &configuration_yaml(
+                "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n",
+            ),
+            &crypto,
+        );
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("invalid encryption secrets should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+    }
+}
+
+#[test]
+fn rejects_mismatched_signing_key_pair() {
+    let crypto = include_str!("fixtures/kagome.crypto.yaml").replace(
+        "mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g",
+        "JCcXzMbE0lrZdP6YlYfGBAv21p8FEUXzdOANLJlhZUY",
+    );
+    let file = ConfigFile::with_crypto(
+        &configuration_yaml(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n",
+        ),
+        &crypto,
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("mismatched keys should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("private_key does not match public_jwk")
+    );
+}
+
+#[test]
+fn rejects_private_material_in_public_jwk() {
+    let crypto = include_str!("fixtures/kagome.crypto.yaml").replace(
+        "      x: mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g",
+        "      x: mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g\n      d: private",
+    );
+    let file = ConfigFile::with_crypto(
+        &configuration_yaml(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n",
+        ),
+        &crypto,
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("private JWK should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("public_jwk must not contain private key material")
+    );
+}
+
+#[test]
+fn generates_valid_crypto_file_without_overwriting_it() {
+    let generated_path = std::env::temp_dir().join(format!(
+        "kagome-generated-crypto-{}-{}.yaml",
+        std::process::id(),
+        NEXT_CONFIG_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/generate-crypto-config.sh");
+    let first = Command::new(&script)
+        .arg(&generated_path)
+        .output()
+        .expect("crypto generator should run");
+    assert!(first.status.success());
+    let generated = fs::read_to_string(&generated_path).expect("generated keys should be readable");
+    let file = ConfigFile::with_crypto(
+        &configuration_yaml(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n",
+        ),
+        &generated,
+    );
+    Config::load_from_path(file.path()).expect("generated keys should pass startup validation");
+
+    let second = Command::new(&script)
+        .arg(&generated_path)
+        .output()
+        .expect("crypto generator should run again");
+    assert!(!second.status.success());
+    assert!(
+        String::from_utf8(second.stderr)
+            .unwrap()
+            .contains("refusing to overwrite existing crypto configuration")
+    );
+    assert_eq!(fs::read_to_string(&generated_path).unwrap(), generated);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&generated_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    fs::remove_file(generated_path).unwrap();
 }
 
 #[test]
@@ -776,24 +934,41 @@ fn rejects_unknown_federated_identity_target() {
 
 struct ConfigFile {
     path: PathBuf,
+    crypto_path: PathBuf,
 }
 
 impl ConfigFile {
     fn new(contents: &str) -> Self {
+        Self::with_crypto(contents, include_str!("fixtures/kagome.crypto.yaml"))
+    }
+
+    fn with_crypto(contents: &str, crypto_contents: &str) -> Self {
         let path = unique_config_path();
+        let crypto_path = path.with_extension("crypto.yaml");
+        fs::write(&crypto_path, crypto_contents)
+            .expect("temporary crypto key file should be written");
+        let contents = format!(
+            "crypto:\n  key_file: {}\n{contents}",
+            crypto_path.file_name().unwrap().to_string_lossy()
+        );
         fs::write(&path, contents).expect("temporary configuration should be written");
 
-        Self { path }
+        Self { path, crypto_path }
     }
 
     fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn crypto_file_name(&self) -> &std::ffi::OsStr {
+        self.crypto_path.file_name().unwrap()
     }
 }
 
 impl Drop for ConfigFile {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
+        let _ = fs::remove_file(&self.crypto_path);
     }
 }
 
@@ -832,6 +1007,18 @@ fn unique_password_path() -> PathBuf {
         "kagome-passwords-{}-{id}.htpasswd",
         std::process::id()
     ))
+}
+
+fn example_configuration_file() -> ConfigFile {
+    let password_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("kagome.htpasswd.example");
+    let yaml = include_str!("../kagome.example.yaml")
+        .replace("crypto:\n  key_file: kagome.crypto.yaml\n", "")
+        .replace(
+            "password_file: kagome.htpasswd.example",
+            &format!("password_file: {}", password_file.display()),
+        );
+
+    ConfigFile::new(&yaml)
 }
 
 fn configuration_yaml(server: &str) -> String {

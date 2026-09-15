@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, encode};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, Validation, encode};
 use serde_json::{Value, json};
 
 use super::super::server::send_request;
@@ -23,13 +23,14 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - endpoint method: supported | credential OPTIONS preflight | unsupported
 // - Host: valid | missing | invalid
 // - token representation: form | JSON
+// - credential access-token artifact: opaque COSE_Encrypt0
 // - pre-authorized_code: valid | missing | invalid | expired
 // - authorization response delivery: redirect | QR-code HTML with matching deep link
 // - tx_code: valid | omitted | invalid
 // - successful token authorization_details: credential configuration | format | type
 // - redemption count: first | repeated (equivalent because this stateless profile
 //   deliberately permits reuse until expiration)
-// - bearer token: valid | missing | malformed | invalid
+// - bearer token: valid | missing | malformed | invalid | expired
 // - credential request media type: application/json (case-insensitive, parameters
 //   allowed) | missing | unsupported
 // - credential_identifier: supported | missing | legacy credential_configuration_id | unknown
@@ -89,16 +90,25 @@ fn returns_authorization_server_metadata() {
 }
 
 #[test]
-fn returns_credential_signing_jwk() {
+fn returns_centralized_signing_jwks() {
     for path in ["/jwks", "/openid/jwks"] {
         let response = get(path);
         let body = json_body(&response);
+        let keys = body["keys"].as_array().unwrap();
 
         assert_ok_json(&response);
         assert!(response.contains("access-control-allow-origin: *\r\n"));
-        assert_eq!(body["keys"][0]["kty"], "OKP");
-        assert_eq!(body["keys"][0]["crv"], "Ed25519");
-        assert_eq!(body["keys"][0]["alg"], "EdDSA");
+        assert_eq!(keys.len(), 3);
+        for artifact in [
+            kagome::resources::crypto::SigningArtifact::Credential,
+            kagome::resources::crypto::SigningArtifact::IdToken,
+            kagome::resources::crypto::SigningArtifact::RequestObject,
+        ] {
+            assert!(
+                keys.iter()
+                    .any(|key| key["kid"] == artifact.key_id() && key == &artifact.public_jwk())
+            );
+        }
     }
 }
 
@@ -147,7 +157,9 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
     validation.validate_aud = false;
     let claims = jsonwebtoken::decode::<Value>(
         &credential,
-        &DecodingKey::from_ed_pem(kagome::resources::verifiable_credential::PUBLIC_KEY).unwrap(),
+        &kagome::resources::crypto::SigningArtifact::Credential
+            .decoding_key()
+            .unwrap(),
         &validation,
     )
     .unwrap()
@@ -339,7 +351,9 @@ fn issues_ed25519_signed_jwt_vc() {
     validation.validate_aud = false;
     let claims = jsonwebtoken::decode::<Value>(
         credential,
-        &DecodingKey::from_ed_pem(kagome::resources::verifiable_credential::PUBLIC_KEY).unwrap(),
+        &kagome::resources::crypto::SigningArtifact::Credential
+            .decoding_key()
+            .unwrap(),
         &validation,
     )
     .unwrap()
@@ -544,6 +558,17 @@ fn rejects_invalid_bearer_token() {
 }
 
 #[test]
+fn rejects_expired_cose_bearer_token() {
+    let response = credential_request(
+        Some(&expired_credential_access_token()),
+        "application/json",
+        CONFIGURATION_ID,
+    );
+
+    assert_bearer_error(&response, "bearer access token is invalid or expired");
+}
+
+#[test]
 fn rejects_missing_credential_identifier() {
     let access_token = access_token();
     let response = post_json("/credential", Some(&format!("Bearer {access_token}")), "{}");
@@ -743,8 +768,25 @@ fn expired_code() -> String {
     ciborium::into_writer(&claims, &mut bytes).unwrap();
     kagome::resources::crypto::encode_cose_encrypt0(
         &bytes,
-        kagome::resources::pre_authorized_code::SECRET,
-        kagome::resources::pre_authorized_code::COSE_EXTERNAL_AAD,
+        kagome::resources::crypto::EncryptedArtifact::PreAuthorizedCode,
+    )
+    .unwrap()
+}
+
+fn expired_credential_access_token() -> String {
+    let claims = kagome::resources::credential_access_token::CredentialAccessTokenClaims {
+        credential_configuration_id: CONFIGURATION_ID.to_owned(),
+        subject: "did:example:alice".to_owned(),
+        id_token_public_jwk: None,
+        require_wallet_binding: false,
+        iat: 1,
+        exp: 2,
+    };
+    let mut bytes = Vec::new();
+    ciborium::into_writer(&claims, &mut bytes).unwrap();
+    kagome::resources::crypto::encode_cose_encrypt0(
+        &bytes,
+        kagome::resources::crypto::EncryptedArtifact::CredentialAccessToken,
     )
     .unwrap()
 }
@@ -911,7 +953,9 @@ fn credential_claims(credential: &str) -> Value {
     validation.validate_aud = false;
     jsonwebtoken::decode::<Value>(
         credential,
-        &DecodingKey::from_ed_pem(kagome::resources::verifiable_credential::PUBLIC_KEY).unwrap(),
+        &kagome::resources::crypto::SigningArtifact::Credential
+            .decoding_key()
+            .unwrap(),
         &validation,
     )
     .unwrap()
@@ -923,12 +967,7 @@ fn proof_jwk() -> Value {
 }
 
 fn other_jwk() -> Value {
-    json!({
-        "kty": "EC",
-        "crv": "P-256",
-        "x": kagome::resources::request_object::PUBLIC_KEY_X,
-        "y": kagome::resources::request_object::PUBLIC_KEY_Y
-    })
+    kagome::resources::crypto::SigningArtifact::RequestObject.public_jwk()
 }
 
 fn proof_did_key() -> String {
@@ -987,11 +1026,12 @@ fn assert_token_response(response: &str) {
             "credential_configuration_id": CONFIGURATION_ID,
         }])
     );
-    assert!(
-        body["access_token"]
-            .as_str()
-            .is_some_and(|token| !token.is_empty())
-    );
+    assert!(body["access_token"].as_str().is_some_and(|token| {
+        !token.is_empty()
+            && !token.contains('.')
+            && base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, token)
+                .is_ok()
+    }));
 }
 
 fn assert_oauth_error(response: &str, error: &str, description: &str) {

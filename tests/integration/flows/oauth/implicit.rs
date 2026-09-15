@@ -1,5 +1,3 @@
-use base64::Engine;
-
 use super::*;
 
 // Branch matrix:
@@ -9,6 +7,7 @@ use super::*;
 // - resource owner: first configured owner | second configured owner | missing username |
 //   invalid username | missing password | invalid password | invalid embedded credentials
 // - state: absent | present
+// - access-token artifact: opaque COSE_Encrypt0
 // - response: federated redirect | access-token fragment | not implemented | HTML error |
 //   redirect error
 //
@@ -184,10 +183,11 @@ fn assert_implicit_token_response(response: &str, client_id: &str, username: &st
 
     let access_token = fragment_parameter(response, "access_token")
         .expect("implicit response should contain an access token");
+    assert!(!access_token.contains('.'));
     let payload = decode_access_token(&access_token);
 
     assert_eq!(payload.client_id, client_id);
-    assert_eq!(payload.username, username);
+    assert_eq!(payload.username.as_deref(), Some(username));
 }
 
 fn assert_html_error(response: &str, description: &str) {
@@ -211,20 +211,6 @@ fn fragment_parameter<'a>(response: &'a str, name: &str) -> Option<&'a str> {
     })
 }
 
-fn decode_access_token(access_token: &str) -> AccessTokenPayload {
-    let encoded_payload = access_token
-        .split('.')
-        .nth(1)
-        .expect("access token should contain a JWT payload");
-    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(encoded_payload)
-        .expect("JWT payload should use base64url encoding");
-
-    serde_json::from_slice(&payload).expect("JWT payload should contain JSON")
-}
-
-#[derive(serde::Deserialize)]
-struct AccessTokenPayload {
-    client_id: String,
-    username: String,
+fn decode_access_token(access_token: &str) -> kagome::resources::access_token::AccessTokenClaims {
+    kagome::resources::access_token::decode_cose_payload(access_token).unwrap()
 }

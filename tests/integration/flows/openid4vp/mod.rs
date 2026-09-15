@@ -143,7 +143,7 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
     assert_eq!(header.alg, Algorithm::ES256);
     assert_eq!(
         header.kid.as_deref(),
-        Some(kagome::resources::request_object::KEY_ID)
+        Some(kagome::resources::crypto::SigningArtifact::RequestObject.key_id())
     );
 }
 
@@ -1181,20 +1181,16 @@ fn holder_jwk() -> jsonwebtoken::jwk::Jwk {
 }
 
 fn ec_holder_jwk() -> jsonwebtoken::jwk::Jwk {
-    serde_json::from_value(json!({
-        "kty": "EC",
-        "crv": "P-256",
-        "x": kagome::resources::request_object::PUBLIC_KEY_X,
-        "y": kagome::resources::request_object::PUBLIC_KEY_Y
-    }))
-    .unwrap()
+    serde_json::from_value(kagome::resources::crypto::SigningArtifact::RequestObject.public_jwk())
+        .unwrap()
 }
 
 fn ec_holder_did_key() -> String {
+    let jwk = kagome::resources::crypto::SigningArtifact::RequestObject.public_jwk();
     let canonical = format!(
         r#"{{"crv":"P-256","kty":"EC","x":"{}","y":"{}"}}"#,
-        kagome::resources::request_object::PUBLIC_KEY_X,
-        kagome::resources::request_object::PUBLIC_KEY_Y
+        jwk["x"].as_str().unwrap(),
+        jwk["y"].as_str().unwrap()
     );
     let mut multicodec_key = vec![0xd1, 0xd6, 0x03];
     multicodec_key.extend(canonical.as_bytes());
@@ -1202,12 +1198,8 @@ fn ec_holder_did_key() -> String {
 }
 
 fn issuer_jwk() -> jsonwebtoken::jwk::Jwk {
-    serde_json::from_value(json!({
-        "kty": "OKP",
-        "crv": "Ed25519",
-        "x": kagome::resources::verifiable_credential::PUBLIC_KEY_X
-    }))
-    .unwrap()
+    serde_json::from_value(kagome::resources::crypto::SigningArtifact::Credential.public_jwk())
+        .unwrap()
 }
 
 fn presentation_request() -> AuthorizationRequestFixture {
@@ -1222,15 +1214,9 @@ fn presentation_request_with_code(code: Option<&str>) -> AuthorizationRequestFix
     }
     let response = send_request(&format!("GET {path} HTTP/1.1\r\nhost: {HOST}\r\n\r\n"));
     let signed_request = redirect_query_parameter(&response, "request");
-    let request_key: jsonwebtoken::jwk::Jwk = serde_json::from_value(json!({
-        "kty": "EC",
-        "crv": "P-256",
-        "alg": "ES256",
-        "use": "sig",
-        "kid": kagome::resources::request_object::KEY_ID,
-        "x": kagome::resources::request_object::PUBLIC_KEY_X,
-        "y": kagome::resources::request_object::PUBLIC_KEY_Y
-    }))
+    let request_key: jsonwebtoken::jwk::Jwk = serde_json::from_value(
+        kagome::resources::crypto::SigningArtifact::RequestObject.public_jwk(),
+    )
     .unwrap();
     let mut validation = Validation::new(Algorithm::ES256);
     validation.set_audience(&[kagome::resources::request_object::SELF_ISSUED_AUDIENCE]);
@@ -1408,8 +1394,7 @@ fn encoded_presentation_state(iat: u64, exp: u64, redirect_uri: &str) -> String 
     ciborium::into_writer(&claims, &mut plaintext).unwrap();
     kagome::resources::crypto::encode_cose_encrypt0(
         &plaintext,
-        kagome::resources::presentation_state::SECRET,
-        kagome::resources::presentation_state::COSE_EXTERNAL_AAD,
+        kagome::resources::crypto::EncryptedArtifact::PresentationState,
     )
     .unwrap()
 }

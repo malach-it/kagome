@@ -19,6 +19,6 @@ flowchart TD
     secret -- no --> secret_error["`**HTTP 400** invalid_client`"]
     secret -- yes --> code{code present, valid, and issued to client?}
     code -- no --> code_error["`**HTTP 400** invalid_grant`"]
-    code -- yes --> generate{access token generated?}
+    code -- yes --> generate{COSE_Encrypt0 access token generated?}
     generate -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
-    generate -- yes --> success["`**HTTP 200** bearer access token`"]
+    generate -- yes --> success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token`"]

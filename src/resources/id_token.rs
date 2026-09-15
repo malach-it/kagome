@@ -1,6 +1,5 @@
 use jsonwebtoken::{
-    Algorithm, AlgorithmFamily, DecodingKey, EncodingKey, Header, Validation, decode,
-    decode_header, encode,
+    AlgorithmFamily, DecodingKey, Validation, decode, decode_header,
     errors::{Error as JwtError, ErrorKind},
     get_current_timestamp,
 };
@@ -10,9 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{
     config::{Config, DEFAULT_ID_TOKEN_TTL_SECONDS},
     errors::OAuthError,
+    resources::crypto::{self, SigningArtifact},
 };
 
-pub const SECRET: &str = "static_id_token_secret";
 pub const ID_TOKEN_TTL_SECONDS: u64 = DEFAULT_ID_TOKEN_TTL_SECONDS;
 
 #[derive(Debug)]
@@ -62,12 +61,8 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         exp,
     };
     let id_token = IdToken {
-        value: encode(
-            &Header::new(Algorithm::HS512),
-            &payload,
-            &EncodingKey::from_secret(SECRET.as_bytes()),
-        )
-        .map_err(|_| OAuthError::invalid_token_response("id_token generation failed"))?,
+        value: crypto::sign_jwt(&payload, SigningArtifact::IdToken)
+            .map_err(|_| OAuthError::invalid_token_response("id_token generation failed"))?,
         expires_in: exp - iat,
         payload,
     };

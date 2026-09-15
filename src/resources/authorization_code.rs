@@ -4,12 +4,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{
     config::{Config, DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS},
     errors::OAuthError,
-    resources::{crypto, id_token},
+    resources::{crypto, crypto::EncryptedArtifact, id_token},
 };
 
-pub const SECRET: &str = "static_authorization_code_secret";
 pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS;
-const COSE_EXTERNAL_AAD: &[u8] = b"kagome.authorization_code";
 const COSE_ENCRYPT0_ERRORS: crypto::CoseEncrypt0Errors = crypto::CoseEncrypt0Errors {
     invalid_cose: "authorization_code must be a cose_encrypt0",
     missing_ciphertext: "authorization_code ciphertext is required",
@@ -164,13 +162,15 @@ fn encode_cose_encrypt0(payload: &AuthorizationCodeCosePayload) -> Result<String
     ciborium::into_writer(payload, &mut payload_bytes)
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?;
 
-    crypto::encode_cose_encrypt0(&payload_bytes, SECRET, COSE_EXTERNAL_AAD).map_err(|error| {
-        if error.error == "invalid_token_response" {
-            OAuthError::invalid_token_response("authorization code generation failed")
-        } else {
-            error
-        }
-    })
+    crypto::encode_cose_encrypt0(&payload_bytes, EncryptedArtifact::AuthorizationCode).map_err(
+        |error| {
+            if error.error == "invalid_token_response" {
+                OAuthError::invalid_token_response("authorization code generation failed")
+            } else {
+                error
+            }
+        },
+    )
 }
 
 pub fn decode_cose_payload(
@@ -242,8 +242,7 @@ fn validate_cose_encrypt0(
 fn decode_cose_encrypt0(authorization_code: &str) -> Result<Vec<u8>, OAuthError> {
     crypto::decode_cose_encrypt0(
         authorization_code,
-        SECRET,
-        COSE_EXTERNAL_AAD,
+        EncryptedArtifact::AuthorizationCode,
         COSE_ENCRYPT0_ERRORS,
     )
 }
