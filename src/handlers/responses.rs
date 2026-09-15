@@ -121,16 +121,25 @@ pub fn code_redirect_response(
     )
 }
 
-pub fn access_token_redirect_response(redirect_uri: &str, access_token: &AccessToken) -> String {
+pub fn access_token_redirect_response(
+    redirect_uri: &str,
+    access_token: &AccessToken,
+    state: Option<&str>,
+) -> String {
     let location = append_fragment_parameter(
         &append_fragment_parameter(
-            redirect_uri,
-            "access_token",
-            &percent_encode_query_value(&access_token.value),
+            &append_fragment_parameter(
+                redirect_uri,
+                "access_token",
+                &percent_encode_query_value(&access_token.value),
+            ),
+            "token_type",
+            &percent_encode_query_value(&access_token.payload.token_type),
         ),
         "expires_in",
         &access_token.expires_in.to_string(),
     );
+    let location = append_optional_fragment_parameter(&location, "state", state);
 
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
@@ -296,7 +305,7 @@ pub fn login_error_response(query_params: &[(String, String)], error: &OAuthErro
     if (error.format == "query" || query_parameter(query_params, "format") == Some("query"))
         && let Some(redirect_uri) = query_parameter(query_params, "redirect_uri")
     {
-        return query_error_response(redirect_uri, error);
+        return query_error_response(redirect_uri, error, query_parameter(query_params, "state"));
     }
 
     let action = authorize_action(query_params);
@@ -336,7 +345,7 @@ fn client_id_username(client_id: &str) -> Option<&str> {
     (!username.is_empty()).then_some(username)
 }
 
-fn query_error_response(redirect_uri: &str, error: &OAuthError) -> String {
+fn query_error_response(redirect_uri: &str, error: &OAuthError, state: Option<&str>) -> String {
     let location = append_query_parameter(
         &append_query_parameter(
             redirect_uri,
@@ -346,6 +355,7 @@ fn query_error_response(redirect_uri: &str, error: &OAuthError) -> String {
         "error_description",
         &percent_encode_query_value(&error.error_description),
     );
+    let location = append_optional_query_parameter(&location, "state", state);
 
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
@@ -697,10 +707,24 @@ fn append_query_parameter(uri: &str, name: &str, encoded_value: &str) -> String 
     format!("{uri}{separator}{name}={encoded_value}")
 }
 
+fn append_optional_query_parameter(uri: &str, name: &str, value: Option<&str>) -> String {
+    value.map_or_else(
+        || uri.to_owned(),
+        |value| append_query_parameter(uri, name, &percent_encode_query_value(value)),
+    )
+}
+
 fn append_fragment_parameter(uri: &str, name: &str, encoded_value: &str) -> String {
     let separator = if uri.contains('#') { '&' } else { '#' };
 
     format!("{uri}{separator}{name}={encoded_value}")
+}
+
+fn append_optional_fragment_parameter(uri: &str, name: &str, value: Option<&str>) -> String {
+    value.map_or_else(
+        || uri.to_owned(),
+        |value| append_fragment_parameter(uri, name, &percent_encode_query_value(value)),
+    )
 }
 
 fn authorize_action(query_params: &[(String, String)]) -> String {

@@ -78,24 +78,6 @@ fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
 }
 
 #[test]
-fn redirects_to_client_redirect_uri_with_access_token_for_post_authorize_token_response_type() {
-    let response = send_post_authorize_request(&format!(
-        "response_type=token&client_id=client_id&redirect_uri={}",
-        valid_redirect_uri()
-    ));
-    let access_token = redirect_fragment_parameter(&response, "access_token")
-        .expect("redirect should include token");
-    let expires_in =
-        redirect_fragment_parameter(&response, "expires_in").expect("redirect should include ttl");
-    let payload = decode_access_token_payload(&access_token);
-
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains("location: https://client.example.com/callback#access_token="));
-    assert_eq!(expires_in, "3600");
-    assert_eq!(payload.client_id, "client_id");
-}
-
-#[test]
 fn redirects_to_client_redirect_uri_with_id_token_for_post_authorize_id_token_response_type() {
     let response = send_post_authorize_request(&format!(
         "response_type=id_token&client_id=client_id&redirect_uri={}",
@@ -300,49 +282,6 @@ fn redirects_to_client_redirect_uri_with_id_token_and_access_token_for_get_autho
     assert_eq!(id_token_payload.client_id, "other_username@example.com");
     assert_eq!(id_token_payload.username, "other_username");
     assert_eq!(access_token_payload.client_id, "other_username@example.com");
-}
-
-#[test]
-fn redirects_to_client_redirect_uri_with_access_token_for_client_id_resource_owner_credentials() {
-    let response = send_authorize_request(&format!(
-        "response_type=token&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
-        valid_redirect_uri()
-    ));
-    let access_token = redirect_fragment_parameter(&response, "access_token")
-        .expect("redirect should include token");
-    let payload = decode_access_token_payload(&access_token);
-
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains("location: https://client.example.com/callback#access_token="));
-    assert_eq!(payload.client_id, "other_username@example.com");
-}
-
-#[test]
-fn returns_login_page_for_authorize_get_token_response_type_without_resource_owner() {
-    let response = send_authorize_request(&format!(
-        "response_type=token&client_id=client_id&redirect_uri={}",
-        valid_redirect_uri()
-    ));
-
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(!response.contains("access_token="));
-}
-
-#[test]
-fn returns_oauth_error_for_authorize_post_token_response_type_with_invalid_resource_owner() {
-    let response = send_post_authorize_request_with_body(
-        &format!(
-            "response_type=token&client_id=client_id&redirect_uri={}",
-            valid_redirect_uri()
-        ),
-        "username=username&password=app",
-    );
-
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">password is invalid</p>"));
-    assert!(!response.contains("access_token="));
 }
 
 #[test]

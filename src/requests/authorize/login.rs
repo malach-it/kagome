@@ -28,6 +28,7 @@ pub struct AuthorizeLoginRequest<'a> {
     pub response_type: Option<String>,
     pub client_id: Option<String>,
     pub redirect_uri: Option<String>,
+    pub state: Option<String>,
     pub authorization_code: Option<String>,
     pub metadata_policy: Option<String>,
     pub username: Option<String>,
@@ -57,6 +58,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
             response_type: parse_query_parameter(request, "response_type"),
             client_id: parse_query_parameter(request, "client_id"),
             redirect_uri: parse_query_parameter(request, "redirect_uri"),
+            state: parse_query_parameter(request, "state"),
             authorization_code: parse_query_parameter(request, "code"),
             metadata_policy: parse_query_parameter(request, "metadata_policy"),
             username: None,
@@ -136,7 +138,11 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 OAuthError::invalid_token_response("authorize response requires redirect_uri")
             })?;
 
-            return Ok(access_token_redirect_response(redirect_uri, access_token));
+            return Ok(access_token_redirect_response(
+                redirect_uri,
+                access_token,
+                self.state.as_deref(),
+            ));
         }
 
         if let Some(id_token) = self.response.id_token.as_ref() {
@@ -327,6 +333,10 @@ impl<'a> access_token::Generate for AuthorizeLoginRequest<'a> {
 
     fn add_access_token(&mut self, access_token: AccessToken) {
         self.response.access_token = Some(access_token);
+    }
+
+    fn username(&self) -> Option<&str> {
+        self.response.username.as_deref()
     }
 }
 

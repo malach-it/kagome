@@ -22,12 +22,12 @@ flowchart TD
     generate -- no --> error
     generate -- code with remaining stages --> continue_chain["`**HTTP 302** /authorize with code and remaining response_type`"]
     generate -- final code --> code_redirect["`**HTTP 302** client redirect with code`"]
-    generate -- token --> token_redirect["`**HTTP 302** client fragment with access_token`"]
+    generate -- token --> token_redirect["`**HTTP 302** client fragment with access_token, token_type, expires_in, and optional state`"]
     generate -- id_token --> id_redirect["`**HTTP 302** client fragment with id_token`"]
     generate -- id_token token --> oidc_redirect["`**HTTP 302** client fragment with id_token and access_token`"]
     generate -- code token --> hybrid_token["`**HTTP 302** client redirect with code and access_token`"]
     generate -- code id_token --> hybrid_id["`**HTTP 302** client redirect with code and id_token`"]
     generate -- code id_token token --> hybrid_all["`**HTTP 302** client redirect with code, id_token, and access_token`"]
     error{Redirect error format available?}
-    error -- yes --> error_redirect["`**HTTP 302** client redirect with OAuth error`"]
+    error -- yes --> error_redirect["`**HTTP 302** client redirect with OAuth error and optional state`"]
     error -- no --> login_error["`**HTTP 400** login page with OAuth error`"]

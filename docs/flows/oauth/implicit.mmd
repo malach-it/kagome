@@ -1,0 +1,14 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[GET or POST /authorize with response_type token] --> request{client_id and redirect_uri valid?}
+    request -- no --> request_error["`**HTTP 400** login page with OAuth error`"]
+    request -- yes --> method{Request method?}
+    method -- GET --> optional_owner{Resource owner credentials embedded in client_id?}
+    optional_owner -- absent --> login["`**HTTP 200** login page preserving optional state`"]
+    optional_owner -- invalid --> owner_error["`**HTTP 302** or **HTTP 400** resource owner error preserving optional state`"]
+    optional_owner -- valid --> generate
+    method -- POST --> required_owner{Submitted username and password valid?}
+    required_owner -- no --> owner_error
+    required_owner -- yes --> generate{Access token generated?}
+    generate -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
+    generate -- yes --> redirect["`**HTTP 302** client fragment with access_token, token_type, expires_in, and optional state`"]

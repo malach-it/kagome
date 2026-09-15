@@ -20,6 +20,12 @@ responses.
 
 ![Client credentials flow](client_credentials.svg)
 
+## Implicit Flow
+
+[Mermaid source](implicit.mmd)
+
+![Implicit flow](implicit.svg)
+
 ## Resource Owner Password Credentials Flow
 
 [Mermaid source](resource_owner_password_credentials.mmd)

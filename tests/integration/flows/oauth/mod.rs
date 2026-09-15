@@ -1,6 +1,7 @@
 mod authorization_code;
 mod client_credentials;
 mod code_chain;
+mod implicit;
 mod resource_owner_password_credentials;
 
 pub(super) use super::super::server::send_request;
