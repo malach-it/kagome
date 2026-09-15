@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::{Config, FederatedServerConfig},
+    config::{Config, FederatedIdentityTarget, FederatedServerConfig},
     errors::OAuthError,
 };
 
@@ -48,6 +48,22 @@ struct AccessTokenResponse {
     access_token: String,
 }
 
+#[derive(Deserialize)]
+struct FederatedEndpointErrorResponse {
+    error: Option<String>,
+    error_description: Option<String>,
+    message: Option<String>,
+}
+
+impl FederatedEndpointErrorResponse {
+    fn message(self) -> Option<String> {
+        [self.error_description, self.message, self.error]
+            .into_iter()
+            .flatten()
+            .find(|message| !message.trim().is_empty())
+    }
+}
+
 pub trait Authorize {
     fn validated_client_id(&self) -> Option<&str>;
     fn request_parameters(&self) -> FederationRequestParameters;
@@ -65,6 +81,12 @@ pub trait ExchangeToken {
     fn federation_authorization_code(&self) -> Option<&str>;
     fn federation_client_id(&self) -> Option<&str>;
     fn add_federated_access_token(&mut self, access_token: String);
+}
+
+pub trait FetchIdentity {
+    fn federated_access_token(&self) -> Option<&str>;
+    fn federation_client_id(&self) -> Option<&str>;
+    fn add_federated_identity(&mut self, target: FederatedIdentityTarget, value: String);
 }
 
 pub fn authorize<T: Authorize>(request: T) -> Result<T, OAuthError> {
@@ -195,6 +217,75 @@ pub fn request_access_token_with_server<T: ExchangeToken>(
     Ok(request)
 }
 
+pub fn fetch_identity<T: FetchIdentity>(request: T) -> Result<T, OAuthError> {
+    let client_id = request.federation_client_id().ok_or_else(|| {
+        OAuthError::invalid_token_response("validated federation state is required")
+    })?;
+    let server = configured_federated_server(client_id).ok_or_else(|| {
+        OAuthError::invalid_token_response("federated server configuration is required")
+    })?;
+
+    fetch_identity_with_server(request, server)
+}
+
+pub fn fetch_identity_with_server<T: FetchIdentity>(
+    mut request: T,
+    server: &FederatedServerConfig,
+) -> Result<T, OAuthError> {
+    let access_token = request
+        .federated_access_token()
+        .ok_or_else(|| OAuthError::invalid_token_response("federated access token is required"))?
+        .to_owned();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(TOKEN_REQUEST_TIMEOUT_SECONDS)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    for identity_endpoint in &server.endpoints {
+        let mut response = agent
+            .get(&identity_endpoint.endpoint)
+            .header("authorization", format!("Bearer {access_token}"))
+            .call()
+            .map_err(|error| {
+                OAuthError::invalid_grant(format!("federated identity request failed: {error}"))
+            })?;
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let message = response
+                .body_mut()
+                .read_json::<FederatedEndpointErrorResponse>()
+                .ok()
+                .and_then(FederatedEndpointErrorResponse::message)
+                .unwrap_or_else(|| format!("HTTP {status}"));
+
+            return Err(OAuthError::invalid_grant(format!(
+                "federated identity request failed: {message}"
+            )));
+        }
+        let identity: serde_json::Value = response
+            .body_mut()
+            .read_json()
+            .map_err(|_| OAuthError::invalid_grant("federated identity response is invalid"))?;
+        let value = identity_claim(&identity, &identity_endpoint.claim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                OAuthError::invalid_grant("federated identity claim is missing or invalid")
+            })?;
+
+        request.add_federated_identity(identity_endpoint.target, value.to_owned());
+    }
+
+    Ok(request)
+}
+
+fn identity_claim<'a>(identity: &'a serde_json::Value, claim: &str) -> Option<&'a str> {
+    claim
+        .split('.')
+        .try_fold(identity, |value, segment| value.get(segment))
+        .and_then(serde_json::Value::as_str)
+}
+
 fn configured_federated_server(client_id: &str) -> Option<&'static FederatedServerConfig> {
     Config::global()
         .clients
@@ -303,6 +394,16 @@ mod tests {
         let decoded = decode_state(&state, 1_000).unwrap();
 
         assert_eq!(decoded.request_parameters, parameters);
+    }
+
+    #[test]
+    fn resolves_nested_identity_claim() {
+        let identity = serde_json::json!({"profile": {"username": "federated-user"}});
+
+        assert_eq!(
+            identity_claim(&identity, "profile.username"),
+            Some("federated-user")
+        );
     }
 
     fn request_parameters() -> FederationRequestParameters {

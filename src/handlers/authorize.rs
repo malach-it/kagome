@@ -105,6 +105,7 @@ pub fn continue_federated_authorize(
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate)
         .and_then(federated_server::request_access_token)
+        .and_then(federated_server::fetch_identity)
         .and_then(generate_response)
 }
 

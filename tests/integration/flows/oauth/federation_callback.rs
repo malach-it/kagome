@@ -6,7 +6,11 @@ use super::*;
 // - authorization response: code | upstream error | code and error | neither
 // - values: non-empty | empty
 // - token endpoint: valid token | rejected request | malformed response
+// - identity endpoint: valid string claim | rejected request | malformed response |
+//   missing or non-string claim
+// - identity error response: error_description | message | error | HTTP status fallback
 // The upstream-error cases cover both explicit and fallback descriptions.
+// Missing and non-string identity claims intentionally share a validation path and response.
 
 #[test]
 fn accepts_federation_callback_authorization_code() {
@@ -15,6 +19,11 @@ fn accepts_federation_callback_authorization_code() {
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://client.example.com/callback?code="));
     assert!(!response.contains("federated-code"));
+    let payload = kagome::resources::authorization_code::decode_cose_payload(
+        &authorization_code_from_response(&response),
+    )
+    .expect("downstream authorization code should decode");
+    assert_eq!(payload.username.as_deref(), Some("federated-user"));
 }
 
 #[test]
@@ -57,6 +66,74 @@ fn rejects_empty_federated_access_token() {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("\"error\":\"invalid_grant\""));
     assert!(response.contains("federated token response is invalid"));
+}
+
+#[test]
+fn rejects_failed_federated_identity_request() {
+    let response = send_callback_request("code=identity-rejected");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains(
+        "\"error_description\":\"federated identity request failed: federated access token expired\""
+    ));
+}
+
+#[test]
+fn returns_federated_identity_error_code() {
+    let response = send_callback_request("code=identity-error-code");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains(
+        "\"error_description\":\"federated identity request failed: insufficient_scope\""
+    ));
+}
+
+#[test]
+fn returns_federated_identity_message() {
+    let response = send_callback_request("code=identity-message");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains(
+        "\"error_description\":\"federated identity request failed: profile unavailable\""
+    ));
+}
+
+#[test]
+fn returns_federated_identity_http_status_without_message() {
+    let response = send_callback_request("code=identity-no-message");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(
+        response.contains("\"error_description\":\"federated identity request failed: HTTP 502\"")
+    );
+}
+
+#[test]
+fn rejects_invalid_federated_identity_response() {
+    let response = send_callback_request("code=identity-malformed");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("federated identity response is invalid"));
+}
+
+#[test]
+fn rejects_missing_federated_identity_claim() {
+    let response = send_callback_request("code=identity-missing-claim");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("federated identity claim is missing or invalid"));
+}
+
+#[test]
+fn rejects_non_string_federated_identity_claim() {
+    let response = send_callback_request("code=identity-non-string");
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("federated identity claim is missing or invalid"));
 }
 
 #[test]
@@ -180,5 +257,20 @@ fn federation_state_for(authorize_query: &str) -> String {
         .split('&')
         .find_map(|parameter| parameter.strip_prefix("state="))
         .expect("federated authorization location should contain state")
+        .to_owned()
+}
+
+fn authorization_code_from_response(response: &str) -> String {
+    response
+        .lines()
+        .find_map(|line| line.strip_prefix("location: "))
+        .and_then(|location| location.split_once('?'))
+        .map(|(_, query)| query)
+        .and_then(|query| {
+            query
+                .split('&')
+                .find_map(|value| value.strip_prefix("code="))
+        })
+        .expect("downstream authorization response should contain a code")
         .to_owned()
 }

@@ -101,6 +101,28 @@ pub struct FederatedServerConfig {
     /// Federated server endpoint at which authorization codes are exchanged.
     #[schemars(length(min = 1), url)]
     pub token_endpoint: String,
+    /// Federated endpoints used to obtain identity claims with the access token.
+    #[schemars(length(min = 1))]
+    pub endpoints: Vec<FederatedIdentityEndpointConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FederatedIdentityEndpointConfig {
+    /// Endpoint called with the federated bearer access token.
+    #[schemars(length(min = 1), url)]
+    pub endpoint: String,
+    /// Dot-separated JSON claim path read from the endpoint response.
+    #[schemars(length(min = 1))]
+    pub claim: String,
+    /// Authorize request identity field populated from the claim.
+    pub target: FederatedIdentityTarget,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum FederatedIdentityTarget {
+    Username,
 }
 
 impl Config {
@@ -267,6 +289,39 @@ impl Config {
                             path: path.to_owned(),
                             message: format!(
                                 "clients[{index}].federated_server.{field} must be an absolute HTTP or HTTPS URL"
+                            ),
+                        });
+                    }
+                }
+                if federated_server.endpoints.is_empty() {
+                    return Err(ConfigError::Validation {
+                        path: path.to_owned(),
+                        message: format!(
+                            "clients[{index}].federated_server.endpoints must not be empty"
+                        ),
+                    });
+                }
+                for (endpoint_index, identity_endpoint) in
+                    federated_server.endpoints.iter().enumerate()
+                {
+                    if !is_http_endpoint(&identity_endpoint.endpoint) {
+                        return Err(ConfigError::Validation {
+                            path: path.to_owned(),
+                            message: format!(
+                                "clients[{index}].federated_server.endpoints[{endpoint_index}].endpoint must be an absolute HTTP or HTTPS URL"
+                            ),
+                        });
+                    }
+                    if identity_endpoint.claim.trim().is_empty()
+                        || identity_endpoint
+                            .claim
+                            .split('.')
+                            .any(|segment| segment.is_empty())
+                    {
+                        return Err(ConfigError::Validation {
+                            path: path.to_owned(),
+                            message: format!(
+                                "clients[{index}].federated_server.endpoints[{endpoint_index}].claim must be a dot-separated JSON claim path"
                             ),
                         });
                     }

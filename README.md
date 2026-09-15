@@ -32,6 +32,10 @@ clients:
       client_secret: federated_client_secret
       authorize_endpoint: https://identity.example.com/authorize
       token_endpoint: https://identity.example.com/token
+      endpoints:
+        - endpoint: https://identity.example.com/userinfo
+          claim: sub
+          target: username
 ```
 
 Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
@@ -39,9 +43,11 @@ error when the file cannot be read, contains invalid YAML or unknown fields, or
 configures invalid server settings or clients. Client IDs must be unique, and
 each client must have a non-empty secret and at least one redirect URI. The
 optional per-client `federated_server` block configures the upstream OAuth
-client and its authorization and token endpoints. Clients without this block
-continue to use local authentication. The local `kagome.yaml` is ignored by
-Git.
+client, its authorization and token endpoints, and identity endpoints. Each
+identity endpoint is called with the upstream bearer token; its dot-separated
+JSON `claim` is copied into the typed `target` (`username` is currently
+supported). Clients without this block continue to use local authentication.
+The local `kagome.yaml` is ignored by Git.
 
 `server.address` controls the listening socket, while `server.issuer` is the
 public HTTP origin used to construct federation callback URLs. The `tokens`
@@ -53,8 +59,9 @@ authorization endpoint with `response_type=code`, the upstream `client_id`, the
 callback URI derived from `server.issuer`, and authenticated short-lived state.
 The encrypted state carries the parsed authorization request attributes. The
 callback restores an `AuthorizeLoginRequest`, exchanges a returned authorization
-code at the upstream token endpoint, and continues the authorize response flow.
-Local `POST /authorize` authentication is disabled for that client.
+code at the upstream token endpoint, fetches and maps the configured identity
+claims, and continues the authorize response flow. Local `POST /authorize`
+authentication is disabled for that client.
 [`kagome.schema.json`](kagome.schema.json) provides editor validation
 and completion for the example. After changing the Rust configuration types,
 regenerate it with:

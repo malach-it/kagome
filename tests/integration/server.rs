@@ -147,7 +147,9 @@ fn start_server() -> String {
         .federated_server
         .take()
         .expect("example client should configure federation");
-    federated_server.token_endpoint = start_federated_token_server();
+    let (token_endpoint, identity_endpoint) = start_federated_server();
+    federated_server.token_endpoint = token_endpoint;
+    federated_server.endpoints[0].endpoint = identity_endpoint;
     config.clients.push(kagome::config::ClientConfig {
         client_id: "configured_client".to_owned(),
         client_secret: "configured_secret".to_owned(),
@@ -179,8 +181,8 @@ fn start_server() -> String {
     address
 }
 
-fn start_federated_token_server() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind federated token server");
+fn start_federated_server() -> (String, String) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind federated server");
     let address = listener
         .local_addr()
         .expect("failed to read federated token server address");
@@ -188,20 +190,29 @@ fn start_federated_token_server() -> String {
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
-            thread::spawn(move || respond_to_federated_token_request(stream));
+            thread::spawn(move || respond_to_federated_request(stream));
         }
     });
 
-    format!("http://{address}/token")
+    (
+        format!("http://{address}/token"),
+        format!("http://{address}/userinfo"),
+    )
 }
 
-fn respond_to_federated_token_request(mut stream: TcpStream) {
+fn respond_to_federated_request(mut stream: TcpStream) {
     let mut reader = BufReader::new(
         stream
             .try_clone()
             .expect("failed to clone federated token connection"),
     );
+    let mut request_line = String::new();
+    reader
+        .read_line(&mut request_line)
+        .expect("failed to read federated request line");
+    let path = request_line.split_whitespace().nth(1).unwrap_or_default();
     let mut content_length = 0;
+    let mut authorization = None;
 
     loop {
         let mut line = String::new();
@@ -213,6 +224,11 @@ fn respond_to_federated_token_request(mut stream: TcpStream) {
         {
             content_length = value.trim().parse().unwrap_or_default();
         }
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("authorization")
+        {
+            authorization = Some(value.trim().to_owned());
+        }
         if line == "\r\n" || line == "\n" {
             break;
         }
@@ -223,11 +239,48 @@ fn respond_to_federated_token_request(mut stream: TcpStream) {
         .read_exact(&mut body)
         .expect("failed to read federated token request body");
     let parameters = String::from_utf8_lossy(&body);
-
-    let (status, response_body) = if parameters.contains("code=malformed-token") {
+    let (status, response_body) = if path == "/userinfo" {
+        match authorization.as_deref() {
+            Some("Bearer upstream-access-token") => ("200 OK", r#"{"sub":"federated-user"}"#),
+            Some("Bearer identity-malformed-token") => ("200 OK", "not-json"),
+            Some("Bearer identity-missing-claim-token") => ("200 OK", "{}"),
+            Some("Bearer identity-non-string-token") => ("200 OK", r#"{"sub":123}"#),
+            Some("Bearer identity-error-code-token") => {
+                ("403 Forbidden", r#"{"error":"insufficient_scope"}"#)
+            }
+            Some("Bearer identity-message-token") => (
+                "503 Service Unavailable",
+                r#"{"message":"profile unavailable"}"#,
+            ),
+            Some("Bearer identity-no-message-token") => {
+                ("502 Bad Gateway", r#"{"detail":"upstream unavailable"}"#)
+            }
+            _ => (
+                "400 Bad Request",
+                r#"{"error":"invalid_token","error_description":"federated access token expired"}"#,
+            ),
+        }
+    } else if parameters.contains("code=malformed-token") {
         ("200 OK", "not-json")
     } else if parameters.contains("code=empty-token") {
         ("200 OK", r#"{"access_token":""}"#)
+    } else if parameters.contains("code=identity-rejected") {
+        ("200 OK", r#"{"access_token":"identity-rejected-token"}"#)
+    } else if parameters.contains("code=identity-malformed") {
+        ("200 OK", r#"{"access_token":"identity-malformed-token"}"#)
+    } else if parameters.contains("code=identity-missing-claim") {
+        (
+            "200 OK",
+            r#"{"access_token":"identity-missing-claim-token"}"#,
+        )
+    } else if parameters.contains("code=identity-non-string") {
+        ("200 OK", r#"{"access_token":"identity-non-string-token"}"#)
+    } else if parameters.contains("code=identity-error-code") {
+        ("200 OK", r#"{"access_token":"identity-error-code-token"}"#)
+    } else if parameters.contains("code=identity-message") {
+        ("200 OK", r#"{"access_token":"identity-message-token"}"#)
+    } else if parameters.contains("code=identity-no-message") {
+        ("200 OK", r#"{"access_token":"identity-no-message-token"}"#)
     } else if parameters.contains("code=federated-code")
         && parameters.contains("grant_type=authorization_code")
         && parameters.contains("client_id=kagome")

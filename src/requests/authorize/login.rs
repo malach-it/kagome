@@ -306,6 +306,28 @@ impl federated_server::ExchangeToken for AuthorizeLoginRequest<'_> {
     }
 }
 
+impl federated_server::FetchIdentity for AuthorizeLoginRequest<'_> {
+    fn federated_access_token(&self) -> Option<&str> {
+        self.response.federated_access_token.as_deref()
+    }
+
+    fn federation_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
+    fn add_federated_identity(
+        &mut self,
+        target: crate::config::FederatedIdentityTarget,
+        value: String,
+    ) {
+        match target {
+            crate::config::FederatedIdentityTarget::Username => {
+                self.response.username = Some(value);
+            }
+        }
+    }
+}
+
 impl<'a> response_type::Validate for AuthorizeLoginRequest<'a> {
     fn request_response_type(&self) -> Option<&str> {
         self.response_type.as_deref()
@@ -432,7 +454,7 @@ impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
     }
 
     fn require_username(&self) -> bool {
-        self.response.federated_access_token.is_none()
+        true
     }
 }
 

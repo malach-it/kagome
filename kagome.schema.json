@@ -67,6 +67,38 @@
         "redirect_uris"
       ]
     },
+    "FederatedIdentityEndpointConfig": {
+      "type": "object",
+      "properties": {
+        "claim": {
+          "description": "Dot-separated JSON claim path read from the endpoint response.",
+          "type": "string",
+          "minLength": 1
+        },
+        "endpoint": {
+          "description": "Endpoint called with the federated bearer access token.",
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        },
+        "target": {
+          "description": "Authorize request identity field populated from the claim.",
+          "$ref": "#/$defs/FederatedIdentityTarget"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "endpoint",
+        "claim",
+        "target"
+      ]
+    },
+    "FederatedIdentityTarget": {
+      "type": "string",
+      "enum": [
+        "username"
+      ]
+    },
     "FederatedServerConfig": {
       "type": "object",
       "properties": {
@@ -86,6 +118,14 @@
           "type": "string",
           "minLength": 1
         },
+        "endpoints": {
+          "description": "Federated endpoints used to obtain identity claims with the access token.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FederatedIdentityEndpointConfig"
+          },
+          "minItems": 1
+        },
         "token_endpoint": {
           "description": "Federated server endpoint at which authorization codes are exchanged.",
           "type": "string",
@@ -98,7 +138,8 @@
         "client_id",
         "client_secret",
         "authorize_endpoint",
-        "token_endpoint"
+        "token_endpoint",
+        "endpoints"
       ]
     },
     "ServerConfig": {

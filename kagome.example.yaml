@@ -17,3 +17,7 @@ clients:
       client_secret: federated_client_secret
       authorize_endpoint: https://identity.example.com/authorize
       token_endpoint: https://identity.example.com/token
+      endpoints:
+        - endpoint: https://identity.example.com/userinfo
+          claim: sub
+          target: username

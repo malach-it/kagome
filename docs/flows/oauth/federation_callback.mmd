@@ -9,7 +9,9 @@ flowchart TD
     state -- no --> invalid_state["`**HTTP 400** invalid_request: invalid or expired state`"]
     state -- yes --> token{Token request and response valid?}
     token -- no --> token_error["`**HTTP 400** invalid_grant: token exchange failed`"]
-    token -- yes --> authorize{Continued authorize response generated?}
+    token -- yes --> identity{Identity endpoint responses and configured claims valid?}
+    identity -- no --> identity_error["`**HTTP 400** invalid_grant: identity fetch failed with upstream message or HTTP status`"]
+    identity -- yes --> authorize{Continued authorize response generated?}
     authorize -- no --> authorize_error["`**HTTP 400** authorize response error`"]
     authorize -- yes --> accepted["`**HTTP 302** downstream authorize response`"]
     response -- error --> upstream_error["`**HTTP 400** invalid_grant: federated server error`"]
