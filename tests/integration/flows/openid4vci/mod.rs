@@ -167,6 +167,16 @@ fn returns_not_implemented_for_unauthenticated_preauthorized_code_request() {
 }
 
 #[test]
+fn authenticates_public_username_host_client_for_preauthorized_code_request() {
+    let response = send_request(&format!(
+        "GET /authorize?response_type={RESPONSE_TYPE}&client_id=username%40example.com&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?credential_offer="));
+}
+
+#[test]
 fn rejects_preauthorized_code_combined_with_another_response_type() {
     let response = authorize_preauthorized_code("code+", "username=username&password=password");
 

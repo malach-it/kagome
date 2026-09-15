@@ -1,6 +1,6 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[GET or POST /authorize with response_type token] --> request{client_id and redirect_uri valid?}
+    start[GET or POST /authorize with response_type token] --> request{Registered client or public username@host with matching redirect?}
     request -- no --> request_error["`**HTTP 400** HTML authorization error`"]
     request -- yes --> method{Request method?}
     method -- GET --> optional_owner{Resource owner credentials embedded in client_id?}

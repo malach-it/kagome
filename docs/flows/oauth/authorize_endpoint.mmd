@@ -4,7 +4,7 @@ flowchart TD
     method -- other or non-GET vp_token --> not_found["`**HTTP 404** not found`"]
     method -- GET or OAuth POST --> response_type{response_type supported and ordering valid?}
     response_type -- no --> error
-    response_type -- yes --> client{client_id accepted and redirect_uri configured?}
+    response_type -- yes --> client{Registered client_id, or username@host mapped by public host and redirect_uri?}
     client -- no --> error
     client -- yes --> federated_post{POST and client federated?}
     federated_post -- yes --> error

@@ -35,7 +35,7 @@ pub(super) fn valid_authorize_client_id(client_id: &str, request: &KagomeRequest
         .map_or((credentials, false), |(username, _)| (username, true));
 
     !username.is_empty()
-        && client_host == host
+        && client_host.eq_ignore_ascii_case(host)
         && (has_password || resource_owner::USERNAMES.contains(&username))
 }
 

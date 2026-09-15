@@ -1,6 +1,7 @@
 fn configured_clients() -> Vec<kagome::config::ClientConfig> {
     vec![kagome::config::ClientConfig {
         client_id: "client_id".to_owned(),
+        public: Some("example.com".to_owned()),
         client_secret: "client_secret".to_owned(),
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
         require_wallet_binding: false,
@@ -21,6 +22,7 @@ mod resources {
                     client_id: "client_id".to_owned(),
                     client_secret: Some("client_secret".to_owned()),
                     redirect_uri: None,
+                    authenticated_username: None,
                 },
             );
             let generated_at = issued_at_timestamp();
@@ -693,6 +695,7 @@ mod resources {
                     client_id: client_id.to_owned(),
                     client_secret: Some("client_secret".to_owned()),
                     redirect_uri: None,
+                    authenticated_username: None,
                 },
             );
             kagome::resources::id_token::Validate::add_id_token(&mut token_response, id_token);
@@ -711,6 +714,7 @@ mod resources {
                     client_id: client_id.to_owned(),
                     client_secret: Some("client_secret".to_owned()),
                     redirect_uri: None,
+                    authenticated_username: None,
                 },
             );
             kagome::resources::id_token::Validate::add_id_token(&mut token_response, id_token);

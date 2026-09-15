@@ -50,6 +50,15 @@
             }
           ]
         },
+        "public": {
+          "description": "Host used to resolve dynamic `username@host` client identifiers.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "minLength": 1
+        },
         "redirect_uris": {
           "description": "Exact redirect URIs accepted for authorization responses.",
           "type": "array",

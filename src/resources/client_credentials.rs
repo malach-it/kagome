@@ -8,6 +8,7 @@ pub struct ClientCredentials {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub redirect_uri: Option<String>,
+    pub authenticated_username: Option<String>,
 }
 
 pub trait Validate {
@@ -47,9 +48,23 @@ pub fn validate_with_clients<T: Validate>(
         .ok_or_else(OAuthError::missing_client_id)?
         .to_owned();
 
-    let configured_client = clients.iter().find(|client| client.client_id == client_id);
+    let exact_client = clients.iter().find(|client| client.client_id == client_id);
+    let public_host = public_client_host(&client_id);
+    let public_client = if exact_client.is_none() {
+        clients.iter().find(|client| {
+            client.public.as_deref().is_some_and(|configured| {
+                public_host.is_some_and(|host| configured.eq_ignore_ascii_case(host))
+            })
+        })
+    } else {
+        None
+    };
+    let is_public_client_id = public_client.is_some()
+        && (request.require_client_secret() || request.valid_unregistered_client_id(&client_id));
+    let configured_client =
+        exact_client.or_else(|| is_public_client_id.then_some(public_client).flatten());
 
-    if configured_client.is_none() && !request.valid_unregistered_client_id(&client_id) {
+    if configured_client.is_none() && !is_public_client_id {
         return Err(OAuthError::invalid_client_id());
     }
 
@@ -58,11 +73,10 @@ pub fn validate_with_clients<T: Validate>(
             .request_client_secret()
             .ok_or_else(OAuthError::missing_client_secret)?;
 
-        let expected_client_secret = configured_client
-            .map(|client| client.client_secret.as_str())
-            .ok_or_else(OAuthError::invalid_client_id)?;
+        let client_secret_is_configured =
+            configured_client.is_some_and(|client| client.client_secret == client_secret);
 
-        if client_secret != expected_client_secret {
+        if !client_secret_is_configured {
             return Err(OAuthError::invalid_client_secret());
         }
 
@@ -76,20 +90,12 @@ pub fn validate_with_clients<T: Validate>(
             .request_redirect_uri()
             .ok_or_else(OAuthError::missing_redirect_uri)?;
 
-        let redirect_uri_is_configured = configured_client.map_or_else(
-            || {
-                clients
-                    .iter()
-                    .flat_map(|client| client.redirect_uris.iter())
-                    .any(|configured_redirect_uri| configured_redirect_uri == redirect_uri)
-            },
-            |client| {
-                client
-                    .redirect_uris
-                    .iter()
-                    .any(|configured_redirect_uri| configured_redirect_uri == redirect_uri)
-            },
-        );
+        let redirect_uri_is_configured = configured_client.is_some_and(|client| {
+            client
+                .redirect_uris
+                .iter()
+                .any(|configured_redirect_uri| configured_redirect_uri == redirect_uri)
+        });
 
         if !redirect_uri_is_configured {
             return Err(OAuthError::invalid_redirect_uri());
@@ -108,6 +114,10 @@ pub fn validate_with_clients<T: Validate>(
         ));
     }
 
+    let authenticated_username = is_public_client_id
+        .then(|| public_client_username(&client_id))
+        .flatten()
+        .map(str::to_owned);
     let validated_client_id =
         if let Some((username, password, host)) = resource_owner_credentials(&client_id) {
             request.add_resource_owner_credentials(username, password);
@@ -117,6 +127,7 @@ pub fn validate_with_clients<T: Validate>(
         };
 
     request.add_client_credentials(ClientCredentials {
+        authenticated_username,
         client_id: validated_client_id,
         client_secret,
         redirect_uri,
@@ -130,9 +141,7 @@ pub fn client_id_resource_owner_credentials(client_id: &str) -> bool {
 
 pub fn requires_wallet_binding(client_id: &str) -> bool {
     Config::global()
-        .clients
-        .iter()
-        .find(|client| client.client_id == client_id)
+        .client(client_id)
         .is_some_and(|client| client.require_wallet_binding)
 }
 
@@ -148,4 +157,16 @@ fn resource_owner_credentials(client_id: &str) -> Option<(&str, &str, &str)> {
     }
 
     Some((username, password, host))
+}
+
+fn public_client_username(client_id: &str) -> Option<&str> {
+    let (username, host) = client_id.split_once('@')?;
+
+    (!username.is_empty() && !username.contains(':') && !host.is_empty()).then_some(username)
+}
+
+fn public_client_host(client_id: &str) -> Option<&str> {
+    let (identifier, host) = client_id.split_once('@')?;
+
+    (!identifier.is_empty() && !host.is_empty()).then_some(host)
 }

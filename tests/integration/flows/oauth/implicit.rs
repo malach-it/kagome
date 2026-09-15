@@ -4,7 +4,7 @@ use super::*;
 
 // Branch matrix:
 // - method: GET without credentials | GET with client_id credentials | POST
-// - client_id: valid | missing | invalid
+// - client_id: valid | public username@host | missing | invalid
 // - redirect_uri: valid | missing | invalid
 // - resource owner: first configured owner | second configured owner | missing username |
 //   invalid username | missing password | invalid password | invalid embedded credentials
@@ -62,6 +62,15 @@ fn redirects_implicit_access_token_for_valid_client_id_credentials() {
 
     assert_implicit_token_response(&response, "other_username@example.com", "other_username");
     assert!(!response.contains("&state="));
+}
+
+#[test]
+fn authenticates_public_username_host_client_id_for_implicit_get() {
+    let response = send_implicit_get(
+        "response_type=token&client_id=username%40example.com&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
+    );
+
+    assert_implicit_token_response(&response, "username@example.com", "username");
 }
 
 #[test]

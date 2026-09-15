@@ -143,6 +143,7 @@ fn start_server() -> String {
     let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kagome.example.yaml");
     let mut config = kagome::config::Config::load_from_path(config_path)
         .expect("example configuration should load");
+    config.clients[0].public = Some("example.com".to_owned());
     let mut federated_server = config.clients[0]
         .federated_server
         .take()
@@ -152,6 +153,7 @@ fn start_server() -> String {
     federated_server.endpoints[0].endpoint = identity_endpoint;
     config.clients.push(kagome::config::ClientConfig {
         client_id: "configured_client".to_owned(),
+        public: None,
         client_secret: "configured_secret".to_owned(),
         redirect_uris: vec![
             "https://configured.example.com/callback".to_owned(),
@@ -162,6 +164,7 @@ fn start_server() -> String {
     });
     config.clients.push(kagome::config::ClientConfig {
         client_id: "federated_client".to_owned(),
+        public: None,
         client_secret: "federated_secret".to_owned(),
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
         require_wallet_binding: false,
@@ -169,6 +172,7 @@ fn start_server() -> String {
     });
     config.clients.push(kagome::config::ClientConfig {
         client_id: "wallet_bound_client".to_owned(),
+        public: None,
         client_secret: "wallet_bound_secret".to_owned(),
         redirect_uris: vec!["https://wallet-bound.example.com/callback".to_owned()],
         require_wallet_binding: true,

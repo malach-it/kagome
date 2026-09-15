@@ -3,7 +3,7 @@ flowchart TD
     endpoint[GET /credential-offer] --> host{Host valid?}
     host -- no --> offer_error["`**HTTP 400** invalid_request`"]
     host -- yes --> encrypt{COSE pre-authorized code generated?}
-    authorize[GET or POST /authorize with pre-authorized-code response type] --> authorize_valid{Client and redirect URI valid?}
+    authorize[GET or POST /authorize with pre-authorized-code response type] --> authorize_valid{Registered client or public username@host with matching redirect?}
     authorize_valid -- no --> authorize_error["`**HTTP 400** HTML authorization error or **HTTP 302** error redirect`"]
     authorize_valid -- yes --> authenticated{Resource owner authenticated?}
     authenticated -- no --> authentication["`**HTTP 501** local authentication not implemented or **HTTP 302** federation redirect`"]

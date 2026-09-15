@@ -24,6 +24,7 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.clients[0].client_id, "client_id");
+    assert_eq!(config.clients[0].public, None);
     assert_eq!(config.clients[0].client_secret, "client_secret");
     assert_eq!(
         config.clients[0].redirect_uris,
@@ -46,6 +47,7 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.clients.len(), 1);
+    assert_eq!(config.clients[0].public.as_deref(), Some("localhost:4000"));
     assert!(!config.clients[0].require_wallet_binding);
     let federated_server = config.clients[0]
         .federated_server
@@ -135,6 +137,11 @@ fn json_schema_describes_configuration_constraints() {
     );
     assert_eq!(client["additionalProperties"], false);
     assert_eq!(client["properties"]["client_id"]["minLength"], 1);
+    assert_eq!(client["properties"]["public"]["minLength"], 1);
+    assert_eq!(
+        client["properties"]["public"]["type"],
+        serde_json::json!(["string", "null"])
+    );
     assert_eq!(client["properties"]["client_secret"]["minLength"], 1);
     assert_eq!(client["properties"]["redirect_uris"]["minItems"], 1);
     assert!(client["properties"]["federated_server"]["anyOf"].is_array());
@@ -199,6 +206,81 @@ fn loads_per_client_wallet_binding_policy() {
     let config = Config::load_from_path(file.path()).expect("wallet binding should load");
 
     assert!(config.clients[0].require_wallet_binding);
+}
+
+#[test]
+fn loads_public_client_host() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    public: wallet.example.com\n    client_secret: client_secret\n    redirect_uris: [https://wallet.example.com/callback]\n",
+    );
+
+    let config = Config::load_from_path(file.path()).expect("public client host should load");
+
+    assert_eq!(
+        config.clients[0].public.as_deref(),
+        Some("wallet.example.com")
+    );
+    assert_eq!(
+        config
+            .client("username@WALLET.EXAMPLE.COM")
+            .map(|client| client.client_id.as_str()),
+        Some("client_id")
+    );
+}
+
+#[test]
+fn rejects_empty_public_client_host() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    public: \"\"\n    client_secret: client_secret\n    redirect_uris: [https://wallet.example.com/callback]\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("empty public host should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("clients[0].public must be a valid host")
+    );
+}
+
+#[test]
+fn rejects_non_host_public_client_values() {
+    for public in [
+        "https://wallet.example.com",
+        "wallet.example.com/path",
+        "wallet host",
+    ] {
+        let file = ConfigFile::new(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    public: \"{public}\"\n    client_secret: client_secret\n    redirect_uris: [https://wallet.example.com/callback]\n"
+        ));
+
+        let error =
+            Config::load_from_path(file.path()).expect_err("non-host public value should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("clients[0].public must be a valid host")
+        );
+    }
+}
+
+#[test]
+fn rejects_duplicate_public_client_hosts() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: first\n    public: wallet.example.com\n    client_secret: first_secret\n    redirect_uris: [https://first.example.com/callback]\n  - client_id: second\n    public: WALLET.EXAMPLE.COM\n    client_secret: second_secret\n    redirect_uris: [https://second.example.com/callback]\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("duplicate public host should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("public host must be unique: WALLET.EXAMPLE.COM")
+    );
 }
 
 #[test]

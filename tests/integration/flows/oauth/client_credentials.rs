@@ -2,7 +2,8 @@ use super::*;
 
 // Branch matrix:
 // - representation: form | JSON (success exercises both parser branches)
-// - client_id: first configured | second configured | missing | unconfigured
+// - client_id: first configured | second configured | public username@host | missing |
+//   unconfigured
 // - client_secret: matching | missing | invalid
 // Missing and invalid credential failures are representation-independent after parsing,
 // so each equivalent validation path is exercised once with form input.
@@ -53,6 +54,26 @@ fn returns_token_response_for_second_configured_client() {
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));
+}
+
+#[test]
+fn authenticates_public_username_host_client_id_with_client_secret() {
+    let response = send_form_token_request(
+        "client_id=username%40example.com&client_secret=client_secret&grant_type=client_credentials",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("\"token_type\":\"bearer\""));
+    assert!(response.contains("\"access_token\":\""));
+}
+
+#[test]
+fn rejects_public_username_host_client_id_with_invalid_client_secret() {
+    let response = send_form_token_request(
+        "client_id=username%40example.com&client_secret=app&grant_type=client_credentials",
+    );
+
+    assert_invalid_client_secret_response(&response);
 }
 
 #[test]

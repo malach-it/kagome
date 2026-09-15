@@ -8,14 +8,16 @@ use super::super::*;
 // - response_type: code | token | id_token | standalone pre-authorized_code |
 //   supported hybrid combinations | chained code | missing | unsupported | invalid ordering
 // - resource owner: form credentials | client_id credentials | missing | invalid
-// - client_id: local | second local | federated | resource-owner form | missing |
-//   unconfigured
+// - client_id: local | second local | federated | public username@host |
+//   resource-owner form | missing | unconfigured
 // - redirect_uri: matching first URI | matching alternate URI | another client's URI |
 //   missing | invalid
 // - metadata policy: missing | valid string | valid username superset | invalid |
 //   username mismatch
 // - federation: configured redirect | local authentication not implemented
-// Error rendering is covered for HTML and redirect response formats.
+// Error rendering is covered for HTML and redirect response formats. Public client response
+// representations are covered here for code, by implicit tests for token, and by OID4VCI tests
+// for pre-authorized_code.
 
 #[test]
 fn redirects_authorize_get_request_to_federated_server() {
@@ -396,14 +398,39 @@ fn returns_not_implemented_for_authorize_get_request_with_missing_client_id_reso
 }
 
 #[test]
-fn returns_not_implemented_for_authorize_get_request_with_username_host_client_id() {
+fn authenticates_authorize_get_request_with_public_username_host_client_id() {
     let response = send_request(&format!(
-        "GET /authorize?response_type=code&client_id=username%40localhost%3A4000&redirect_uri={} HTTP/1.1\r\nhost: localhost:4000\r\n\r\n",
+        "GET /authorize?response_type=code&client_id=username%40example.com&redirect_uri={} HTTP/1.1\r\nhost: example.com\r\n\r\n",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("public client response should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code)
+        .expect("public client authorization code should decrypt");
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert_eq!(payload.client_id, "username@example.com");
+    assert_eq!(payload.username.as_deref(), Some("username"));
+}
+
+#[test]
+fn rejects_public_username_host_client_id_with_another_clients_redirect_uri() {
+    let response = send_request(
+        "GET /authorize?response_type=code&client_id=username%40example.com&redirect_uri=https%3A%2F%2Fconfigured.example.com%2Fcallback HTTP/1.1\r\nhost: example.com\r\n\r\n",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("<p role=\"alert\">redirect_uri is invalid</p>"));
+}
+
+#[test]
+fn rejects_username_host_client_id_without_matching_public_configuration() {
+    let response = send_request(&format!(
+        "GET /authorize?response_type=code&client_id=username%40other.example.com&redirect_uri={} HTTP/1.1\r\nhost: other.example.com\r\n\r\n",
         valid_redirect_uri()
     ));
 
-    assert_not_implemented(&response);
-    assert!(!response.contains("client_id is invalid"));
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("<p role=\"alert\">client_id is invalid</p>"));
 }
 
 #[test]

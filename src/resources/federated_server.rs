@@ -171,9 +171,7 @@ pub fn validate_callback_state<T: ValidateCallbackState>(mut request: T) -> Resu
         .ok_or_else(|| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
     let state = decrypt_state(encoded_state)?;
     let client = Config::global()
-        .clients
-        .iter()
-        .find(|client| client.client_id == state.client_id)
+        .client(&state.client_id)
         .ok_or_else(|| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
     let parameters = &state.request_parameters;
     if parameters.client_id.as_deref() != Some(state.client_id.as_str())
@@ -322,9 +320,7 @@ fn identity_claim<'a>(identity: &'a serde_json::Value, claim: &str) -> Option<&'
 
 fn configured_federated_server(client_id: &str) -> Option<&'static FederatedServerConfig> {
     Config::global()
-        .clients
-        .iter()
-        .find(|client| client.client_id == client_id)?
+        .client(client_id)?
         .federated_server
         .as_ref()
 }

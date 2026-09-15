@@ -523,6 +523,9 @@ impl<'a> client_credentials::Validate for AuthorizeLoginRequest<'a> {
         &mut self,
         client_credentials: client_credentials::ClientCredentials,
     ) {
+        if let Some(username) = client_credentials.authenticated_username {
+            self.response.username = Some(username);
+        }
         self.response.client_id = Some(client_credentials.client_id);
         self.response.client_secret = client_credentials.client_secret;
         self.response.redirect_uri = client_credentials.redirect_uri;

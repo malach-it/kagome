@@ -76,6 +76,10 @@ pub struct ClientConfig {
     /// Public identifier of the OAuth client.
     #[schemars(length(min = 1))]
     pub client_id: String,
+    /// Host used to resolve dynamic `username@host` client identifiers.
+    #[serde(default)]
+    #[schemars(length(min = 1))]
+    pub public: Option<String>,
     /// Secret used to authenticate the OAuth client at the token endpoint.
     #[schemars(length(min = 1))]
     pub client_secret: String,
@@ -155,6 +159,21 @@ impl Config {
         CONFIG.get().map(|config| config.tokens).unwrap_or_default()
     }
 
+    pub fn client(&self, client_id: &str) -> Option<&ClientConfig> {
+        self.clients
+            .iter()
+            .find(|client| client.client_id == client_id)
+            .or_else(|| {
+                let public_host = client_id.split_once('@')?.1;
+                self.clients.iter().find(|client| {
+                    client
+                        .public
+                        .as_deref()
+                        .is_some_and(|configured| configured.eq_ignore_ascii_case(public_host))
+                })
+            })
+    }
+
     pub fn json_schema() -> Schema {
         SchemaGenerator::new(SchemaSettings::draft2020_12()).into_root_schema_for::<Self>()
     }
@@ -226,6 +245,7 @@ impl Config {
         }
 
         let mut client_ids = HashSet::new();
+        let mut public_hosts = HashSet::new();
         for (index, client) in self.clients.iter().enumerate() {
             if client.client_id.trim().is_empty() {
                 return Err(ConfigError::Validation {
@@ -244,6 +264,20 @@ impl Config {
                     path: path.to_owned(),
                     message: format!("clients[{index}].client_secret must not be empty"),
                 });
+            }
+            if let Some(public) = client.public.as_deref() {
+                if !is_host(public) {
+                    return Err(ConfigError::Validation {
+                        path: path.to_owned(),
+                        message: format!("clients[{index}].public must be a valid host"),
+                    });
+                }
+                if !public_hosts.insert(public.to_ascii_lowercase()) {
+                    return Err(ConfigError::Validation {
+                        path: path.to_owned(),
+                        message: format!("public host must be unique: {public}"),
+                    });
+                }
             }
             if client.redirect_uris.is_empty() {
                 return Err(ConfigError::Validation {
@@ -352,6 +386,13 @@ fn is_http_endpoint(endpoint: &str) -> bool {
                 .chars()
                 .any(|character| character.is_ascii_control() || character.is_whitespace())
     })
+}
+
+fn is_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
+        })
 }
 
 #[derive(Debug)]
