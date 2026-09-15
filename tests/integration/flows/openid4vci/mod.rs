@@ -155,13 +155,15 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
 }
 
 #[test]
-fn returns_login_for_unauthenticated_preauthorized_code_request() {
+fn returns_not_implemented_for_unauthenticated_preauthorized_code_request() {
     let response = send_request(&format!(
         "GET /authorize?response_type={RESPONSE_TYPE}&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback HTTP/1.1\r\nhost: example.com\r\n\r\n"
     ));
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("<title>kagome login</title>"));
+    assert!(response.starts_with("HTTP/1.1 501 Not Implemented\r\n"));
+    assert!(response.contains("content-type: text/plain\r\n"));
+    assert!(response.ends_with("\r\n\r\nnot implemented"));
+    assert!(!response.contains("<form"));
 }
 
 #[test]

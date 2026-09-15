@@ -267,18 +267,20 @@ mod resources {
             assert!(response.contains(
                 "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=https%3A%2F%2Fkagome.example.com%2Ffederation_callback&state="
             ));
-            assert!(!response.contains("kagome login"));
+            assert!(!response.contains("<form"));
         }
 
         #[test]
-        fn retains_login_page_when_federated_server_is_not_configured() {
+        fn returns_not_implemented_when_federated_server_is_not_configured() {
             let request = authorize_request();
             let authorize_request = validated_authorize_request(&request);
 
             let response = authorize_request.to_response().unwrap();
 
-            assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-            assert!(response.contains("<title>kagome login</title>"));
+            assert!(response.starts_with("HTTP/1.1 501 Not Implemented\r\n"));
+            assert!(response.contains("content-type: text/plain\r\n"));
+            assert!(response.ends_with("\r\n\r\nnot implemented"));
+            assert!(!response.contains("<form"));
         }
 
         fn validated_authorize_request<'a>(

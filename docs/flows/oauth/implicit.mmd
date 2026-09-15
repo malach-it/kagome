@@ -1,12 +1,12 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     start[GET or POST /authorize with response_type token] --> request{client_id and redirect_uri valid?}
-    request -- no --> request_error["`**HTTP 400** login page with OAuth error`"]
+    request -- no --> request_error["`**HTTP 400** HTML authorization error`"]
     request -- yes --> method{Request method?}
     method -- GET --> optional_owner{Resource owner credentials embedded in client_id?}
     optional_owner -- absent --> federation{Client has federated_server?}
     federation -- yes --> federated_redirect["`**HTTP 302** federated authorize endpoint with response_type code, client_id, callback redirect_uri, and encrypted parsed request attributes`"]
-    federation -- no --> login["`**HTTP 200** login page preserving optional state`"]
+    federation -- no --> not_implemented["`**HTTP 501** local authentication not implemented`"]
     optional_owner -- invalid --> owner_error["`**HTTP 302** or **HTTP 400** resource owner error preserving optional state`"]
     optional_owner -- valid --> generate
     method -- POST --> federated_post{Client has federated_server?}

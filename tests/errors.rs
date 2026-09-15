@@ -133,18 +133,16 @@ fn uses_custom_oauth_error_response_format() {
 }
 
 #[test]
-fn uses_login_oauth_error_response_format() {
+fn uses_html_oauth_error_response_format() {
     let response = kagome::errors::OAuthError::invalid_token_response("<invalid> token")
-        .with_format("login")
+        .with_format("html")
         .to_response();
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<title>kagome login</title>"));
+    assert!(response.contains("<title>authorization error</title>"));
     assert!(response.contains("<p role=\"alert\">&lt;invalid&gt; token</p>"));
-    assert!(response.contains("<form method=\"post\" action=\"/authorize\">"));
-    assert!(response.contains("name=\"username\""));
-    assert!(response.contains("name=\"password\""));
+    assert!(!response.contains("<form"));
 }
 
 #[test]

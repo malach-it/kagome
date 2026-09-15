@@ -7,7 +7,7 @@ use crate::{
         code_id_token_access_token_redirect_response, code_id_token_redirect_response,
         code_redirect_response, credential_offer_redirect_response,
         federated_authorize_redirect_response, id_token_access_token_redirect_response,
-        id_token_redirect_response, login_page_response,
+        id_token_redirect_response, not_implemented_response,
     },
     requests::{FederationCallbackRequest, SiopResponseRequest},
     resources::{
@@ -280,7 +280,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 ));
             }
 
-            return Ok(login_page_response(self));
+            return Ok(not_implemented_response());
         };
 
         if let Some(response_type) = response_type_query(&self.response.next_response_types) {

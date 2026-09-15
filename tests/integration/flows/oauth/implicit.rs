@@ -9,7 +9,8 @@ use super::*;
 // - resource owner: first configured owner | second configured owner | missing username |
 //   invalid username | missing password | invalid password | invalid embedded credentials
 // - state: absent | present
-// - response: federated redirect | access-token fragment | login error | redirect error
+// - response: federated redirect | access-token fragment | not implemented | HTML error |
+//   redirect error
 //
 // `response_type=token` is fixed for this flow; missing, unsupported, and invalidly
 // ordered response types are endpoint-level cases covered by the authorize tests.
@@ -27,7 +28,19 @@ fn redirects_implicit_get_request_to_federated_server() {
         "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Ffederation_callback&state="
     ));
     assert!(!response.contains("access_token="));
-    assert!(!response.contains("<title>kagome login</title>"));
+    assert!(!response.contains("<form"));
+}
+
+#[test]
+fn returns_not_implemented_for_implicit_get_without_resource_owner() {
+    let response = send_implicit_get(
+        "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&state=opaque%20state",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 501 Not Implemented\r\n"));
+    assert!(response.contains("content-type: text/plain\r\n"));
+    assert!(response.ends_with("\r\n\r\nnot implemented"));
+    assert!(!response.contains("<form"));
 }
 
 #[test]
@@ -58,7 +71,7 @@ fn returns_oauth_error_for_missing_implicit_client_id() {
         "username=username&password=password",
     );
 
-    assert_login_error(&response, "client_id is required");
+    assert_html_error(&response, "client_id is required");
 }
 
 #[test]
@@ -68,7 +81,7 @@ fn returns_oauth_error_for_invalid_implicit_client_id() {
         "username=username&password=password",
     );
 
-    assert_login_error(&response, "client_id is invalid");
+    assert_html_error(&response, "client_id is invalid");
 }
 
 #[test]
@@ -78,7 +91,7 @@ fn returns_oauth_error_for_missing_implicit_redirect_uri() {
         "username=username&password=password",
     );
 
-    assert_login_error(&response, "redirect_uri is required");
+    assert_html_error(&response, "redirect_uri is required");
 }
 
 #[test]
@@ -88,21 +101,21 @@ fn returns_oauth_error_for_invalid_implicit_redirect_uri() {
         "username=username&password=password",
     );
 
-    assert_login_error(&response, "redirect_uri is invalid");
+    assert_html_error(&response, "redirect_uri is invalid");
 }
 
 #[test]
 fn returns_oauth_error_for_missing_implicit_username() {
     let response = send_implicit_post(valid_implicit_query(), "password=password");
 
-    assert_login_error(&response, "username is required");
+    assert_html_error(&response, "username is required");
 }
 
 #[test]
 fn returns_oauth_error_for_invalid_implicit_username() {
     let response = send_implicit_post(valid_implicit_query(), "username=app&password=password");
 
-    assert_login_error(
+    assert_html_error(
         &response,
         "username must be one of: username, other_username",
     );
@@ -112,14 +125,14 @@ fn returns_oauth_error_for_invalid_implicit_username() {
 fn returns_oauth_error_for_missing_implicit_password() {
     let response = send_implicit_post(valid_implicit_query(), "username=username");
 
-    assert_login_error(&response, "password is required");
+    assert_html_error(&response, "password is required");
 }
 
 #[test]
 fn returns_oauth_error_for_invalid_implicit_password() {
     let response = send_implicit_post(valid_implicit_query(), "username=username&password=app");
 
-    assert_login_error(&response, "password is invalid");
+    assert_html_error(&response, "password is invalid");
 }
 
 #[test]
@@ -168,10 +181,12 @@ fn assert_implicit_token_response(response: &str, client_id: &str, username: &st
     assert_eq!(payload.username, username);
 }
 
-fn assert_login_error(response: &str, description: &str) {
+fn assert_html_error(response: &str, description: &str) {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>authorization error</title>"));
     assert!(response.contains(&format!("<p role=\"alert\">{description}</p>")));
+    assert!(!response.contains("<form"));
     assert!(!response.contains("access_token="));
 }
 

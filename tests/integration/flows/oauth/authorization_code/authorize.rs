@@ -14,8 +14,8 @@ use super::super::*;
 //   missing | invalid
 // - metadata policy: missing | valid string | valid username superset | invalid |
 //   username mismatch
-// - federation: configured redirect | local login fallback (resource-level coverage)
-// Error rendering is covered for login-page and redirect response formats.
+// - federation: configured redirect | local authentication not implemented
+// Error rendering is covered for HTML and redirect response formats.
 
 #[test]
 fn redirects_authorize_get_request_to_federated_server() {
@@ -43,20 +43,17 @@ fn rejects_authorize_post_request_for_federated_client() {
 }
 
 #[test]
-fn returns_login_page_for_authorize_get_request_with_metadata_policy() {
+fn returns_not_implemented_for_authorize_get_request_with_metadata_policy() {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=client_id&redirect_uri={}&metadata_policy=%22profile%22",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
-    assert!(response.contains("metadata_policy=%22profile%22"));
+    assert_not_implemented(&response);
 }
 
 #[test]
-fn returns_login_page_for_authorize_get_request_with_metadata_policy_username_superset() {
+fn returns_not_implemented_for_authorize_get_request_with_metadata_policy_username_superset() {
     let first_response = send_post_authorize_request(&format!(
         "response_type=code+code&client_id=client_id&redirect_uri={}",
         valid_redirect_uri()
@@ -67,11 +64,7 @@ fn returns_login_page_for_authorize_get_request_with_metadata_policy_username_su
         "{next_query}&metadata_policy=%7B%22username%22%3A%7B%22superset_of%22%3A%5B%22username%22%5D%7D%7D"
     ));
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains(
-        "metadata_policy=%7B%22username%22%3A%7B%22superset_of%22%3A%5B%22username%22%5D%7D%7D"
-    ));
+    assert_not_implemented(&response);
 }
 
 #[test]
@@ -353,7 +346,7 @@ fn redirects_back_to_authorize_for_intermediate_code_response_type() {
 }
 
 #[test]
-fn returns_login_page_for_authorize_get_request_with_code() {
+fn returns_not_implemented_for_authorize_get_request_with_code() {
     let first_response = send_post_authorize_request(&format!(
         "response_type=code+code&client_id=client_id&redirect_uri={}",
         valid_redirect_uri()
@@ -362,11 +355,7 @@ fn returns_login_page_for_authorize_get_request_with_code() {
         .expect("first authorize redirect should include query");
     let response = send_authorize_request(&next_query);
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<title>kagome login</title>"));
-    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
-    assert!(response.contains("code="));
+    assert_not_implemented(&response);
 }
 
 #[test]
@@ -396,33 +385,24 @@ fn redirects_for_initial_authorize_get_request_with_client_id_resource_owner_cre
 }
 
 #[test]
-fn returns_login_page_for_authorize_get_request_with_missing_client_id_resource_owner_password() {
+fn returns_not_implemented_for_authorize_get_request_with_missing_client_id_resource_owner_password()
+ {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=other_username%3A%40example.com&redirect_uri={}",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<title>kagome login</title>"));
-    assert!(!response.contains("<p role=\"alert\">password is required</p>"));
+    assert_not_implemented(&response);
 }
 
 #[test]
-fn returns_login_page_for_authorize_get_request_with_username_host_client_id() {
+fn returns_not_implemented_for_authorize_get_request_with_username_host_client_id() {
     let response = send_request(&format!(
         "GET /authorize?response_type=code&client_id=username%40localhost%3A4000&redirect_uri={} HTTP/1.1\r\nhost: localhost:4000\r\n\r\n",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<title>kagome login</title>"));
-    assert!(
-        response
-            .contains("name=\"username\" autocomplete=\"username\" value=\"username\" disabled")
-    );
-    assert!(response.contains("type=\"hidden\" name=\"username\" value=\"username\""));
+    assert_not_implemented(&response);
     assert!(!response.contains("client_id is invalid"));
 }
 
@@ -467,9 +447,9 @@ fn returns_oauth_error_for_invalid_authorize_get_code() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>authorization error</title>"));
     assert!(response.contains("<p role=\"alert\">authorization_code must be a cose_encrypt0</p>"));
-    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
-    assert!(response.contains("code=app"));
+    assert!(!response.contains("<form"));
 }
 
 #[test]
@@ -613,14 +593,12 @@ fn returns_oauth_error_for_missing_authorize_response_type() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<title>kagome login</title>"));
+    assert!(response.contains("<title>authorization error</title>"));
     assert!(
         response
             .contains("<p role=\"alert\">response_type must be one of: code, token, id_token, vp_token, urn:ietf:params:oauth:response-type:pre-authorized_code</p>")
     );
-    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
-    assert!(response.contains("client_id=client_id"));
-    assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
+    assert!(!response.contains("<form"));
 }
 
 #[test]
@@ -698,10 +676,11 @@ fn returns_oauth_error_for_invalid_authorize_metadata_policy() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>authorization error</title>"));
     assert!(
         response.contains("<p role=\"alert\">metadata_policy must be a json string or object</p>")
     );
-    assert!(response.contains("metadata_policy=%7B%7D"));
+    assert!(!response.contains("<form"));
 }
 
 #[test]
@@ -862,6 +841,13 @@ fn send_authorize_request(query: &str) -> String {
     ))
 }
 
+fn assert_not_implemented(response: &str) {
+    assert!(response.starts_with("HTTP/1.1 501 Not Implemented\r\n"));
+    assert!(response.contains("content-type: text/plain\r\n"));
+    assert!(response.ends_with("\r\n\r\nnot implemented"));
+    assert!(!response.contains("<form"));
+}
+
 fn assert_federated_authorize_redirect(response: &str) {
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
@@ -869,7 +855,7 @@ fn assert_federated_authorize_redirect(response: &str) {
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
-    assert!(!response.contains("<title>kagome login</title>"));
+    assert!(!response.contains("<form"));
 }
 
 fn send_post_authorize_request(query: &str) -> String {

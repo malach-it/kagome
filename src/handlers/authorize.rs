@@ -10,7 +10,7 @@ use crate::{
     unit::KagomeRequest,
 };
 
-use super::responses::{log_timestamp, logged_response, login_error_response};
+use super::responses::{authorize_error_http_response, log_timestamp, logged_response};
 
 pub use crate::requests::{AuthorizeCodeRequest, AuthorizeLoginRequest};
 
@@ -243,7 +243,7 @@ fn authorize_error_response(request: &KagomeRequest, mut error: OAuthError) -> S
         error = error.with_format("query");
     }
 
-    login_error_response(&request.query_params, &error)
+    authorize_error_http_response(&request.query_params, &error)
 }
 
 fn not_found_response() -> String {

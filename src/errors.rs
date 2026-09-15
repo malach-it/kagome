@@ -265,8 +265,8 @@ impl OAuthError {
     }
 
     pub fn to_response(&self) -> String {
-        if self.format == "login" {
-            return self.to_login_response();
+        if self.format == "html" {
+            return self.to_html_response();
         }
 
         self.to_json_response()
@@ -287,9 +287,9 @@ impl OAuthError {
         )
     }
 
-    fn to_login_response(&self) -> String {
+    fn to_html_response(&self) -> String {
         let response_body = format!(
-            "<!doctype html><html><head><title>kagome login</title></head><body><main><h1>kagome login</h1><p role=\"alert\">{}</p><form method=\"post\" action=\"/authorize\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label><button type=\"submit\">sign in</button></form></main></body></html>",
+            "<!doctype html><html><head><title>authorization error</title></head><body><main><h1>authorization error</h1><p role=\"alert\">{}</p></main></body></html>",
             escape_html(&self.error_description)
         );
 

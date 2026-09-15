@@ -26,7 +26,7 @@ flowchart TD
     optional_owner -- invalid --> error
     optional_owner -- absent --> federation{federated_server configured?}
     federation -- yes --> federated_redirect["`**HTTP 302** federated authorize endpoint with response_type code, client_id, callback redirect_uri, and encrypted parsed request attributes`"]
-    federation -- no --> login["`**HTTP 200** login page`"]
+    federation -- no --> not_implemented["`**HTTP 501** local authentication not implemented`"]
     optional_owner -- valid --> generate
     get_or_post -- POST --> required_owner{Required resource owner credentials valid?}
     required_owner -- no --> error
@@ -42,4 +42,4 @@ flowchart TD
     generate -- code id_token token --> hybrid_all["`**HTTP 302** client redirect with code, id_token, and access_token`"]
     error{Redirect error format available?}
     error -- yes --> error_redirect["`**HTTP 302** client redirect with OAuth error and optional state`"]
-    error -- no --> login_error["`**HTTP 400** login page with OAuth error`"]
+    error -- no --> html_error["`**HTTP 400** HTML authorization error`"]
