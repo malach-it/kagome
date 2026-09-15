@@ -1,29 +1,27 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    begin[Relying party creates authorization request] --> oauth{Response types, client, redirect URI, and optional code valid?}
-    oauth -- no --> request_error["`**HTTP 400** OAuth error`"]
-    oauth -- yes --> issuer[Use configured issuer as verifier]
-    issuer --> protect{Fresh nonce and request response type stored in encrypted state?}
-    protect -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
-    protect -- yes --> sign{Request object signed?}
-    sign -- no --> generation_error
-    sign -- yes --> delivery{Client qr_code enabled?}
-    delivery -- no --> authorization["`**HTTP 302** validated redirect URI with signed SIOPv2 query`"]
-    delivery -- yes --> authorization_qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
-    authorization --> wallet{Wallet outcome?}
-    authorization_qr --> wallet
-    wallet -- protocol error --> post_error[POST wallet error to state-bound callback]
-    wallet -- identity --> post_token[POST self-issued id_token to state-bound callback]
-    post_error --> error_valid{State valid and error supported?}
-    error_valid -- no --> response_error
-    error_valid -- yes --> wallet_redirect["`**HTTP 302** client redirect with wallet error`"]
-    post_token --> validate{State, signature, subject, claims, and bindings valid?}
-    validate -- no --> response_error
-    validate -- yes --> restore[Restore SIOP request response type, authorization attributes, and optional code]
-    restore --> generate{Response pipeline succeeds without wallet-binding requirement?}
-    generate -- no --> response_error
-    generate -- yes --> continuation_delivery[Force redirect delivery and ignore client qr_code policy]
-    continuation_delivery --> identity_success["`**HTTP 302** redirect with requested OAuth response`"]
+    begin[GET /siopv2-request] --> authorize[Run common authorize resource pipeline]
+    authorize -- error --> request_error["`**HTTP 400** OAuth error`"]
+    authorize -- ok --> state["siopv2_state::generate"]
+    state -- error --> request_error
+    state -- ok --> request_object["siopv2_request::generate"]
+    request_object -- error --> request_error
+    request_object -- ok --> authorization["`**HTTP 302** wallet redirect or **HTTP 200** QR relay`"]
+    authorization --> wallet{Wallet error or id_token?}
+    wallet -- error --> encoding["self_issued_id_token::validate_encoding"]
+    wallet -- id_token --> encoding
+    encoding -- error --> response_error
+    encoding -- ok --> restore["siopv2_state::validate"]
+    restore -- error --> response_error
+    restore -- ok --> kind{Wallet error or id_token?}
+    kind -- error --> wallet_error["self_issued_id_token::validate_wallet_error"]
+    wallet_error -- ok --> wallet_redirect["`**HTTP 302** client wallet-error redirect`"]
+    wallet_error -- error --> response_error
+    kind -- id_token --> id_token["self_issued_id_token::validate"]
+    id_token -- error --> response_error
+    id_token -- ok --> continuation[Run common authorize resource pipeline]
+    continuation -- error --> response_error
+    continuation -- ok --> identity_success["`**HTTP 302** requested OAuth response`"]
     response_error[Error response] --> destination{Trusted client redirect URI available?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
     destination -- no --> html_error["`**HTTP 400** HTML error page`"]

@@ -1,18 +1,23 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request /federation_callback] --> method{HTTP method GET?}
+    start[Request /federation_callback] --> method{GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> state{Encrypted state validates client and redirect URI?}
-    state -- no --> invalid_state["`**HTTP 400** local invalid_request: invalid or expired state`"]
-    state -- yes --> response{Authorization response?}
-    response -- code and error --> redirect_error["`**HTTP 302** client redirect with error, error_description, and state`"]
-    response -- empty code or error --> redirect_error
-    response -- code --> token{Token request and response valid?}
-    token -- no --> redirect_error
-    token -- yes --> identity{Identity endpoint responses and configured claims valid?}
-    identity -- no --> redirect_error
-    identity -- yes --> authorize{Continued authorize response generated?}
-    authorize -- no --> redirect_error
-    authorize -- yes --> accepted["`**HTTP 302** downstream authorize response`"]
-    response -- error --> redirect_error
-    response -- missing --> redirect_error
+    method -- yes --> state["federated_server::validate_callback_state"]
+    state -- error --> invalid_state["`**HTTP 400** local invalid_request`"]
+    state -- ok --> callback["federated_server::validate_callback"]
+    callback -- error --> redirect_error["`**HTTP 302** client error redirect`"]
+    callback -- ok --> response_type["response_type::validate"]
+    response_type -- error --> redirect_error
+    response_type -- ok --> client["client_credentials::validate"]
+    client -- error --> redirect_error
+    client -- ok --> code["authorization_code::validate_optional"]
+    code -- error --> redirect_error
+    code -- ok --> policy["metadata_policy::validate"]
+    policy -- error --> redirect_error
+    policy -- ok --> token["federated_server::request_access_token"]
+    token -- error --> redirect_error
+    token -- ok --> identity["federated_server::fetch_identity"]
+    identity -- error --> redirect_error
+    identity -- ok --> generate[Generate selected authorize response]
+    generate -- error --> redirect_error
+    generate -- ok --> accepted["`**HTTP 302** downstream authorize response`"]

@@ -1,22 +1,21 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request /authorize with response_type vp_token] --> method{GET request?}
+    start[Request /authorize with response_type vp_token] --> method{GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> response_type{vp_token is the only response type?}
-    response_type -- no --> authorize_error["`**HTTP 400** authorize HTML error`"]
-    response_type -- yes --> client{Client and redirect URI valid?}
-    client -- no --> authorize_error
-    client -- yes --> optional{Optional code and metadata policy valid?}
-    optional -- no --> authorize_error
-    optional -- yes --> policy{Wallet binding disabled or code contains valid ID-token public key?}
-    policy -- no --> authorize_error
-    policy -- yes --> verifier[Use configured issuer as verifier]
-    verifier --> host{Credential issuer Host valid?}
-    host -- no --> authorize_error
-    host -- yes --> state{Fresh nonce, optional ID-token key, and COSE state generated?}
-    state -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
-    state -- yes --> sign{Request object signed?}
-    sign -- no --> generation_error
-    sign -- yes --> delivery{Client qr_code enabled?}
-    delivery -- no --> success["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and signed request`"]
-    delivery -- yes --> qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
+    method -- yes --> response_type["response_type::validate"]
+    response_type -- error --> authorize_error["`**HTTP 400** authorize HTML error`"]
+    response_type -- ok --> client["client_credentials::validate"]
+    client -- error --> authorize_error
+    client -- ok --> code["authorization_code::validate_optional"]
+    code -- error --> authorize_error
+    code -- ok --> policy["metadata_policy::validate"]
+    policy -- error --> authorize_error
+    policy -- ok --> verifier["verifier::validate"]
+    verifier -- error --> authorize_error
+    verifier -- ok --> issuer["credential_issuer::validate"]
+    issuer -- error --> authorize_error
+    issuer -- ok --> state["presentation_state::generate"]
+    state -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
+    state -- ok --> request_object["presentation_request::generate"]
+    request_object -- error --> generation_error
+    request_object -- ok --> success["`**HTTP 302** wallet redirect or **HTTP 200** QR relay`"]

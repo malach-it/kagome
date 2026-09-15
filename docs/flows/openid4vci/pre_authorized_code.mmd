@@ -1,48 +1,33 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    endpoint[GET /credential-offer] --> host{Host valid?}
-    host -- no --> offer_error["`**HTTP 400** invalid_request`"]
-    host -- yes --> encrypt{COSE pre-authorized code generated?}
-    authorize[GET or POST /authorize with pre-authorized-code response type] --> authorize_valid{Registered client or public username@host with matching redirect?}
-    authorize_valid -- no --> authorize_error["`**HTTP 400** HTML authorization error or **HTTP 302** error redirect after client and redirect_uri revalidation`"]
-    authorize_valid -- yes --> authenticated{Resource owner authenticated with client password file?}
-    authenticated -- no --> authentication["`**HTTP 501** local authentication not implemented or **HTTP 302** federation redirect`"]
-    authenticated -- yes --> binding{Wallet binding disabled or code contains valid ID-token public key?}
-    binding -- no --> authorize_error
-    binding -- yes --> encrypt
-    encrypt -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
-    encrypt -- yes --> delivery{Offer source?}
-    delivery -- credential-offer endpoint --> offer["`**HTTP 200** credential offer`"]
-    delivery -- authorize response --> qr_policy{Client qr_code enabled?}
-    qr_policy -- no --> authorize_offer["`**HTTP 302** redirect with credential_offer`"]
-    qr_policy -- yes --> authorize_qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
+    endpoint[GET /credential-offer] --> issuer["credential_issuer::validate"]
+    issuer -- error --> offer_error["`**HTTP 400** invalid_request`"]
+    issuer -- ok --> generate["pre_authorized_code::generate"]
+    authorize[GET or POST /authorize with pre-authorized_code] --> authorize_pipeline[Run common authorize resource pipeline]
+    authorize_pipeline -- error --> authorize_error["`**HTTP 400** HTML error or **HTTP 302** trusted redirect`"]
+    authorize_pipeline -- unauthenticated --> authentication["`**HTTP 501** local authentication or **HTTP 302** federation redirect`"]
+    authorize_pipeline -- authenticated --> generate
+    generate -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
+    generate -- credential-offer --> offer["`**HTTP 200** credential offer`"]
+    generate -- authorize --> authorize_offer["`**HTTP 302** credential offer or **HTTP 200** QR relay`"]
     offer --> token[POST /token with pre-authorized-code grant]
     authorize_offer --> token
-    authorize_qr --> token
-    token --> code{Encrypted code present and valid?}
-    code -- no --> token_error["`**HTTP 400** invalid_request or invalid_grant`"]
-    code -- yes --> key{Binding policy and ID-token key claims valid?}
-    key -- no --> token_error
-    key -- yes --> tx_present{Transaction code supplied?}
-    tx_present -- no --> access{COSE_Encrypt0 credential access token generated?}
-    tx_present -- yes --> tx_valid{Transaction code valid?}
-    tx_valid -- no --> token_error
-    tx_valid -- yes --> access
-    access -- no --> generation_error
-    access -- yes --> token_success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token with authorization details`"]
+    token --> grant["grant_type::validate"]
+    grant -- error --> token_error["`**HTTP 400** OAuth error`"]
+    grant -- pre-authorized_code --> code["pre_authorized_code::validate"]
+    code -- error --> token_error
+    code -- ok --> access["credential_access_token::generate"]
+    access -- error --> token_error
+    access -- ok --> token_success["`**HTTP 200** credential access token with authorization details`"]
     token_success --> credential_request[Request /credential]
-    credential_request --> credential_method{Method?}
-    credential_method -- OPTIONS --> credential_preflight["`**HTTP 204** CORS preflight response`"]
-    credential_method -- unsupported --> credential_not_found["`**HTTP 404** not found`"]
-    credential_method -- POST --> credential[Validate credential request]
-    credential --> bearer{Bearer token valid?}
-    bearer -- no --> bearer_error["`**HTTP 401** invalid_token with CORS header`"]
-    bearer -- yes --> configuration{JSON request has authorized credential identifier?}
-    configuration -- no --> credential_error["`**HTTP 400** credential request error with CORS header`"]
-    configuration -- yes --> required{Binding policy permits missing proof?}
-    required -- no --> credential_error
-    required -- yes --> proof{Wallet JWT proof uses configured issuer audience and optional ID-token signature is valid?}
-    proof -- no --> credential_error
-    proof -- yes --> issue{Ed25519 jwt_vc generated for proof or token subject?}
-    issue -- no --> generation_error
-    issue -- yes --> success["`**HTTP 200** jwt_vc credential with CORS header`"]
+    credential_request --> credential_issuer["credential_issuer::validate"]
+    credential_issuer -- error --> credential_error["`**HTTP 400/401** credential error with CORS header`"]
+    credential_issuer -- ok --> bearer["credential_access_token::validate"]
+    bearer -- error --> credential_error
+    bearer -- ok --> configuration["credential_issuer::validate_configuration"]
+    configuration -- error --> credential_error
+    configuration -- ok --> proof["credential_proof::validate_optional"]
+    proof -- error --> credential_error
+    proof -- ok --> issue["verifiable_credential::generate"]
+    issue -- error --> credential_error
+    issue -- ok --> success["`**HTTP 200** jwt_vc credential with CORS header`"]

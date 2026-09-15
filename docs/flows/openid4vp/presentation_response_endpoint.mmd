@@ -1,31 +1,21 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request /presentation-response] --> method{POST request?}
+    start[Request /presentation-response] --> method{POST?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> media{Form Content-Type?}
-    media -- no --> request_error["`**HTTP 400** local HTML invalid_request`"]
-    media -- yes --> source{State in callback query or form body?}
-    source -- no --> request_error
-    source -- yes --> state{State valid and current?}
-    state -- no --> request_error
-    state -- yes --> redirect{State client and redirect URI still configured and trusted?}
-    redirect -- no --> request_error
-    redirect -- yes --> kind{Response kind?}
-    kind -- wallet error --> wallet{Supported error without vp_token?}
-    wallet -- no --> redirect_error["`**HTTP 302** trusted redirect URI with error, error_description, and state`"]
-    wallet -- yes --> redirect_error
-    kind -- vp_token --> shape{Standard or credential-bound submission valid?}
-    shape -- no --> redirect_error
-    shape -- yes --> key{Embedded JWK or valid issuer did:key kid?}
-    key -- no --> redirect_error
-    key -- yes --> id_key{ID-token key absent or VP signature valid with it?}
-    id_key -- no --> redirect_error
-    id_key -- yes --> presentation{Signature and standard or compact claims valid?}
-    presentation -- no --> redirect_error
-    presentation -- yes --> credential{Issuer credential valid and query satisfied?}
-    credential -- no --> redirect_error
-    credential -- yes --> binding{Holder, audience, and nonce bound?}
-    binding -- no --> redirect_error
-    binding -- yes --> code{Authorization code generated?}
-    code -- no --> redirect_error
-    code -- yes --> success["`**HTTP 302** trusted redirect URI with code and state`"]
+    method -- yes --> encoding["presentation_submission::validate_encoding"]
+    encoding -- error --> html_error["`**HTTP 400** local HTML error`"]
+    encoding -- ok --> state["presentation_state::validate"]
+    state -- error --> html_error
+    state -- ok --> client["client_credentials::validate"]
+    client -- error --> html_error
+    client -- ok --> kind{Wallet error or vp_token?}
+    kind -- wallet error --> wallet_error["presentation_submission::validate_wallet_error"]
+    kind -- vp_token --> submission["presentation_submission::validate"]
+    submission -- ok --> presentation["verifiable_presentation::validate"]
+    presentation -- ok --> code["authorization_code::generate"]
+    wallet_error -- ok --> wallet_success["`**HTTP 302** trusted wallet-error redirect`"]
+    code -- ok --> success["`**HTTP 302** trusted redirect URI with code and state`"]
+    wallet_error -- error --> redirect_error["`**HTTP 302** trusted error redirect`"]
+    submission -- error --> redirect_error
+    presentation -- error --> redirect_error
+    code -- error --> redirect_error

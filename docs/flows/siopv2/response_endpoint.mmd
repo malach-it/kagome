@@ -1,29 +1,28 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request /siopv2-response] --> method{POST request?}
+    start[Request /siopv2-response] --> method{POST?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> media{Form Content-Type?}
-    media -- no --> failure[Error response]
-    media -- yes --> state{State valid, current, issuer-bound, and request parameters consistent?}
-    state -- no --> failure
-    state -- yes --> kind{Response kind?}
-    kind -- wallet error --> wallet{Supported error without id_token?}
-    wallet -- no --> failure
-    wallet -- yes --> wallet_redirect["`**HTTP 302** client redirect with wallet error, description, and state`"]
-    kind -- id_token --> jwt{JWT uses ES256?}
-    jwt -- no --> failure
-    jwt -- yes --> syntax{Raw P-256, Boruta JWK-JCS, or thumbprint key binding valid?}
-    syntax -- no --> failure
-    syntax -- yes --> signature{Signature and expiration valid?}
-    signature -- no --> failure
-    signature -- yes --> claims{Issuer, audience, nonce, and time claims valid?}
-    claims -- no --> failure
-    claims -- yes --> restore{SIOP request response type, authorization attributes, and optional code valid?}
-    restore -- no --> failure
-    restore -- yes --> response_types{SIOP response pipeline succeeds without wallet-binding requirement?}
-    response_types -- no --> failure
-    response_types -- yes --> delivery[Force redirect delivery and ignore client qr_code policy]
-    delivery --> identity_success["`**HTTP 302** redirect with requested OAuth response`"]
-    failure --> destination{Trusted client redirect URI available?}
+    method -- yes --> encoding["self_issued_id_token::validate_encoding"]
+    encoding -- error --> failure
+    encoding -- ok --> state["siopv2_state::validate"]
+    state -- error --> failure
+    state -- ok --> kind{Wallet error or id_token?}
+    kind -- wallet error --> wallet_error["self_issued_id_token::validate_wallet_error"]
+    wallet_error -- error --> failure
+    wallet_error -- ok --> wallet_redirect["`**HTTP 302** client wallet-error redirect`"]
+    kind -- id_token --> id_token["self_issued_id_token::validate"]
+    id_token -- error --> failure
+    id_token -- ok --> response_type["response_type::validate"]
+    response_type -- error --> failure
+    response_type -- ok --> client["client_credentials::validate"]
+    client -- error --> failure
+    client -- ok --> code["authorization_code::validate_optional"]
+    code -- error --> failure
+    code -- ok --> policy["metadata_policy::validate"]
+    policy -- error --> failure
+    policy -- ok --> response[Generate selected authorize response]
+    response -- error --> failure
+    response -- ok --> identity_success["`**HTTP 302** requested OAuth response`"]
+    failure[Error response] --> destination{Trusted client redirect URI available?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
     destination -- no --> html_error["`**HTTP 400** HTML error page`"]

@@ -147,6 +147,12 @@
 ### Flow and Endpoint Branch Graphs
 
 - Maintain a Mermaid branch graph for every identity flow and HTTP endpoint.
+- Keep graphs at the handler-pipeline level. Quote only resource actions, using
+  their exact `module::function` names; do not expand validation or generation
+  rules implemented inside a resource into separate graph nodes.
+- Show handler branch selection, resource-action success or error transitions,
+  and terminal HTTP outcomes. Keep detailed resource-rule combinations in the
+  branch-case test matrix instead of duplicating them in the graph.
 - Store each Mermaid source at
   `docs/flows/<specification_name>/<flow_or_endpoint>.mmd` and its rendered SVG
   beside it as `<flow_or_endpoint>.svg`.
@@ -156,9 +162,9 @@
   completing the change. Verify that the SVG is valid XML, is newer than or
   otherwise demonstrably matches its source, and preserves every visible label,
   including word spaces and bold `HTTP <status>` terminal-response prefixes.
-- Show every behavior-affecting decision, labeled branch, intermediate state,
-  and terminal success or error response represented in the branch-case test
-  matrix.
+- Show every behavior-affecting handler decision, labeled branch, intermediate
+  pipeline state, and terminal success or error response represented in the
+  branch-case test matrix.
 - Keep every graph closed: each branch must start at a defined node and end at a
   defined state or terminal outcome, with no dangling edges or unterminated
   paths.

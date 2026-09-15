@@ -1,32 +1,38 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request /token] --> route{POST /token?}
-    route -- no --> preflight{OPTIONS /token?}
-    preflight -- no --> not_found["`**HTTP 404** not found`"]
-    preflight -- yes --> preflight_success["`**HTTP 204** CORS preflight response`"]
-    route -- yes --> grant{First grant_type value?}
-    grant -- missing or unsupported --> unsupported["`**HTTP 400** unsupported_grant_type`"]
-    grant -- client_credentials --> client_flow[Run client credentials flow]
-    grant -- password --> password_flow[Run resource owner password credentials flow]
-    grant -- authorization_code --> auth_code_flow[Run authorization code exchange]
-    grant -- code_chain only or other suffix --> chain_flow[Run code-chain flow]
-    grant -- code_chain authorization_code --> combined_flow[Run code-chain and authorization-code exchange]
-    grant -- pre-authorized_code --> pre_authorized_flow[Run OID4VCI pre-authorized-code exchange]
-    client_flow --> client_result{Flow result?}
-    password_flow --> password_result{Flow result?}
-    auth_code_flow --> auth_result{Flow result?}
-    chain_flow --> chain_result{Flow result?}
-    combined_flow --> combined_result{Flow result?}
-    pre_authorized_flow --> pre_authorized_result{Flow result?}
-    client_result -- error --> oauth_error["`**HTTP 400** OAuth error with CORS header`"]
-    password_result -- error --> oauth_error
-    auth_result -- error --> oauth_error
-    chain_result -- error --> oauth_error
-    combined_result -- error --> oauth_error
-    pre_authorized_result -- error --> oauth_error
-    client_result -- success --> access_success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token with CORS header`"]
-    password_result -- success --> access_success
-    auth_result -- success --> access_success
-    chain_result -- success --> code_success["`**HTTP 200** authorization code with CORS header`"]
-    combined_result -- success --> access_success
-    pre_authorized_result -- success --> credential_access_success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token with authorization details and CORS header`"]
+    start[Request /token] --> method{Method?}
+    method -- other --> not_found["`**HTTP 404** not found`"]
+    method -- OPTIONS --> preflight["`**HTTP 204** CORS preflight response`"]
+    method -- POST --> grant["grant_type::validate"]
+    grant -- error --> oauth_error["`**HTTP 400** OAuth error with CORS header`"]
+    grant -- client_credentials --> client["client_credentials::validate"]
+    grant -- password --> password_client["client_credentials::validate"]
+    password_client -- ok --> owner["resource_owner::validate"]
+    grant -- authorization_code --> code_client["client_credentials::validate"]
+    code_client -- ok --> code["authorization_code::validate"]
+    grant -- code_chain --> chain_client["client_credentials::validate"]
+    chain_client -- ok --> previous["authorization_code::validate_optional"]
+    previous -- ok --> id_token["id_token::validate"]
+    id_token -- ok --> issue["authorization_code::generate"]
+    grant -- pre-authorized_code --> pre_code["pre_authorized_code::validate"]
+    pre_code -- ok --> credential_access["credential_access_token::generate"]
+    client -- ok --> access["access_token::generate"]
+    owner -- ok --> access
+    code -- ok --> access
+    issue -- code only --> code_success["`**HTTP 200** authorization code with CORS header`"]
+    issue -- with authorization_code --> exchange[Run authorization-code pipeline]
+    exchange --> access
+    credential_access -- ok --> credential_access_success["`**HTTP 200** credential access token with CORS header`"]
+    access -- ok --> access_success["`**HTTP 200** bearer access token with CORS header`"]
+    client -- error --> oauth_error
+    password_client -- error --> oauth_error
+    owner -- error --> oauth_error
+    code_client -- error --> oauth_error
+    code -- error --> oauth_error
+    chain_client -- error --> oauth_error
+    previous -- error --> oauth_error
+    id_token -- error --> oauth_error
+    issue -- error --> oauth_error
+    pre_code -- error --> oauth_error
+    credential_access -- error --> oauth_error
+    access -- error --> oauth_error

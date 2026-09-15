@@ -1,26 +1,30 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    begin[Verifier creates presentation request] --> verifier[Use configured issuer as verifier]
-    verifier --> issuer{Credential issuer Host valid?}
-    issuer -- no --> request_error["`**HTTP 400** invalid_request`"]
-    issuer -- yes --> policy{Wallet binding policy satisfied by code ID-token key?}
-    policy -- no --> request_error
-    policy -- yes --> protect{Encrypt fresh nonce, ID-token key, and context in COSE state?}
-    protect -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
-    protect -- yes --> sign{Sign presentation request object?}
-    sign -- no --> generation_error
-    sign -- yes --> delivery{Client qr_code enabled?}
-    delivery -- no --> authorization["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and request JWT`"]
-    delivery -- yes --> authorization_qr["`**HTTP 200** HTML QR relay with wallet deep link`"]
-    authorization --> wallet{Wallet outcome?}
-    authorization_qr --> wallet
-    wallet -- protocol error --> post_error[POST wallet error to state-bound callback]
-    wallet -- presentation --> post_vp[POST vp_token and presentation_submission to state-bound callback]
-    post_error --> error_state{State valid and error supported?}
-    error_state -- no --> response_error["`**HTTP 400** local HTML error before trusted redirect URI or **HTTP 302** error at trusted redirect URI`"]
-    error_state -- yes --> error_redirect["`**HTTP 302** client redirect with wallet error and state`"]
-    post_vp --> validate{State client and redirect URI, mapping, signatures, VP claims, credential, and subject binding valid?}
-    validate -- no --> response_error
-    validate -- yes --> code{Authorization code generated?}
-    code -- no --> response_error
-    code -- yes --> success["`**HTTP 302** trusted redirect URI with code and state`"]
+    begin[GET /authorize with vp_token] --> verifier["verifier::validate"]
+    verifier -- error --> request_error["`**HTTP 400** authorization error`"]
+    verifier -- ok --> issuer["credential_issuer::validate"]
+    issuer -- error --> request_error
+    issuer -- ok --> state["presentation_state::generate"]
+    state -- error --> request_error
+    state -- ok --> request_object["presentation_request::generate"]
+    request_object -- error --> request_error
+    request_object -- ok --> authorization["`**HTTP 302** wallet redirect or **HTTP 200** QR relay`"]
+    authorization --> wallet{Wallet error or presentation?}
+    wallet -- error --> encoding["presentation_submission::validate_encoding"]
+    wallet -- presentation --> encoding
+    encoding -- error --> local_error["`**HTTP 400** local HTML error`"]
+    encoding -- ok --> restore["presentation_state::validate"]
+    restore -- error --> local_error
+    restore -- ok --> client["client_credentials::validate"]
+    client -- error --> local_error
+    client -- ok --> kind{Wallet error or presentation?}
+    kind -- error --> wallet_error["presentation_submission::validate_wallet_error"]
+    kind -- presentation --> submission["presentation_submission::validate"]
+    submission -- ok --> presentation["verifiable_presentation::validate"]
+    presentation -- ok --> code["authorization_code::generate"]
+    wallet_error -- ok --> error_redirect["`**HTTP 302** client wallet-error redirect`"]
+    code -- ok --> success["`**HTTP 302** trusted redirect URI with code and state`"]
+    wallet_error -- error --> response_error["`**HTTP 302** trusted error redirect`"]
+    submission -- error --> response_error
+    presentation -- error --> response_error
+    code -- error --> response_error

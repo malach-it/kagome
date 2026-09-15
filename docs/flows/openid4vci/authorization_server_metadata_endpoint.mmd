@@ -1,7 +1,7 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request authorization server metadata path] --> method{GET request?}
+    start[Request authorization server metadata path] --> method{GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> host{Host present and valid?}
-    host -- no --> error["`**HTTP 400** invalid_request`"]
-    host -- yes --> success["`**HTTP 200** authorization server metadata`"]
+    method -- yes --> issuer["credential_issuer::validate"]
+    issuer -- error --> error["`**HTTP 400** invalid_request`"]
+    issuer -- ok --> success["`**HTTP 200** authorization server metadata`"]
