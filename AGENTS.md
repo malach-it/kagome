@@ -156,6 +156,11 @@
 - Store each Mermaid source at
   `docs/flows/<specification_name>/<flow_or_endpoint>.mmd` and its rendered SVG
   beside it as `<flow_or_endpoint>.svg`.
+- Maintain `docs/flows/README.md` as the complete root catalog of rendered flow
+  SVGs. Add, rename, reorder, or remove its source links and embedded images
+  whenever the corresponding graph set changes. Regenerate its self-contained
+  `docs/flows/all.svg` overview with
+  `node scripts/compose-flow-svgs.mjs` after any rendered SVG changes.
 - Treat the Mermaid source as canonical and regenerate the SVG from it; do not
   edit the generated SVG by hand.
 - After creating or changing a Mermaid source, render its adjacent SVG before
