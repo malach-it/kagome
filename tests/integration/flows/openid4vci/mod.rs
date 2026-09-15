@@ -12,6 +12,9 @@ const RESPONSE_TYPE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_
 const PROOF_X: &str = "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI";
 const PROOF_Y: &str = "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8";
 const PROOF_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
+const OTHER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt\nbha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt\nWvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7\n-----END PRIVATE KEY-----\n";
+const WALLET_BOUND_CLIENT_ID: &str = "wallet_bound_client";
+const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callback";
 
 // Branch matrix:
 // - discovery endpoint: issuer metadata | authorization-server metadata | JWKS
@@ -30,8 +33,10 @@ const PROOF_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqG
 //   allowed) | missing | unsupported
 // - credential_identifier: supported | missing | legacy credential_configuration_id | unknown
 // - credential proof: absent (access-token subject fallback) | valid JWT proof |
-//   malformed | invalid signature | wrong audience. A valid proof binds the
-//   issued subject and cnf.jwk to its wallet DID and public key.
+//   malformed | invalid signature | wrong audience | wallet-bound signature
+//   matching/mismatching the ID-token public key. A wallet-binding client also
+//   rejects a missing code key or proof. A valid proof binds the issued subject
+//   and cnf.jwk to its wallet DID and public key.
 // - authorize response type: authenticated | unauthenticated | combined with another type
 // A token/configuration mismatch is unreachable because this profile advertises
 // and issues exactly one credential configuration.
@@ -337,6 +342,64 @@ fn issues_credential_bound_to_wallet_proof_subject_and_key() {
 }
 
 #[test]
+fn verifies_credential_proof_signature_against_code_id_token_public_key() {
+    let access_token = wallet_bound_access_token(&id_token(PROOF_PRIVATE_KEY, proof_jwk()));
+    let did = proof_did_key();
+    let proof = credential_proof(&did, "https://issuer.example.com");
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {access_token}")),
+        &credential_body_with_proof(CONFIGURATION_ID, &proof),
+    );
+
+    assert_ok_json(&response);
+}
+
+#[test]
+fn rejects_credential_proof_signature_not_matching_code_id_token_public_key() {
+    let access_token = wallet_bound_access_token(&id_token(OTHER_PRIVATE_KEY, other_jwk()));
+    let did = proof_did_key();
+    let proof = credential_proof(&did, "https://issuer.example.com");
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {access_token}")),
+        &credential_body_with_proof(CONFIGURATION_ID, &proof),
+    );
+
+    assert_credential_error(
+        &response,
+        "invalid_credential_request",
+        "proof jwt signature does not match id_token public key",
+    );
+}
+
+#[test]
+fn requires_credential_proof_for_wallet_bound_client() {
+    let access_token = wallet_bound_access_token(&id_token(PROOF_PRIVATE_KEY, proof_jwk()));
+    let response = credential_request(Some(&access_token), "application/json", CONFIGURATION_ID);
+
+    assert_credential_error(
+        &response,
+        "invalid_credential_request",
+        "proof is required for wallet binding",
+    );
+}
+
+#[test]
+fn rejects_wallet_bound_authorize_request_without_code_id_token_key() {
+    let response = authorize_preauthorized_code_for_client(
+        "",
+        WALLET_BOUND_CLIENT_ID,
+        WALLET_BOUND_REDIRECT_URI,
+        None,
+        "username=username&password=password",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("wallet binding requires a code containing an id_token public key"));
+}
+
+#[test]
 fn rejects_credential_proof_with_invalid_signature() {
     let access_token = access_token();
     let did = proof_did_key();
@@ -542,8 +605,25 @@ fn credential_offer() -> String {
 }
 
 fn authorize_preauthorized_code(prefix: &str, body: &str) -> String {
+    authorize_preauthorized_code_for_client(
+        prefix,
+        "client_id",
+        "https://client.example.com/callback",
+        None,
+        body,
+    )
+}
+
+fn authorize_preauthorized_code_for_client(
+    prefix: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    code: Option<&str>,
+    body: &str,
+) -> String {
+    let code = code.map(|code| format!("&code={code}")).unwrap_or_default();
     send_request(&format!(
-        "POST /authorize?response_type={prefix}{RESPONSE_TYPE}&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
+        "POST /authorize?response_type={prefix}{RESPONSE_TYPE}&client_id={client_id}&redirect_uri={redirect_uri}{code} HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
         body.len()
     ))
 }
@@ -597,6 +677,8 @@ fn expired_code() -> String {
     let claims = kagome::resources::pre_authorized_code::PreAuthorizedCodeClaims {
         credential_configuration_id: CONFIGURATION_ID.to_owned(),
         subject: "did:example:alice".to_owned(),
+        id_token_public_jwk: None,
+        require_wallet_binding: false,
         iat: 1,
         exp: 2,
     };
@@ -619,6 +701,80 @@ fn access_token() -> String {
         .as_str()
         .unwrap()
         .to_owned()
+}
+
+fn wallet_bound_access_token(id_token: &str) -> String {
+    let authorization_code = authorization_code_with_id_token(id_token);
+    let response = authorize_preauthorized_code_for_client(
+        "",
+        WALLET_BOUND_CLIENT_ID,
+        WALLET_BOUND_REDIRECT_URI,
+        Some(&authorization_code),
+        "username=username&password=password",
+    );
+    let code = redirected_credential_offer(&response)["grants"][GRANT_TYPE]["pre-authorized_code"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let response = token_request(&format!(
+        "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
+    ));
+    json_body(&response)["access_token"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+struct AuthorizationCodeWithIdToken {
+    id_token: String,
+    authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
+}
+
+impl kagome::resources::authorization_code::Generate for AuthorizationCodeWithIdToken {
+    fn previous_authorization_code(&self) -> Option<&str> {
+        None
+    }
+
+    fn client_id(&self) -> Option<&str> {
+        Some(WALLET_BOUND_CLIENT_ID)
+    }
+
+    fn id_token(&self) -> Option<&str> {
+        Some(&self.id_token)
+    }
+
+    fn add_authorization_code(
+        &mut self,
+        authorization_code: kagome::resources::authorization_code::AuthorizationCode,
+    ) {
+        self.authorization_code = Some(authorization_code);
+    }
+}
+
+fn authorization_code_with_id_token(id_token: &str) -> String {
+    kagome::resources::authorization_code::generate(AuthorizationCodeWithIdToken {
+        id_token: id_token.to_owned(),
+        authorization_code: None,
+    })
+    .unwrap()
+    .authorization_code
+    .unwrap()
+    .value
+}
+
+fn id_token(private_key: &[u8], jwk: Value) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let mut header = Header::new(Algorithm::ES256);
+    header.jwk = Some(serde_json::from_value(jwk).unwrap());
+    encode(
+        &header,
+        &json!({"iat": now, "exp": now + 300}),
+        &EncodingKey::from_ec_pem(private_key).unwrap(),
+    )
+    .unwrap()
 }
 
 fn get(path: &str) -> String {
@@ -707,6 +863,15 @@ fn credential_claims(credential: &str) -> Value {
 
 fn proof_jwk() -> Value {
     json!({"kty": "EC", "crv": "P-256", "x": PROOF_X, "y": PROOF_Y})
+}
+
+fn other_jwk() -> Value {
+    json!({
+        "kty": "EC",
+        "crv": "P-256",
+        "x": kagome::resources::request_object::PUBLIC_KEY_X,
+        "y": kagome::resources::request_object::PUBLIC_KEY_Y
+    })
 }
 
 fn proof_did_key() -> String {

@@ -23,6 +23,8 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - endpoint method: supported | unsupported
 // - common authorize validation: valid client and redirect URI | missing/invalid;
 //   optional authorization code and metadata policy absent/valid | invalid
+// - wallet binding policy: disabled | enabled with a code ID-token key | enabled
+//   without a code ID-token key (invalid)
 // - verifier: configured issuer rather than request Host
 // - credential issuer Host: valid | missing | invalid
 // - generated transaction values: fresh nonce/state | generation failure (not
@@ -54,6 +56,8 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 //   neither | invalid or unrelated kid. Embedded JWK takes precedence over kid.
 // - presentation JWT: valid asymmetric signature | malformed | invalid signature |
 //   expired. Its signing key is intentionally independent of credential cnf.
+// - code ID-token public key: absent | matching VP signature | mismatching VP
+//   signature. Configured wallet binding makes absence invalid.
 // - presentation claims profile: standard nested VP with audience and time claims |
 //   Boruta top-level VP with issuer/subject, nonce, and definition ID bindings.
 // - audience and time claims: absent | present and valid | present and invalid.
@@ -650,6 +654,78 @@ fn accepts_es256_presentation_with_did_key_kid_fallback() {
 }
 
 #[test]
+fn verifies_presentation_kid_and_signature_against_code_id_token_public_key() {
+    let code = authorization_code_with_id_token(&ec_id_token());
+    let request = presentation_request_with_code(Some(&code));
+    let did = ec_holder_did_key();
+    let credential = issued_credential_for_subject(&did);
+    let claims =
+        boruta_presentation_claims(&request, &credential, &did, PRESENTATION_DEFINITION_ID);
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some(did);
+    let jwt = encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ec_pem(EC_HOLDER_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap();
+    let submission = boruta_wallet_presentation_submission();
+    let response = submit_with_submission(
+        &request.state(),
+        Some(&jwt),
+        Some(&submission),
+        None,
+        FORM_CONTENT_TYPE,
+    );
+
+    assert_presentation_success(&response);
+}
+
+#[test]
+fn rejects_wallet_bound_presentation_request_without_code_id_token_key() {
+    let response = send_request(
+        "GET /authorize?response_type=vp_token&client_id=wallet_bound_client&redirect_uri=https%3A%2F%2Fwallet-bound.example.com%2Fcallback HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("wallet binding requires a code containing an id_token public key"));
+}
+
+#[test]
+fn accepts_wallet_bound_presentation_request_with_code_id_token_key() {
+    let code = authorization_code_with_id_token_for_client(&ec_id_token(), "wallet_bound_client");
+    let response = send_request(&format!(
+        "GET /authorize?response_type=vp_token&client_id=wallet_bound_client&redirect_uri=https%3A%2F%2Fwallet-bound.example.com%2Fcallback&code={} HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
+        form_encode(&code)
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("request="));
+}
+
+#[test]
+fn rejects_presentation_key_different_from_code_id_token_public_key() {
+    let code = authorization_code_with_id_token(&ec_id_token());
+    let request = presentation_request_with_code(Some(&code));
+    let credential = issued_credential();
+    let claims = presentation_claims(&request, &credential, &PresentationOverrides::default());
+    let mut header = Header::new(Algorithm::EdDSA);
+    header.jwk = Some(holder_jwk());
+    let jwt = encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ed_pem(HOLDER_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap();
+    let response = submit(&request.state(), Some(&jwt), None, FORM_CONTENT_TYPE);
+
+    assert_error(
+        &response,
+        "vp_token presentation signature does not match id_token public key",
+    );
+}
+
+#[test]
 fn rejects_boruta_presentation_with_wrong_definition_id() {
     let request = presentation_request();
     let did = ec_holder_did_key();
@@ -1111,10 +1187,16 @@ fn issuer_jwk() -> jsonwebtoken::jwk::Jwk {
 }
 
 fn presentation_request() -> AuthorizationRequestFixture {
-    let response = send_request(&format!(
-        "GET {} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
-        presentation_request_path()
-    ));
+    presentation_request_with_code(None)
+}
+
+fn presentation_request_with_code(code: Option<&str>) -> AuthorizationRequestFixture {
+    let mut path = presentation_request_path();
+    if let Some(code) = code {
+        path.push_str("&code=");
+        path.push_str(&form_encode(code));
+    }
+    let response = send_request(&format!("GET {path} HTTP/1.1\r\nhost: {HOST}\r\n\r\n"));
     let signed_request = redirect_query_parameter(&response, "request");
     let request_key: jsonwebtoken::jwk::Jwk = serde_json::from_value(json!({
         "kty": "EC",
@@ -1141,6 +1223,66 @@ fn presentation_request() -> AuthorizationRequestFixture {
         body,
         signed_request,
     }
+}
+
+struct AuthorizationCodeWithIdToken {
+    client_id: String,
+    id_token: String,
+    authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
+}
+
+impl kagome::resources::authorization_code::Generate for AuthorizationCodeWithIdToken {
+    fn previous_authorization_code(&self) -> Option<&str> {
+        None
+    }
+
+    fn client_id(&self) -> Option<&str> {
+        Some(&self.client_id)
+    }
+
+    fn id_token(&self) -> Option<&str> {
+        Some(&self.id_token)
+    }
+
+    fn add_authorization_code(
+        &mut self,
+        authorization_code: kagome::resources::authorization_code::AuthorizationCode,
+    ) {
+        self.authorization_code = Some(authorization_code);
+    }
+}
+
+fn authorization_code_with_id_token(id_token: &str) -> String {
+    authorization_code_with_id_token_for_client(id_token, AUTHORIZE_CLIENT_ID)
+}
+
+fn authorization_code_with_id_token_for_client(id_token: &str, client_id: &str) -> String {
+    let request = AuthorizationCodeWithIdToken {
+        client_id: client_id.to_owned(),
+        id_token: id_token.to_owned(),
+        authorization_code: None,
+    };
+    kagome::resources::authorization_code::generate(request)
+        .unwrap()
+        .authorization_code
+        .unwrap()
+        .value
+}
+
+fn ec_id_token() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let claims = json!({"iat": now, "exp": now + 300});
+    let mut header = Header::new(Algorithm::ES256);
+    header.jwk = Some(ec_holder_jwk());
+    encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ec_pem(EC_HOLDER_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap()
 }
 
 fn presentation_request_path() -> String {
@@ -1220,6 +1362,7 @@ fn expired_state() -> String {
         authorization_client_id: AUTHORIZE_CLIENT_ID.to_owned(),
         authorization_redirect_uri: AUTHORIZE_REDIRECT_URI.to_owned(),
         authorization_state: Some("client-state".to_owned()),
+        id_token_public_jwk: None,
         presentation_definition_id: PRESENTATION_DEFINITION_ID.to_owned(),
         input_descriptor_id: INPUT_DESCRIPTOR_ID.to_owned(),
         iat: 1,

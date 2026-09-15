@@ -27,6 +27,7 @@ clients:
     client_secret: client_secret
     redirect_uris:
       - https://client.example.com/callback
+    require_wallet_binding: false
     federated_server:
       client_id: kagome
       client_secret: federated_client_secret
@@ -42,6 +43,9 @@ Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
 error when the file cannot be read, contains invalid YAML or unknown fields, or
 configures invalid server settings or clients. Client IDs must be unique, and
 each client must have a non-empty secret and at least one redirect URI. The
+optional per-client `require_wallet_binding` flag requires wallet presentation
+and credential-proof signatures to verify with the public key from the ID token
+carried by the incoming authorization `code`. Its default is `false`. The
 optional per-client `federated_server` block configures the upstream OAuth
 client, its authorization and token endpoints, and identity endpoints. Each
 identity endpoint is called with the upstream bearer token; its dot-separated

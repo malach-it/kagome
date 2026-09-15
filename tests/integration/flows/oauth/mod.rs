@@ -7,6 +7,9 @@ mod resource_owner_password_credentials;
 
 pub(super) use super::super::server::send_request;
 
+const ID_TOKEN_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
+const OTHER_ID_TOKEN_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt\nbha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt\nWvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7\n-----END PRIVATE KEY-----\n";
+
 pub(super) fn assert_unsupported_grant_type_response(response: &str) {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: application/json\r\n"));
@@ -114,63 +117,88 @@ fn json_string_field(response: &str, field: &str) -> Option<String> {
 
 fn valid_id_token() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("secret", Some(jwk()), Some(now), Some(now + 3600))
+    encode_id_token(
+        ID_TOKEN_PRIVATE_KEY,
+        Some(jwk()),
+        Some(now),
+        Some(now + 3600),
+    )
 }
 
 fn id_token_without_jwk() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("secret", None, Some(now), Some(now + 3600))
+    encode_id_token(ID_TOKEN_PRIVATE_KEY, None, Some(now), Some(now + 3600))
 }
 
 fn id_token_with_invalid_jwk() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("secret", Some(invalid_jwk()), Some(now), Some(now + 3600))
+    encode_id_token(
+        ID_TOKEN_PRIVATE_KEY,
+        Some(invalid_jwk()),
+        Some(now),
+        Some(now + 3600),
+    )
 }
 
 fn id_token_with_invalid_signature() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("other", Some(jwk()), Some(now), Some(now + 3600))
+    encode_id_token(
+        OTHER_ID_TOKEN_PRIVATE_KEY,
+        Some(jwk()),
+        Some(now),
+        Some(now + 3600),
+    )
 }
 
 fn id_token_with_invalid_claims() -> String {
-    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
     header.jwk = Some(jwk());
 
     jsonwebtoken::encode(
         &header,
         &serde_json::json!({"iat": "now", "exp": "later"}),
-        &jsonwebtoken::EncodingKey::from_secret(b"secret"),
+        &jsonwebtoken::EncodingKey::from_ec_pem(ID_TOKEN_PRIVATE_KEY).unwrap(),
     )
     .unwrap()
 }
 
 fn id_token_without_iat() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("secret", Some(jwk()), None, Some(now + 3600))
+    encode_id_token(ID_TOKEN_PRIVATE_KEY, Some(jwk()), None, Some(now + 3600))
 }
 
 fn id_token_without_exp() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("secret", Some(jwk()), Some(now), None)
+    encode_id_token(ID_TOKEN_PRIVATE_KEY, Some(jwk()), Some(now), None)
 }
 
 fn expired_id_token() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("secret", Some(jwk()), Some(now - 7200), Some(now - 3600))
+    encode_id_token(
+        ID_TOKEN_PRIVATE_KEY,
+        Some(jwk()),
+        Some(now - 7200),
+        Some(now - 3600),
+    )
 }
 
 fn future_id_token() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("secret", Some(jwk()), Some(now + 3600), Some(now + 7200))
+    encode_id_token(
+        ID_TOKEN_PRIVATE_KEY,
+        Some(jwk()),
+        Some(now + 3600),
+        Some(now + 7200),
+    )
 }
 
 fn id_token_expiring_before_iat() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token("secret", Some(jwk()), Some(now), Some(now - 1))
+    encode_id_token(ID_TOKEN_PRIVATE_KEY, Some(jwk()), Some(now), Some(now - 1))
 }
 
 fn encode_id_token(
-    secret: &str,
+    private_key: &[u8],
     jwk: Option<jsonwebtoken::jwk::Jwk>,
     iat: Option<u64>,
     exp: Option<u64>,
@@ -183,13 +211,13 @@ fn encode_id_token(
         exp: Option<u64>,
     }
 
-    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
     header.jwk = jwk;
 
     jsonwebtoken::encode(
         &header,
         &Claims { iat, exp },
-        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+        &jsonwebtoken::EncodingKey::from_ec_pem(private_key).unwrap(),
     )
     .unwrap()
 }
@@ -240,31 +268,21 @@ fn authorization_code_for_client_id(client_id: &str) -> String {
 }
 
 fn jwk() -> jsonwebtoken::jwk::Jwk {
-    jsonwebtoken::jwk::Jwk {
-        common: jsonwebtoken::jwk::CommonParameters {
-            key_algorithm: Some(jsonwebtoken::jwk::KeyAlgorithm::HS256),
-            ..Default::default()
-        },
-        algorithm: jsonwebtoken::jwk::AlgorithmParameters::OctetKey(
-            jsonwebtoken::jwk::OctetKeyParameters {
-                key_type: jsonwebtoken::jwk::OctetKeyType::Octet,
-                value: "c2VjcmV0".to_owned(),
-            },
-        ),
-    }
+    serde_json::from_value(serde_json::json!({
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI",
+        "y": "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8"
+    }))
+    .unwrap()
 }
 
 fn invalid_jwk() -> jsonwebtoken::jwk::Jwk {
-    jsonwebtoken::jwk::Jwk {
-        common: jsonwebtoken::jwk::CommonParameters {
-            key_algorithm: Some(jsonwebtoken::jwk::KeyAlgorithm::HS256),
-            ..Default::default()
-        },
-        algorithm: jsonwebtoken::jwk::AlgorithmParameters::OctetKey(
-            jsonwebtoken::jwk::OctetKeyParameters {
-                key_type: jsonwebtoken::jwk::OctetKeyType::Octet,
-                value: "not-base64".to_owned(),
-            },
-        ),
-    }
+    serde_json::from_value(serde_json::json!({
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "not-base64",
+        "y": "not-base64"
+    }))
+    .unwrap()
 }

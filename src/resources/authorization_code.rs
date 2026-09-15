@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{
     config::{Config, DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS},
     errors::OAuthError,
-    resources::crypto,
+    resources::{crypto, id_token},
 };
 
 pub const SECRET: &str = "static_authorization_code_secret";
@@ -180,6 +180,18 @@ pub fn decode_cose_payload(
 
     ciborium::from_reader(payload.as_slice())
         .map_err(|_| invalid_authorization_code("authorization_code claims are invalid"))
+}
+
+pub fn validated_id_token_public_jwk(
+    authorization_code: &str,
+    client_id: &str,
+) -> Result<Option<serde_json::Value>, OAuthError> {
+    let payload = validate_request_authorization_code(authorization_code, Some(client_id))?;
+    payload
+        .id_token
+        .as_deref()
+        .map(id_token::validated_public_jwk)
+        .transpose()
 }
 
 pub fn chain_usernames(

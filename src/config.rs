@@ -82,6 +82,11 @@ pub struct ClientConfig {
     /// Exact redirect URIs accepted for authorization responses.
     #[schemars(length(min = 1), inner(length(min = 1)))]
     pub redirect_uris: Vec<String>,
+    /// Require wallet proofs and presentations to be bound to the public key
+    /// from the ID token carried by the incoming authorization code.
+    #[serde(default)]
+    #[schemars(default)]
+    pub require_wallet_binding: bool,
     /// Upstream OAuth server used to federate identities for this client.
     pub federated_server: Option<FederatedServerConfig>,
 }

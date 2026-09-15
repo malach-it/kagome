@@ -8,10 +8,12 @@ flowchart TD
     client -- no --> authorize_error
     client -- yes --> optional{Optional code and metadata policy valid?}
     optional -- no --> authorize_error
-    optional -- yes --> verifier[Use configured issuer as verifier]
+    optional -- yes --> policy{Wallet binding disabled or code contains valid ID-token public key?}
+    policy -- no --> authorize_error
+    policy -- yes --> verifier[Use configured issuer as verifier]
     verifier --> host{Credential issuer Host valid?}
     host -- no --> authorize_error
-    host -- yes --> state{Fresh nonce and COSE state generated?}
+    host -- yes --> state{Fresh nonce, optional ID-token key, and COSE state generated?}
     state -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     state -- yes --> sign{Request object signed?}
     sign -- no --> generation_error

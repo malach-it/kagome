@@ -20,6 +20,7 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - endpoint method: supported | unsupported
 // - OAuth authorization attributes: valid response type(s), client, redirect URI,
 //   client state, and optional code | missing/invalid value for each
+// - wallet binding policy: SIOPv2-authenticated continuation does not require it
 // - verifier origin: configured issuer | unrelated or missing Host (equivalent)
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
@@ -257,6 +258,26 @@ fn uses_siop_request_response_types_for_authorize_continuation() {
         "{response}"
     );
     assert!(response.contains("#access_token="), "{response}");
+}
+
+#[test]
+fn does_not_require_wallet_binding_for_siopv2_continuation() {
+    let fixture = authorization_request_for_client(
+        "urn:ietf:params:oauth:response-type:pre-authorized_code",
+        "wallet_bound_client",
+        "https://wallet-bound.example.com/callback",
+        None,
+    );
+    let did = did_key();
+    let token = id_token(&fixture, &did, &did, None, TokenOverrides::default());
+    let response = submit(&fixture, &token, None);
+
+    assert!(
+        response.starts_with(
+            "HTTP/1.1 302 Found\r\nlocation: https://wallet-bound.example.com/callback?credential_offer="
+        ),
+        "{response}"
+    );
 }
 
 #[test]
@@ -607,13 +628,22 @@ fn authorization_request() -> AuthorizationFixture {
 }
 
 fn authorization_request_with(response_type: &str, code: Option<&str>) -> AuthorizationFixture {
+    authorization_request_for_client(response_type, CLIENT_ID, CLIENT_REDIRECT_URI, code)
+}
+
+fn authorization_request_for_client(
+    response_type: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    code: Option<&str>,
+) -> AuthorizationFixture {
     let code = code
         .map(|code| format!("&code={}", form_encode(code)))
         .unwrap_or_default();
     let response = send_request(&format!(
-        "GET /siopv2-request?response_type={}&client_id={CLIENT_ID}&redirect_uri={}&state=client-state{code} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        "GET /siopv2-request?response_type={}&client_id={client_id}&redirect_uri={}&state=client-state{code} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
         form_encode(response_type),
-        form_encode(CLIENT_REDIRECT_URI),
+        form_encode(redirect_uri),
     ));
     let body = redirect_parameters(&response);
     AuthorizationFixture { response, body }

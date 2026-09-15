@@ -16,7 +16,9 @@ flowchart TD
     shape -- no --> redirect_error
     shape -- yes --> key{Embedded JWK or valid issuer did:key kid?}
     key -- no --> redirect_error
-    key -- yes --> presentation{Signature and standard or compact claims valid?}
+    key -- yes --> id_key{ID-token key absent or VP signature valid with it?}
+    id_key -- no --> redirect_error
+    id_key -- yes --> presentation{Signature and standard or compact claims valid?}
     presentation -- no --> redirect_error
     presentation -- yes --> credential{Issuer credential valid and query satisfied?}
     credential -- no --> redirect_error

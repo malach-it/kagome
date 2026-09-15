@@ -4,6 +4,7 @@ use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, get_current_timestamp,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::errors::OAuthError;
 
@@ -20,6 +21,8 @@ pub struct CredentialAccessToken {
 pub struct CredentialAccessTokenClaims {
     pub credential_configuration_id: String,
     pub subject: String,
+    pub id_token_public_jwk: Option<Value>,
+    pub require_wallet_binding: bool,
     pub iat: u64,
     pub exp: u64,
 }
@@ -27,6 +30,12 @@ pub struct CredentialAccessTokenClaims {
 pub trait Generate {
     fn credential_configuration_id(&self) -> Option<&str>;
     fn subject(&self) -> Option<&str>;
+    fn id_token_public_jwk(&self) -> Option<&Value> {
+        None
+    }
+    fn require_wallet_binding(&self) -> bool {
+        false
+    }
     fn add_credential_access_token(&mut self, access_token: CredentialAccessToken);
 }
 
@@ -49,6 +58,8 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let claims = CredentialAccessTokenClaims {
         credential_configuration_id: credential_configuration_id.to_owned(),
         subject: subject.to_owned(),
+        id_token_public_jwk: request.id_token_public_jwk().cloned(),
+        require_wallet_binding: request.require_wallet_binding(),
         iat,
         exp: iat + TTL_SECONDS,
     };
@@ -80,6 +91,16 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     .claims;
 
     if claims.iat > get_current_timestamp() || claims.exp <= claims.iat {
+        return Err(OAuthError::invalid_access_token(
+            "bearer access token is invalid or expired",
+        ));
+    }
+    if claims
+        .id_token_public_jwk
+        .as_ref()
+        .is_some_and(|jwk| !jwk.is_object())
+        || claims.require_wallet_binding && claims.id_token_public_jwk.is_none()
+    {
         return Err(OAuthError::invalid_access_token(
             "bearer access token is invalid or expired",
         ));

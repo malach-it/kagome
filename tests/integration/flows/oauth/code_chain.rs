@@ -4,9 +4,9 @@ use super::*;
 // - representation: form | JSON (success exercises both parser branches)
 // - client_id: valid | missing | invalid
 // - client_secret: valid | missing | invalid
-// - id_token: valid | missing | malformed | missing JWK | invalid JWK | invalid
-//   signature | invalid claims | missing iat | missing exp | expired | future iat |
-//   exp before iat
+// - id_token: valid asymmetric | missing | malformed | symmetric algorithm |
+//   missing JWK | invalid JWK | invalid signature | invalid claims | missing iat |
+//   missing exp | expired | future iat | exp before iat
 // - previous authorization_code: missing | valid | invalid | issued to another client
 // - chained authorization_code exchange: absent | valid | invalid
 // Validation failures are representation-independent after parsing, so each equivalent
@@ -185,6 +185,28 @@ fn returns_oauth_error_for_invalid_code_chain_id_token() {
 #[test]
 fn returns_oauth_error_for_code_chain_id_token_without_jwk() {
     assert_code_chain_id_token_error(&id_token_without_jwk(), "id_token header must include jwk");
+}
+
+#[test]
+fn returns_oauth_error_for_symmetric_code_chain_id_token() {
+    let now = jsonwebtoken::get_current_timestamp();
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    header.jwk = Some(
+        serde_json::from_value(serde_json::json!({
+            "kty": "oct",
+            "k": "c2VjcmV0",
+            "alg": "HS256"
+        }))
+        .unwrap(),
+    );
+    let token = jsonwebtoken::encode(
+        &header,
+        &serde_json::json!({"iat": now, "exp": now + 3600}),
+        &jsonwebtoken::EncodingKey::from_secret(b"secret"),
+    )
+    .unwrap();
+
+    assert_code_chain_id_token_error(&token, "id_token algorithm must be asymmetric");
 }
 
 #[test]

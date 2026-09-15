@@ -128,6 +128,14 @@ pub fn client_id_resource_owner_credentials(client_id: &str) -> bool {
     resource_owner_credentials(client_id).is_some()
 }
 
+pub fn requires_wallet_binding(client_id: &str) -> bool {
+    Config::global()
+        .clients
+        .iter()
+        .find(|client| client.client_id == client_id)
+        .is_some_and(|client| client.require_wallet_binding)
+}
+
 fn resource_owner_credentials(client_id: &str) -> Option<(&str, &str, &str)> {
     let (credentials, host) = client_id.split_once('@')?;
     if credentials.is_empty() || host.is_empty() {

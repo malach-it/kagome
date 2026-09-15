@@ -1,5 +1,6 @@
 use jsonwebtoken::{
-    Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, decode_header, encode,
+    Algorithm, AlgorithmFamily, DecodingKey, EncodingKey, Header, Validation, decode,
+    decode_header, encode,
     errors::{Error as JwtError, ErrorKind},
     get_current_timestamp,
 };
@@ -93,8 +94,16 @@ struct IdTokenClaims {
     exp: Option<u64>,
 }
 
-fn validate_jwt(id_token: &str) -> Result<(), OAuthError> {
+pub fn validated_public_jwk(id_token: &str) -> Result<serde_json::Value, OAuthError> {
+    let jwk = validate_jwt(id_token)?;
+    serde_json::to_value(jwk).map_err(|_| invalid_id_token("id_token jwk must be valid"))
+}
+
+fn validate_jwt(id_token: &str) -> Result<jsonwebtoken::jwk::Jwk, OAuthError> {
     let header = decode_header(id_token).map_err(|_| invalid_id_token("id_token must be a jwt"))?;
+    if header.alg.family() == AlgorithmFamily::Hmac {
+        return Err(invalid_id_token("id_token algorithm must be asymmetric"));
+    }
     let jwk = header
         .jwk
         .ok_or_else(|| invalid_id_token("id_token header must include jwk"))?;
@@ -124,7 +133,7 @@ fn validate_jwt(id_token: &str) -> Result<(), OAuthError> {
         return Err(invalid_id_token("id_token exp must be after iat"));
     }
 
-    Ok(())
+    Ok(jwk)
 }
 
 fn invalid_decode_error(error: JwtError) -> OAuthError {

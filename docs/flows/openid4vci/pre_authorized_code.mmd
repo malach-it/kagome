@@ -7,7 +7,9 @@ flowchart TD
     authorize_valid -- no --> authorize_error["`**HTTP 400** login error or **HTTP 302** error redirect`"]
     authorize_valid -- yes --> authenticated{Resource owner authenticated?}
     authenticated -- no --> authentication["`**HTTP 200** login page or **HTTP 302** federation redirect`"]
-    authenticated -- yes --> encrypt
+    authenticated -- yes --> binding{Wallet binding disabled or code contains valid ID-token public key?}
+    binding -- no --> authorize_error
+    binding -- yes --> encrypt
     encrypt -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     encrypt -- yes --> delivery{Offer source?}
     delivery -- credential-offer endpoint --> offer["`**HTTP 200** credential offer`"]
@@ -16,7 +18,9 @@ flowchart TD
     authorize_offer --> token
     token --> code{Encrypted code present and valid?}
     code -- no --> token_error["`**HTTP 400** invalid_request or invalid_grant`"]
-    code -- yes --> tx_present{Transaction code supplied?}
+    code -- yes --> key{Binding policy and ID-token key claims valid?}
+    key -- no --> token_error
+    key -- yes --> tx_present{Transaction code supplied?}
     tx_present -- no --> access{Credential access token generated?}
     tx_present -- yes --> tx_valid{Transaction code valid?}
     tx_valid -- no --> token_error
@@ -32,7 +36,9 @@ flowchart TD
     bearer -- no --> bearer_error["`**HTTP 401** invalid_token with CORS header`"]
     bearer -- yes --> configuration{JSON request has authorized credential identifier?}
     configuration -- no --> credential_error["`**HTTP 400** credential request error with CORS header`"]
-    configuration -- yes --> proof{Optional wallet JWT proof valid?}
+    configuration -- yes --> required{Binding policy permits missing proof?}
+    required -- no --> credential_error
+    required -- yes --> proof{Wallet JWT proof and optional ID-token signature valid?}
     proof -- no --> credential_error
     proof -- yes --> issue{Ed25519 jwt_vc generated for proof or token subject?}
     issue -- no --> generation_error

@@ -157,13 +157,22 @@ fn start_server() -> String {
             "https://configured.example.com/callback".to_owned(),
             "https://configured.example.com/alternate".to_owned(),
         ],
+        require_wallet_binding: false,
         federated_server: None,
     });
     config.clients.push(kagome::config::ClientConfig {
         client_id: "federated_client".to_owned(),
         client_secret: "federated_secret".to_owned(),
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
+        require_wallet_binding: false,
         federated_server: Some(federated_server),
+    });
+    config.clients.push(kagome::config::ClientConfig {
+        client_id: "wallet_bound_client".to_owned(),
+        client_secret: "wallet_bound_secret".to_owned(),
+        redirect_uris: vec!["https://wallet-bound.example.com/callback".to_owned()],
+        require_wallet_binding: true,
+        federated_server: None,
     });
     kagome::config::Config::set_global(config)
         .expect("integration configuration should initialize");

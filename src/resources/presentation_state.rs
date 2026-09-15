@@ -3,10 +3,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::errors::OAuthError;
 
-use super::{crypto, verifier};
+use super::{authorization_code, crypto, verifier};
 
 pub const SECRET: &str = "static_openid4vp_presentation_state_secret";
 pub const COSE_EXTERNAL_AAD: &[u8] = b"kagome:openid4vp:presentation-state:v1";
@@ -23,6 +24,7 @@ pub struct PresentationStateClaims {
     pub authorization_client_id: String,
     pub authorization_redirect_uri: String,
     pub authorization_state: Option<String>,
+    pub id_token_public_jwk: Option<Value>,
     pub presentation_definition_id: String,
     pub input_descriptor_id: String,
     pub iat: u64,
@@ -41,6 +43,10 @@ pub trait Generate {
     fn authorization_client_id(&self) -> Option<&str>;
     fn authorization_redirect_uri(&self) -> Option<&str>;
     fn authorization_state(&self) -> Option<&str>;
+    fn authorization_code(&self) -> Option<&str>;
+    fn require_wallet_binding(&self) -> bool {
+        false
+    }
     fn add_presentation_state(&mut self, state: PresentationState);
 }
 
@@ -62,6 +68,18 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let authorization_redirect_uri = request.authorization_redirect_uri().ok_or_else(|| {
         OAuthError::invalid_token_response("authorization redirect_uri must be validated")
     })?;
+    let id_token_public_jwk = request
+        .authorization_code()
+        .map(|code| {
+            authorization_code::validated_id_token_public_jwk(code, authorization_client_id)
+        })
+        .transpose()?
+        .flatten();
+    if request.require_wallet_binding() && id_token_public_jwk.is_none() {
+        return Err(OAuthError::invalid_request(
+            "wallet binding requires a code containing an id_token public key",
+        ));
+    }
     let iat = now().map_err(|_| OAuthError::invalid_token_response("state generation failed"))?;
     let claims = PresentationStateClaims {
         nonce: random_identifier()?,
@@ -71,6 +89,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         authorization_client_id: authorization_client_id.to_owned(),
         authorization_redirect_uri: authorization_redirect_uri.to_owned(),
         authorization_state: request.authorization_state().map(str::to_owned),
+        id_token_public_jwk,
         presentation_definition_id: PRESENTATION_DEFINITION_ID.to_owned(),
         input_descriptor_id: INPUT_DESCRIPTOR_ID.to_owned(),
         iat,
@@ -115,6 +134,10 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         || claims.credential_issuer.is_empty()
         || claims.authorization_client_id.is_empty()
         || claims.authorization_redirect_uri.is_empty()
+        || claims
+            .id_token_public_jwk
+            .as_ref()
+            .is_some_and(|jwk| !jwk.is_object())
         || claims.client_id != verifier::client_id(&claims.verifier)
         || claims.presentation_definition_id != PRESENTATION_DEFINITION_ID
         || claims.input_descriptor_id != INPUT_DESCRIPTOR_ID

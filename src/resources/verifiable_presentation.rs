@@ -116,6 +116,15 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let presentation = decode::<PresentationClaims>(&presentation_jwt, &holder_key, &validation)
         .map_err(|_| invalid("vp_token presentation is invalid or expired"))?
         .claims;
+    if let Some(id_token_jwk) = state.id_token_public_jwk.as_ref() {
+        let id_token_jwk: jsonwebtoken::jwk::Jwk = serde_json::from_value(id_token_jwk.clone())
+            .map_err(|_| invalid("id_token public key is invalid"))?;
+        let id_token_key = DecodingKey::from_jwk(&id_token_jwk)
+            .map_err(|_| invalid("id_token public key is invalid"))?;
+        decode::<PresentationClaims>(&presentation_jwt, &id_token_key, &validation).map_err(
+            |_| invalid("vp_token presentation signature does not match id_token public key"),
+        )?;
+    }
 
     let credentials = validate_presentation_claims(&presentation, state)?;
     let credential = validate_credential(&credentials[0], state)?;

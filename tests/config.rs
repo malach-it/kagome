@@ -30,6 +30,7 @@ fn loads_server_configuration_from_yaml() {
         ["https://client.example.com/callback"]
     );
     assert_eq!(config.clients[0].federated_server, None);
+    assert!(!config.clients[0].require_wallet_binding);
 }
 
 #[test]
@@ -45,6 +46,7 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.clients.len(), 1);
+    assert!(!config.clients[0].require_wallet_binding);
     let federated_server = config.clients[0]
         .federated_server
         .as_ref()
@@ -137,6 +139,10 @@ fn json_schema_describes_configuration_constraints() {
     assert_eq!(client["properties"]["redirect_uris"]["minItems"], 1);
     assert!(client["properties"]["federated_server"]["anyOf"].is_array());
     assert_eq!(
+        client["properties"]["require_wallet_binding"]["default"],
+        false
+    );
+    assert_eq!(
         client["properties"]["redirect_uris"]["items"]["minLength"],
         1
     );
@@ -182,6 +188,17 @@ fn json_schema_describes_configuration_constraints() {
             "endpoints"
         ])
     );
+}
+
+#[test]
+fn loads_per_client_wallet_binding_policy() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: [https://client.example.com/callback]\n    require_wallet_binding: true\n",
+    );
+
+    let config = Config::load_from_path(file.path()).expect("wallet binding should load");
+
+    assert!(config.clients[0].require_wallet_binding);
 }
 
 #[test]

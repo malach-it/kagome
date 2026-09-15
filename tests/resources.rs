@@ -3,6 +3,7 @@ fn configured_clients() -> Vec<kagome::config::ClientConfig> {
         client_id: "client_id".to_owned(),
         client_secret: "client_secret".to_owned(),
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
+        require_wallet_binding: false,
         federated_server: None,
     }]
 }
@@ -952,6 +953,9 @@ mod resources {
     }
 
     mod id_token {
+        const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
+        const OTHER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt\nbha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt\nWvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7\n-----END PRIVATE KEY-----\n";
+
         #[test]
         fn validates_id_token() {
             let id_token = valid_id_token();
@@ -981,6 +985,35 @@ mod resources {
 
             assert_eq!(error.error, "invalid_grant");
             assert_eq!(error.error_description, "id_token must be a jwt");
+        }
+
+        #[test]
+        fn returns_oauth_error_for_symmetric_id_token() {
+            let now = jsonwebtoken::get_current_timestamp();
+            let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+            header.jwk = Some(
+                serde_json::from_value(serde_json::json!({
+                    "kty": "oct",
+                    "k": "c2VjcmV0",
+                    "alg": "HS256"
+                }))
+                .unwrap(),
+            );
+            let id_token = jsonwebtoken::encode(
+                &header,
+                &serde_json::json!({"iat": now, "exp": now + 3600}),
+                &jsonwebtoken::EncodingKey::from_secret(b"secret"),
+            )
+            .unwrap();
+            let request = token_request(Some(&id_token));
+            let error =
+                kagome::resources::id_token::validate(code_chain_request(&request)).unwrap_err();
+
+            assert_eq!(error.error, "invalid_grant");
+            assert_eq!(
+                error.error_description,
+                "id_token algorithm must be asymmetric"
+            );
         }
 
         #[test]
@@ -1097,51 +1130,56 @@ mod resources {
 
         fn valid_id_token() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("secret", Some(jwk()), Some(now), Some(now + 3600))
+            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now), Some(now + 3600))
         }
 
         fn id_token_without_jwk_header() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("secret", None, Some(now), Some(now + 3600))
+            encode_id_token(PRIVATE_KEY, None, Some(now), Some(now + 3600))
         }
 
         fn id_token_with_invalid_jwk_header() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("secret", Some(invalid_jwk()), Some(now), Some(now + 3600))
+            encode_id_token(
+                PRIVATE_KEY,
+                Some(invalid_jwk()),
+                Some(now),
+                Some(now + 3600),
+            )
         }
 
         fn id_token_signed_with_different_key() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("other", Some(jwk()), Some(now), Some(now + 3600))
+            encode_id_token(OTHER_PRIVATE_KEY, Some(jwk()), Some(now), Some(now + 3600))
         }
 
         fn id_token_without_iat() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("secret", Some(jwk()), None, Some(now + 3600))
+            encode_id_token(PRIVATE_KEY, Some(jwk()), None, Some(now + 3600))
         }
 
         fn id_token_without_exp() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("secret", Some(jwk()), Some(now), None)
+            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now), None)
         }
 
         fn expired_id_token() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("secret", Some(jwk()), Some(now - 7200), Some(now - 3600))
+            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now - 7200), Some(now - 3600))
         }
 
         fn future_iat_id_token() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("secret", Some(jwk()), Some(now + 3600), Some(now + 7200))
+            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now + 3600), Some(now + 7200))
         }
 
         fn exp_before_iat_id_token() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token("secret", Some(jwk()), Some(now), Some(now - 1))
+            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now), Some(now - 1))
         }
 
         fn encode_id_token(
-            secret: &str,
+            private_key: &[u8],
             jwk: Option<jsonwebtoken::jwk::Jwk>,
             iat: Option<u64>,
             exp: Option<u64>,
@@ -1154,45 +1192,35 @@ mod resources {
                 exp: Option<u64>,
             }
 
-            let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+            let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
             header.jwk = jwk;
 
             jsonwebtoken::encode(
                 &header,
                 &Claims { iat, exp },
-                &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+                &jsonwebtoken::EncodingKey::from_ec_pem(private_key).unwrap(),
             )
             .unwrap()
         }
 
         fn jwk() -> jsonwebtoken::jwk::Jwk {
-            jsonwebtoken::jwk::Jwk {
-                common: jsonwebtoken::jwk::CommonParameters {
-                    key_algorithm: Some(jsonwebtoken::jwk::KeyAlgorithm::HS256),
-                    ..Default::default()
-                },
-                algorithm: jsonwebtoken::jwk::AlgorithmParameters::OctetKey(
-                    jsonwebtoken::jwk::OctetKeyParameters {
-                        key_type: jsonwebtoken::jwk::OctetKeyType::Octet,
-                        value: "c2VjcmV0".to_owned(),
-                    },
-                ),
-            }
+            serde_json::from_value(serde_json::json!({
+                "kty": "EC",
+                "crv": "P-256",
+                "x": "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI",
+                "y": "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8"
+            }))
+            .unwrap()
         }
 
         fn invalid_jwk() -> jsonwebtoken::jwk::Jwk {
-            jsonwebtoken::jwk::Jwk {
-                common: jsonwebtoken::jwk::CommonParameters {
-                    key_algorithm: Some(jsonwebtoken::jwk::KeyAlgorithm::HS256),
-                    ..Default::default()
-                },
-                algorithm: jsonwebtoken::jwk::AlgorithmParameters::OctetKey(
-                    jsonwebtoken::jwk::OctetKeyParameters {
-                        key_type: jsonwebtoken::jwk::OctetKeyType::Octet,
-                        value: "not-base64".to_owned(),
-                    },
-                ),
-            }
+            serde_json::from_value(serde_json::json!({
+                "kty": "EC",
+                "crv": "P-256",
+                "x": "not-base64",
+                "y": "not-base64"
+            }))
+            .unwrap()
         }
     }
 

@@ -7,6 +7,8 @@ optional authorization `code`. The request's authorization `response_type` is
 also copied to the top-level state claims and drives the authorize continuation
 after SIOPv2 authentication. Mermaid (`.mmd`) files are canonical; the
 adjacent SVG files are rendered for direct review.
+SIOPv2-authenticated continuations do not require the per-client wallet-binding
+policy because the SIOPv2 ID token already authenticates the wallet stage.
 
 The request endpoint redirects to the validated OAuth `redirect_uri`, appending
 the generated SIOPv2 authorization response fields as query parameters.

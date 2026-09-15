@@ -8,7 +8,7 @@ flowchart TD
     previous -- no --> id_token
     previous -- yes --> previous_valid{Previous code valid and issued to client?}
     previous_valid -- no --> previous_error["`**HTTP 400** invalid_grant`"]
-    previous_valid -- yes --> id_token{ID token valid?}
+    previous_valid -- yes --> id_token{ID token asymmetric signature, JWK, and claims valid?}
     id_token -- no --> id_error["`**HTTP 400** invalid_grant`"]
     id_token -- yes --> issue{New authorization code generated?}
     issue -- no --> issue_error["`**HTTP 400** invalid_token_response`"]

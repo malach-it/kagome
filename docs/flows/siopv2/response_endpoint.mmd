@@ -20,7 +20,7 @@ flowchart TD
     claims -- no --> failure
     claims -- yes --> restore{SIOP request response type, authorization attributes, and optional code valid?}
     restore -- no --> failure
-    restore -- yes --> response_types{SIOP request response type pipeline succeeds?}
+    restore -- yes --> response_types{SIOP response pipeline succeeds without wallet-binding requirement?}
     response_types -- no --> failure
     response_types -- yes --> identity_success["`**HTTP 302** redirect with requested OAuth response`"]
     failure --> destination{Trusted client redirect URI available?}

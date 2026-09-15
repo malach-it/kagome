@@ -1,10 +1,11 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::errors::OAuthError;
 
-use super::{credential_issuer::CREDENTIAL_CONFIGURATION_ID, crypto};
+use super::{authorization_code, credential_issuer::CREDENTIAL_CONFIGURATION_ID, crypto};
 
 pub const SECRET: &str = "static_pre_authorized_code_secret";
 pub const COSE_EXTERNAL_AAD: &[u8] = b"kagome.pre_authorized_code";
@@ -22,12 +23,26 @@ pub const TTL_SECONDS: u64 = 300;
 pub struct PreAuthorizedCodeClaims {
     pub credential_configuration_id: String,
     pub subject: String,
+    pub id_token_public_jwk: Option<Value>,
+    pub require_wallet_binding: bool,
     pub iat: u64,
     pub exp: u64,
 }
 
 pub trait Generate {
     fn add_pre_authorized_code(&mut self, pre_authorized_code: String);
+
+    fn client_id(&self) -> Option<&str> {
+        None
+    }
+
+    fn authorization_code(&self) -> Option<&str> {
+        None
+    }
+
+    fn require_wallet_binding(&self) -> bool {
+        false
+    }
 
     fn subject(&self) -> Option<&str> {
         None
@@ -51,9 +66,28 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         (None, true) => return Err(OAuthError::missing_username()),
         (None, false) => "did:example:alice".to_owned(),
     };
+    let id_token_public_jwk = match (request.authorization_code(), request.client_id()) {
+        (Some(code), Some(client_id)) => {
+            authorization_code::validated_id_token_public_jwk(code, client_id)?
+        }
+        (Some(_), None) => {
+            return Err(OAuthError::invalid_token_response(
+                "client_id must be validated before wallet binding",
+            ));
+        }
+        (None, _) => None,
+    };
+    let require_wallet_binding = request.require_wallet_binding();
+    if require_wallet_binding && id_token_public_jwk.is_none() {
+        return Err(OAuthError::invalid_request(
+            "wallet binding requires a code containing an id_token public key",
+        ));
+    }
     let claims = PreAuthorizedCodeClaims {
         credential_configuration_id: CREDENTIAL_CONFIGURATION_ID.to_owned(),
         subject,
+        id_token_public_jwk,
+        require_wallet_binding,
         iat,
         exp: iat + TTL_SECONDS,
     };
@@ -83,6 +117,16 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         .map_err(|_| OAuthError::invalid_grant("pre-authorized_code is invalid or expired"))?;
     let now = now("pre-authorized code validation failed")?;
     if claims.iat > now || claims.exp <= claims.iat || claims.exp <= now {
+        return Err(OAuthError::invalid_grant(
+            "pre-authorized_code is invalid or expired",
+        ));
+    }
+    if claims
+        .id_token_public_jwk
+        .as_ref()
+        .is_some_and(|jwk| !jwk.is_object())
+        || claims.require_wallet_binding && claims.id_token_public_jwk.is_none()
+    {
         return Err(OAuthError::invalid_grant(
             "pre-authorized_code is invalid or expired",
         ));

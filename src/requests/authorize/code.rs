@@ -370,6 +370,21 @@ impl<'a> id_token::Generate for AuthorizeCodeRequest<'a> {
 }
 
 impl pre_authorized_code::Generate for AuthorizeCodeRequest<'_> {
+    fn client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
+    fn authorization_code(&self) -> Option<&str> {
+        self.response.previous_authorization_code.as_deref()
+    }
+
+    fn require_wallet_binding(&self) -> bool {
+        self.response
+            .client_id
+            .as_deref()
+            .is_some_and(client_credentials::requires_wallet_binding)
+    }
+
     fn subject(&self) -> Option<&str> {
         self.response.username.as_deref()
     }

@@ -391,6 +391,19 @@ impl presentation_state::Generate for AuthorizeLoginRequest<'_> {
         self.state.as_deref()
     }
 
+    fn authorization_code(&self) -> Option<&str> {
+        self.response.previous_authorization_code.as_deref()
+    }
+
+    fn require_wallet_binding(&self) -> bool {
+        !self.response.siop_authenticated
+            && self
+                .response
+                .client_id
+                .as_deref()
+                .is_some_and(client_credentials::requires_wallet_binding)
+    }
+
     fn add_presentation_state(&mut self, state: presentation_state::PresentationState) {
         self.response.presentation_state = Some(state);
     }
@@ -631,6 +644,23 @@ impl<'a> id_token::Generate for AuthorizeLoginRequest<'a> {
 }
 
 impl pre_authorized_code::Generate for AuthorizeLoginRequest<'_> {
+    fn client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
+    fn authorization_code(&self) -> Option<&str> {
+        self.response.previous_authorization_code.as_deref()
+    }
+
+    fn require_wallet_binding(&self) -> bool {
+        !self.response.siop_authenticated
+            && self
+                .response
+                .client_id
+                .as_deref()
+                .is_some_and(client_credentials::requires_wallet_binding)
+    }
+
     fn subject(&self) -> Option<&str> {
         self.response.username.as_deref()
     }

@@ -41,11 +41,20 @@ struct ProofIssuer {
 pub trait Validate {
     fn request_proof(&self) -> Option<&Value>;
     fn credential_issuer(&self) -> Option<&str>;
+    fn id_token_public_jwk(&self) -> Option<&Value> {
+        None
+    }
+    fn require_wallet_binding(&self) -> bool {
+        false
+    }
     fn add_validated_credential_proof(&mut self, proof: ValidatedCredentialProof);
 }
 
 pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let Some(proof) = request.request_proof() else {
+        if request.require_wallet_binding() {
+            return Err(invalid("proof is required for wallet binding"));
+        }
         return Ok(request);
     };
     let proof: CredentialProof = serde_json::from_value(proof.clone())
@@ -93,6 +102,14 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     )
     .map_err(|_| invalid("proof jwt signature is invalid"))?
     .claims;
+    if let Some(id_token_jwk) = request.id_token_public_jwk() {
+        let id_token_jwk: jsonwebtoken::jwk::Jwk = serde_json::from_value(id_token_jwk.clone())
+            .map_err(|_| invalid("id_token public key is invalid"))?;
+        let id_token_key = DecodingKey::from_jwk(&id_token_jwk)
+            .map_err(|_| invalid("id_token public key is invalid"))?;
+        decode::<CredentialProofClaims>(&proof.jwt, &id_token_key, &validation)
+            .map_err(|_| invalid("proof jwt signature does not match id_token public key"))?;
+    }
 
     if claims.iss != claims.sub {
         return Err(invalid("proof jwt issuer must equal subject"));

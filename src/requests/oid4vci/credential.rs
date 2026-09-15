@@ -27,6 +27,8 @@ pub struct CredentialResponse {
     pub credential_configuration_id: Option<String>,
     pub subject: Option<String>,
     pub holder_jwk: Option<serde_json::Value>,
+    pub id_token_public_jwk: Option<serde_json::Value>,
+    pub require_wallet_binding: bool,
     pub credential: Option<VerifiableCredential>,
 }
 
@@ -76,6 +78,8 @@ impl credential_access_token::Validate for CredentialRequest<'_> {
         self.response.authorized_credential_configuration_id =
             Some(claims.credential_configuration_id);
         self.response.subject = Some(claims.subject);
+        self.response.id_token_public_jwk = claims.id_token_public_jwk;
+        self.response.require_wallet_binding = claims.require_wallet_binding;
     }
 }
 
@@ -124,6 +128,14 @@ impl credential_proof::Validate for CredentialRequest<'_> {
 
     fn credential_issuer(&self) -> Option<&str> {
         self.response.credential_issuer.as_deref()
+    }
+
+    fn id_token_public_jwk(&self) -> Option<&serde_json::Value> {
+        self.response.id_token_public_jwk.as_ref()
+    }
+
+    fn require_wallet_binding(&self) -> bool {
+        self.response.require_wallet_binding
     }
 
     fn add_validated_credential_proof(

@@ -3,7 +3,9 @@ flowchart TD
     begin[Verifier creates presentation request] --> verifier[Use configured issuer as verifier]
     verifier --> issuer{Credential issuer Host valid?}
     issuer -- no --> request_error["`**HTTP 400** invalid_request`"]
-    issuer -- yes --> protect{Encrypt fresh nonce and context in COSE state?}
+    issuer -- yes --> policy{Wallet binding policy satisfied by code ID-token key?}
+    policy -- no --> request_error
+    policy -- yes --> protect{Encrypt fresh nonce, ID-token key, and context in COSE state?}
     protect -- no --> generation_error["`**HTTP 400** invalid_token_response`"]
     protect -- yes --> sign{Sign presentation request object?}
     sign -- no --> generation_error
@@ -14,7 +16,7 @@ flowchart TD
     post_error --> error_state{State valid and error supported?}
     error_state -- no --> response_error["`**HTTP 400** local error before trusted state or **HTTP 302** client error redirect after trusted state`"]
     error_state -- yes --> error_redirect["`**HTTP 302** client redirect with wallet error and state`"]
-    post_vp --> validate{Mapping, standard or compact VP claims, proof, credential, and subject binding valid?}
+    post_vp --> validate{Mapping, wallet and optional ID-token signatures, VP claims, credential, and subject binding valid?}
     validate -- no --> response_error
     validate -- yes --> code{Authorization code generated?}
     code -- no --> response_error

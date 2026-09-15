@@ -17,7 +17,7 @@ flowchart TD
     post_token --> validate{State, signature, subject, claims, and bindings valid?}
     validate -- no --> response_error
     validate -- yes --> restore[Restore SIOP request response type, authorization attributes, and optional code]
-    restore --> generate{SIOP request response type pipeline succeeds?}
+    restore --> generate{Response pipeline succeeds without wallet-binding requirement?}
     generate -- no --> response_error
     generate -- yes --> identity_success["`**HTTP 302** redirect with requested OAuth response`"]
     response_error[Error response] --> destination{Trusted client redirect URI available?}

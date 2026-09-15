@@ -58,6 +58,11 @@
             "minLength": 1
           },
           "minItems": 1
+        },
+        "require_wallet_binding": {
+          "description": "Require wallet proofs and presentations to be bound to the public key\nfrom the ID token carried by the incoming authorization code.",
+          "type": "boolean",
+          "default": false
         }
       },
       "additionalProperties": false,

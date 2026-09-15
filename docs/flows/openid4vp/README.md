@@ -16,6 +16,11 @@ SVG files are rendered for direct review.
 authorize handler. It uses the common authorize response-type, client and
 redirect URI, optional code, and metadata-policy validations before the
 authorize response-generation presentation branch creates the verifier state.
+For clients configured with `require_wallet_binding: true`, the code is
+mandatory and must carry a valid ID token with an embedded asymmetric public
+JWK. That JWK is protected in presentation state, and the returned VP JWT
+signature is verified against both its declared wallet key and the ID-token
+key.
 The handler redirects to the validated authorize `redirect_uri` with the
 verifier `client_id`, `response_type=vp_token`, and a signed JWT in its `request`
 query parameter. It also carries the verifier callback as `redirect_uri`. The
