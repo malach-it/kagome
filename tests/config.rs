@@ -26,6 +26,7 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.clients[0].client_id, "client_id");
     assert_eq!(config.clients[0].public, None);
     assert_eq!(config.clients[0].client_secret, "client_secret");
+    assert_eq!(config.clients[0].password_file, None);
     assert_eq!(
         config.clients[0].redirect_uris,
         ["https://client.example.com/callback"]
@@ -48,6 +49,16 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.clients.len(), 1);
     assert_eq!(config.clients[0].public.as_deref(), Some("localhost:4000"));
+    assert!(
+        config.clients[0]
+            .password_file
+            .as_ref()
+            .is_some_and(|path| path.ends_with("kagome.htpasswd.example"))
+    );
+    let (_, usernames) = config
+        .client_password_file("client_id")
+        .expect("example client should load its password file");
+    assert_eq!(usernames, ["username", "other_username"]);
     assert!(!config.clients[0].require_wallet_binding);
     let federated_server = config.clients[0]
         .federated_server
@@ -143,6 +154,10 @@ fn json_schema_describes_configuration_constraints() {
         serde_json::json!(["string", "null"])
     );
     assert_eq!(client["properties"]["client_secret"]["minLength"], 1);
+    assert_eq!(
+        client["properties"]["password_file"]["type"],
+        serde_json::json!(["string", "null"])
+    );
     assert_eq!(client["properties"]["redirect_uris"]["minItems"], 1);
     assert!(client["properties"]["federated_server"]["anyOf"].is_array());
     assert_eq!(
@@ -225,6 +240,74 @@ fn loads_public_client_host() {
             .client("username@WALLET.EXAMPLE.COM")
             .map(|client| client.client_id.as_str()),
         Some("client_id")
+    );
+}
+
+#[test]
+fn loads_client_password_file_relative_to_configuration() {
+    let password_file = PasswordFile::new(
+        "# generated fixture\nusername:$2y$05$4MDXTHOjtx8aCJ0k.Y/5leTGaeV.ffFF8jCeeA69BeQ.BvcTZZy06:fixture comment\n",
+    );
+    let file = ConfigFile::new(&format!(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    password_file: {}\n    redirect_uris: [https://client.example.com/callback]\n",
+        password_file.file_name()
+    ));
+
+    let config = Config::load_from_path(file.path()).expect("client password file should load");
+    let (contents, usernames) = config
+        .client_password_file("client_id")
+        .expect("client password file should be available");
+
+    assert!(contents.starts_with("username:$2y$"));
+    assert!(!contents.contains("fixture comment"));
+    assert_eq!(usernames, ["username"]);
+}
+
+#[test]
+fn rejects_missing_client_password_file() {
+    let missing = unique_password_path();
+    let file = ConfigFile::new(&format!(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    password_file: {}\n    redirect_uris: [https://client.example.com/callback]\n",
+        missing.display()
+    ));
+
+    let error = Config::load_from_path(file.path()).expect_err("missing password file should fail");
+
+    assert!(matches!(error, ConfigError::PasswordFileRead { .. }));
+    assert!(error.to_string().contains(&missing.display().to_string()));
+}
+
+#[test]
+fn rejects_invalid_client_password_files() {
+    for contents in ["", "missing-separator\n", ":password\n", "username:\n"] {
+        let password_file = PasswordFile::new(contents);
+        let file = ConfigFile::new(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    password_file: {}\n    redirect_uris: [https://client.example.com/callback]\n",
+            password_file.file_name()
+        ));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("invalid password file should fail at startup");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+    }
+}
+
+#[test]
+fn rejects_duplicate_client_password_file_usernames() {
+    let password_file = PasswordFile::new("username:first\nusername:second\n");
+    let file = ConfigFile::new(&format!(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    password_file: {}\n    redirect_uris: [https://client.example.com/callback]\n",
+        password_file.file_name()
+    ));
+
+    let error = Config::load_from_path(file.path()).expect_err("duplicate username should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("username must be unique: username")
     );
 }
 
@@ -700,10 +783,41 @@ impl Drop for ConfigFile {
     }
 }
 
+struct PasswordFile {
+    path: PathBuf,
+}
+
+impl PasswordFile {
+    fn new(contents: &str) -> Self {
+        let path = unique_password_path();
+        fs::write(&path, contents).expect("temporary password file should be written");
+        Self { path }
+    }
+
+    fn file_name(&self) -> &str {
+        self.path.file_name().unwrap().to_str().unwrap()
+    }
+}
+
+impl Drop for PasswordFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 fn unique_config_path() -> PathBuf {
     let id = NEXT_CONFIG_ID.fetch_add(1, Ordering::Relaxed);
 
     std::env::temp_dir().join(format!("kagome-config-{}-{id}.yaml", std::process::id()))
+}
+
+fn unique_password_path() -> PathBuf {
+    let id = NEXT_CONFIG_ID.fetch_add(1, Ordering::Relaxed);
+
+    std::env::temp_dir().join(format!(
+        "kagome-passwords-{}-{id}.htpasswd",
+        std::process::id()
+    ))
 }
 
 fn configuration_yaml(server: &str) -> String {

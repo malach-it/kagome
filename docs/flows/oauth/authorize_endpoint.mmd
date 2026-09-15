@@ -22,13 +22,13 @@ flowchart TD
     vp_sign -- no --> error
     vp_sign -- yes --> vp_success["`**HTTP 302** redirect URI with client_id, response_type, state-bound callback, and signed request`"]
     flow -- OAuth --> get_or_post{GET or POST?}
-    get_or_post -- GET --> optional_owner{Optional resource owner credentials valid?}
+    get_or_post -- GET --> optional_owner{Optional resource owner credentials valid for client password file?}
     optional_owner -- invalid --> error
     optional_owner -- absent --> federation{federated_server configured?}
     federation -- yes --> federated_redirect["`**HTTP 302** federated authorize endpoint with response_type code, client_id, callback redirect_uri, and encrypted parsed request attributes`"]
     federation -- no --> not_implemented["`**HTTP 501** local authentication not implemented`"]
     optional_owner -- valid --> generate
-    get_or_post -- POST --> required_owner{Required resource owner credentials valid?}
+    get_or_post -- POST --> required_owner{Required resource owner credentials valid for client password file?}
     required_owner -- no --> error
     required_owner -- yes --> generate{Generate requested response?}
     generate -- no --> error

@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env,
     error::Error,
     fmt, fs, io,
@@ -30,6 +30,15 @@ pub struct Config {
     /// OAuth clients accepted by the authorization server.
     #[schemars(length(min = 1))]
     pub clients: Vec<ClientConfig>,
+    #[serde(skip)]
+    #[schemars(skip)]
+    client_password_files: HashMap<PathBuf, ClientPasswordFile>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ClientPasswordFile {
+    contents: String,
+    usernames: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -83,6 +92,9 @@ pub struct ClientConfig {
     /// Secret used to authenticate the OAuth client at the token endpoint.
     #[schemars(length(min = 1))]
     pub client_secret: String,
+    /// Optional nginx-style resource-owner password file.
+    #[serde(default)]
+    pub password_file: Option<PathBuf>,
     /// Exact redirect URIs accepted for authorization responses.
     #[schemars(length(min = 1), inner(length(min = 1)))]
     pub redirect_uris: Vec<String>,
@@ -174,6 +186,18 @@ impl Config {
             })
     }
 
+    pub fn client_password_file(&self, client_id: &str) -> Option<(&str, &[String])> {
+        let configured_path = self.client(client_id)?.password_file.as_ref()?;
+        self.client_password_files
+            .get(configured_path)
+            .map(|password_file| {
+                (
+                    password_file.contents.as_str(),
+                    password_file.usernames.as_slice(),
+                )
+            })
+    }
+
     pub fn json_schema() -> Schema {
         SchemaGenerator::new(SchemaSettings::draft2020_12()).into_root_schema_for::<Self>()
     }
@@ -192,14 +216,46 @@ impl Config {
             path: path.to_owned(),
             source,
         })?;
-        let config: Self = serde_yaml_ng::from_str(&yaml).map_err(|source| ConfigError::Parse {
-            path: path.to_owned(),
-            source,
-        })?;
+        let mut config: Self =
+            serde_yaml_ng::from_str(&yaml).map_err(|source| ConfigError::Parse {
+                path: path.to_owned(),
+                source,
+            })?;
 
         config.validate(path)?;
+        config.load_client_password_files(path)?;
 
         Ok(config)
+    }
+
+    fn load_client_password_files(&mut self, config_path: &Path) -> Result<(), ConfigError> {
+        for client in &self.clients {
+            let Some(configured_path) = client.password_file.as_ref() else {
+                continue;
+            };
+            let password_file = if configured_path.is_absolute() {
+                configured_path.clone()
+            } else {
+                config_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .join(configured_path)
+            };
+            let contents = fs::read_to_string(&password_file).map_err(|source| {
+                ConfigError::PasswordFileRead {
+                    path: password_file.clone(),
+                    source,
+                }
+            })?;
+            let password_file_config =
+                parse_password_file(&contents).map_err(|message| ConfigError::Validation {
+                    path: password_file.clone(),
+                    message,
+                })?;
+            self.client_password_files
+                .insert(configured_path.clone(), password_file_config);
+        }
+        Ok(())
     }
 
     fn validate(&self, path: &Path) -> Result<(), ConfigError> {
@@ -263,6 +319,16 @@ impl Config {
                 return Err(ConfigError::Validation {
                     path: path.to_owned(),
                     message: format!("clients[{index}].client_secret must not be empty"),
+                });
+            }
+            if client
+                .password_file
+                .as_ref()
+                .is_some_and(|password_file| password_file.as_os_str().is_empty())
+            {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("clients[{index}].password_file must not be empty"),
                 });
             }
             if let Some(public) = client.public.as_deref() {
@@ -395,6 +461,49 @@ fn is_host(host: &str) -> bool {
         })
 }
 
+fn parse_password_file(contents: &str) -> Result<ClientPasswordFile, String> {
+    let mut normalized_contents = String::new();
+    let mut usernames = Vec::new();
+    let mut unique_usernames = HashSet::new();
+
+    for (index, line) in contents.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let Some((username, password_and_comment)) = line.split_once(':') else {
+            return Err(format!("line {} must contain username:password", index + 1));
+        };
+        let password = password_and_comment
+            .split_once(':')
+            .map_or(password_and_comment, |(value, _)| value);
+        if username.is_empty() || password.is_empty() {
+            return Err(format!(
+                "line {} must contain a non-empty username and password",
+                index + 1
+            ));
+        }
+        if !unique_usernames.insert(username) {
+            return Err(format!("username must be unique: {username}"));
+        }
+        normalized_contents.push_str(username);
+        normalized_contents.push(':');
+        normalized_contents.push_str(password);
+        normalized_contents.push('\n');
+        usernames.push(username.to_owned());
+    }
+
+    if usernames.is_empty() {
+        return Err("password file must contain at least one credential".to_owned());
+    }
+
+    Ok(ClientPasswordFile {
+        contents: normalized_contents,
+        usernames,
+    })
+}
+
 #[derive(Debug)]
 pub enum ConfigError {
     AlreadyInitialized,
@@ -405,6 +514,10 @@ pub enum ConfigError {
     Parse {
         path: PathBuf,
         source: serde_yaml_ng::Error,
+    },
+    PasswordFileRead {
+        path: PathBuf,
+        source: io::Error,
     },
     Validation {
         path: PathBuf,
@@ -430,6 +543,13 @@ impl fmt::Display for ConfigError {
                     path.display()
                 )
             }
+            Self::PasswordFileRead { path, source } => {
+                write!(
+                    formatter,
+                    "failed to read resource owner password file {}: {source}",
+                    path.display()
+                )
+            }
             Self::Validation { path, message } => {
                 write!(
                     formatter,
@@ -447,6 +567,7 @@ impl Error for ConfigError {
             Self::AlreadyInitialized => None,
             Self::Read { source, .. } => Some(source),
             Self::Parse { source, .. } => Some(source),
+            Self::PasswordFileRead { source, .. } => Some(source),
             Self::Validation { .. } => None,
         }
     }

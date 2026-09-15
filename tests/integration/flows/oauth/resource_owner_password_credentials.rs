@@ -6,6 +6,7 @@ use super::*;
 // - representation: form | JSON
 // - client_id: valid | missing | invalid
 // - client_secret: valid | missing | invalid
+// - client password file: configured | omitted
 // - username: first configured owner | second configured owner | missing | invalid
 // - password: valid | missing | invalid
 //
@@ -71,6 +72,15 @@ fn returns_oauth_error_for_invalid_password_grant_client_secret() {
     );
 
     assert_invalid_client_secret_response(&response);
+}
+
+#[test]
+fn returns_oauth_error_when_client_has_no_password_file() {
+    let response = send_form_token_request(
+        "client_id=federated_client&client_secret=federated_secret&grant_type=password&username=username&password=password",
+    );
+
+    assert_invalid_grant_response(&response, "username must be one of: ");
 }
 
 #[test]

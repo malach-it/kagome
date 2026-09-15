@@ -1,7 +1,7 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     start[Start authorization code flow] --> authorize[GET or POST /authorize]
-    authorize --> authorize_valid{Registered client or public username@host with matching redirect, and resource owner valid?}
+    authorize --> authorize_valid{Registered client or public username@host with matching redirect, and resource owner valid for client password file?}
     authorize_valid -- no --> authorize_error["`**HTTP 400** HTML authorization error or **HTTP 302** error redirect after client and redirect_uri revalidation`"]
     authorize_valid -- yes --> federated_post{POST and client federated?}
     federated_post -- yes --> authorize_error

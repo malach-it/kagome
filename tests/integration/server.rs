@@ -144,6 +144,7 @@ fn start_server() -> String {
     let mut config = kagome::config::Config::load_from_path(config_path)
         .expect("example configuration should load");
     config.clients[0].public = Some("example.com".to_owned());
+    let password_file = config.clients[0].password_file.clone();
     let mut federated_server = config.clients[0]
         .federated_server
         .take()
@@ -155,6 +156,7 @@ fn start_server() -> String {
         client_id: "configured_client".to_owned(),
         public: None,
         client_secret: "configured_secret".to_owned(),
+        password_file: password_file.clone(),
         redirect_uris: vec![
             "https://configured.example.com/callback".to_owned(),
             "https://configured.example.com/alternate".to_owned(),
@@ -166,6 +168,7 @@ fn start_server() -> String {
         client_id: "federated_client".to_owned(),
         public: None,
         client_secret: "federated_secret".to_owned(),
+        password_file: None,
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
         require_wallet_binding: false,
         federated_server: Some(federated_server),
@@ -174,6 +177,7 @@ fn start_server() -> String {
         client_id: "wallet_bound_client".to_owned(),
         public: None,
         client_secret: "wallet_bound_secret".to_owned(),
+        password_file,
         redirect_uris: vec!["https://wallet-bound.example.com/callback".to_owned()],
         require_wallet_binding: true,
         federated_server: None,

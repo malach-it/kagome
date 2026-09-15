@@ -1,11 +1,9 @@
-use crate::errors::{OAuthError, OAuthErrorCode};
+use htpasswd_verify::Htpasswd;
 
-pub const USERNAME: &str = "username";
-pub const PASSWORD: &str = "password";
-pub const OTHER_USERNAME: &str = "other_username";
-pub const OTHER_PASSWORD: &str = "other_password";
-pub const USERNAMES: [&str; 2] = [USERNAME, OTHER_USERNAME];
-const RESOURCE_OWNERS: [(&str, &str); 2] = [(USERNAME, PASSWORD), (OTHER_USERNAME, OTHER_PASSWORD)];
+use crate::{
+    config::Config,
+    errors::{OAuthError, OAuthErrorCode},
+};
 
 #[derive(Debug)]
 pub struct ResourceOwner {
@@ -13,6 +11,7 @@ pub struct ResourceOwner {
 }
 
 pub trait Validate {
+    fn client_id(&self) -> Option<&str>;
     fn request_username(&self) -> Option<&str>;
     fn request_password(&self) -> Option<&str>;
     fn client_id_username(&self) -> Option<&str> {
@@ -58,22 +57,32 @@ fn validate_resource_owner<T: Validate>(request: &T) -> Result<Option<ResourceOw
         .or_else(|| request.request_username())
         .ok_or_else(OAuthError::missing_username)?;
 
-    let Some((username, expected_password)) = RESOURCE_OWNERS
-        .iter()
-        .find(|(resource_owner_username, _)| *resource_owner_username == username)
-    else {
-        return Err(OAuthError::invalid_username(&USERNAMES));
+    let client_id = request
+        .client_id()
+        .ok_or_else(OAuthError::invalid_client_id)?;
+    let Some((passwords, usernames)) = Config::global().client_password_file(client_id) else {
+        return Err(OAuthError::invalid_username(&[]));
     };
+    if !usernames.iter().any(|configured| configured == username) {
+        let expected_usernames = usernames.iter().map(String::as_str).collect::<Vec<_>>();
+        return Err(OAuthError::invalid_username(&expected_usernames));
+    }
 
     let password = request
         .request_password()
         .ok_or_else(OAuthError::missing_password)?;
 
-    if password != *expected_password {
+    if !Htpasswd::from(passwords).check(username, password) {
         return Err(OAuthError::invalid_password());
     }
 
     Ok(Some(ResourceOwner {
-        username: (*username).to_owned(),
+        username: username.to_owned(),
     }))
+}
+
+pub fn configured_username(client_id: &str, username: &str) -> bool {
+    Config::global()
+        .client_password_file(client_id)
+        .is_some_and(|(_, usernames)| usernames.iter().any(|configured| configured == username))
 }

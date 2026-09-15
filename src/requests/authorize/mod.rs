@@ -36,7 +36,7 @@ pub(super) fn valid_authorize_client_id(client_id: &str, request: &KagomeRequest
 
     !username.is_empty()
         && client_host.eq_ignore_ascii_case(host)
-        && (has_password || resource_owner::USERNAMES.contains(&username))
+        && (has_password || resource_owner::configured_username(client_id, username))
 }
 
 pub(super) fn client_id_username(client_id: Option<&str>) -> Option<&str> {

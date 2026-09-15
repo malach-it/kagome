@@ -50,6 +50,14 @@
             }
           ]
         },
+        "password_file": {
+          "description": "Optional nginx-style resource-owner password file.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
         "public": {
           "description": "Host used to resolve dynamic `username@host` client identifiers.",
           "type": [

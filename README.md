@@ -43,6 +43,12 @@ Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
 error when the file cannot be read, contains invalid YAML or unknown fields, or
 configures invalid server settings or clients. Client IDs must be unique, and
 each client must have a non-empty secret and at least one redirect URI. The
+optional per-client `password_file` points to an nginx-style
+`name:password[:comment]` file. Relative paths are resolved from the YAML file,
+and credentials are loaded once at startup. A client without `password_file`
+cannot authenticate local resource owners. The committed
+`kagome.htpasswd.example` contains the example users; create the ignored local
+file with `htpasswd -B kagome.htpasswd username`. The
 optional per-client `require_wallet_binding` flag requires wallet presentation
 and credential-proof signatures to verify with the public key from the ID token
 carried by the incoming authorization `code`. Its default is `false`. The

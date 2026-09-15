@@ -283,6 +283,10 @@ impl<'a> metadata_policy::Validate for AuthorizeCodeRequest<'a> {
 }
 
 impl<'a> resource_owner::Validate for AuthorizeCodeRequest<'a> {
+    fn client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
     fn request_username(&self) -> Option<&str> {
         self.username.as_deref()
     }

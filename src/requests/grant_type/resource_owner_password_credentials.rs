@@ -113,6 +113,10 @@ impl grant_type::Validate for ResourceOwnerPasswordCredentialsRequest {
 }
 
 impl resource_owner::Validate for ResourceOwnerPasswordCredentialsRequest {
+    fn client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
     fn request_username(&self) -> Option<&str> {
         self.username.as_deref()
     }
