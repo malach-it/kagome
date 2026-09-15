@@ -1,0 +1,16 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /federation_callback] --> method{HTTP method GET?}
+    method -- no --> not_found["`**HTTP 404** not found`"]
+    method -- yes --> response{Authorization response?}
+    response -- code and error --> conflicting["`**HTTP 400** invalid_request: code and error conflict`"]
+    response -- empty code or error --> empty["`**HTTP 400** invalid_request: empty value`"]
+    response -- code --> state{AuthorizeLoginRequest from encrypted state?}
+    state -- no --> invalid_state["`**HTTP 400** invalid_request: invalid or expired state`"]
+    state -- yes --> token{Token request and response valid?}
+    token -- no --> token_error["`**HTTP 400** invalid_grant: token exchange failed`"]
+    token -- yes --> authorize{Continued authorize response generated?}
+    authorize -- no --> authorize_error["`**HTTP 400** authorize response error`"]
+    authorize -- yes --> accepted["`**HTTP 302** downstream authorize response`"]
+    response -- error --> upstream_error["`**HTTP 400** invalid_grant: federated server error`"]
+    response -- missing --> missing["`**HTTP 400** invalid_request: code or error required`"]

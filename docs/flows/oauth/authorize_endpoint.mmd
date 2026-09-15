@@ -5,16 +5,20 @@ flowchart TD
     method -- GET --> response_type
     method -- POST --> response_type{response_type supported and ordering valid?}
     response_type -- no --> error
-    response_type -- yes --> client{client_id and redirect_uri valid?}
+    response_type -- yes --> client{client_id accepted and redirect_uri configured?}
     client -- no --> error
-    client -- yes --> code{Incoming chained code absent or valid?}
+    client -- yes --> federated_post{POST and client federated?}
+    federated_post -- yes --> error
+    federated_post -- no --> code{Incoming chained code absent or valid?}
     code -- no --> error
     code -- yes --> policy{metadata_policy absent or valid?}
     policy -- no --> error
     policy -- yes --> get_or_post{GET or POST?}
     get_or_post -- GET --> optional_owner{Optional resource owner credentials valid?}
     optional_owner -- invalid --> error
-    optional_owner -- absent --> login["`**HTTP 200** login page`"]
+    optional_owner -- absent --> federation{federated_server configured?}
+    federation -- yes --> federated_redirect["`**HTTP 302** federated authorize endpoint with response_type code, client_id, callback redirect_uri, and encrypted parsed request attributes`"]
+    federation -- no --> login["`**HTTP 200** login page`"]
     optional_owner -- valid --> generate
     get_or_post -- POST --> required_owner{Required resource owner credentials valid?}
     required_owner -- no --> error

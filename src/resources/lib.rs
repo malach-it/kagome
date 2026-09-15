@@ -4,6 +4,7 @@ pub mod client_credentials;
 pub mod credential_access_token;
 pub mod credential_issuer;
 pub mod crypto;
+pub mod federated_server;
 pub mod grant_type;
 pub mod id_token;
 pub mod metadata_policy;

@@ -15,3 +15,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
 time = { version = "0.3.47", features = ["formatting"] }
+ureq = { version = "3.4", features = ["json"] }

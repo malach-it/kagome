@@ -4,12 +4,14 @@ use crate::{
         access_token_redirect_response, authorize_redirect_response,
         code_access_token_redirect_response, code_id_token_access_token_redirect_response,
         code_id_token_redirect_response, code_redirect_response,
-        id_token_access_token_redirect_response, id_token_redirect_response, login_page_response,
+        federated_authorize_redirect_response, id_token_access_token_redirect_response,
+        id_token_redirect_response, login_page_response,
     },
+    requests::FederationCallbackRequest,
     resources::{
         access_token::{self, AccessToken},
         authorization_code::{self, AuthorizationCode},
-        client_credentials,
+        client_credentials, federated_server,
         id_token::{self, IdToken},
         metadata_policy, resource_owner,
         response_type::{self, ResponseType},
@@ -48,6 +50,9 @@ pub struct AuthorizeLoginResponse {
     pub metadata_policy: Option<MetadataPolicy>,
     pub response_types: Vec<ResponseType>,
     pub next_response_types: Vec<ResponseType>,
+    pub federated_authorization: Option<federated_server::FederatedAuthorization>,
+    pub federation_authorization_code: Option<String>,
+    pub federated_access_token: Option<String>,
 }
 
 impl<'a> AuthorizeLoginRequest<'a> {
@@ -64,6 +69,39 @@ impl<'a> AuthorizeLoginRequest<'a> {
             username: None,
             password: None,
         }
+    }
+
+    pub fn from_state(
+        callback: FederationCallbackRequest,
+        request: &'a KagomeRequest,
+    ) -> Result<Self, OAuthError> {
+        let encoded_state = callback.state.as_deref().ok_or_else(|| {
+            OAuthError::invalid_request("federation callback state is invalid or expired")
+        })?;
+        let state = federated_server::decrypt_state(encoded_state)?;
+        let parameters = state.request_parameters;
+
+        if parameters.client_id.as_deref() != Some(state.client_id.as_str()) {
+            return Err(OAuthError::invalid_request(
+                "federation callback state is invalid or expired",
+            ));
+        }
+
+        let mut response = AuthorizeLoginResponse::empty();
+        response.federation_authorization_code = callback.response.authorization_code;
+
+        Ok(Self {
+            response,
+            request,
+            response_type: parameters.response_type,
+            client_id: parameters.client_id,
+            redirect_uri: parameters.redirect_uri,
+            state: parameters.state,
+            authorization_code: parameters.authorization_code,
+            metadata_policy: parameters.metadata_policy,
+            username: parameters.username,
+            password: parameters.password,
+        })
     }
 
     pub fn has_resource_owner(&self) -> bool {
@@ -154,12 +192,28 @@ impl<'a> AuthorizeLoginRequest<'a> {
         }
 
         let Some(authorization_code) = self.response.authorization_code.as_ref() else {
+            if let Some(authorization) = self.response.federated_authorization.as_ref() {
+                return Ok(federated_authorize_redirect_response(
+                    &authorization.authorize_endpoint,
+                    &authorization.client_id,
+                    &authorization.redirect_uri,
+                    &authorization.state,
+                ));
+            }
+
             return Ok(login_page_response(self));
         };
 
         if let Some(response_type) = response_type_query(&self.response.next_response_types) {
+            let restored_query_parameters = self.restored_query_parameters();
+            let query_parameters = if self.response.federated_access_token.is_some() {
+                &restored_query_parameters
+            } else {
+                &self.request.query_params
+            };
+
             return Ok(authorize_redirect_response(
-                &self.request.query_params,
+                query_parameters,
                 &response_type,
                 authorization_code,
             ));
@@ -174,6 +228,20 @@ impl<'a> AuthorizeLoginRequest<'a> {
 
     fn validated_authorization_code_client_id(&self) -> Option<&str> {
         self.response.client_id.as_deref()
+    }
+
+    fn restored_query_parameters(&self) -> Vec<(String, String)> {
+        [
+            ("response_type", self.response_type.as_ref()),
+            ("client_id", self.client_id.as_ref()),
+            ("redirect_uri", self.redirect_uri.as_ref()),
+            ("state", self.state.as_ref()),
+            ("code", self.authorization_code.as_ref()),
+            ("metadata_policy", self.metadata_policy.as_ref()),
+        ]
+        .into_iter()
+        .filter_map(|(name, value)| value.map(|value| (name.to_owned(), value.clone())))
+        .collect()
     }
 }
 
@@ -191,7 +259,50 @@ impl AuthorizeLoginResponse {
             metadata_policy: None,
             response_types: Vec::new(),
             next_response_types: Vec::new(),
+            federated_authorization: None,
+            federation_authorization_code: None,
+            federated_access_token: None,
         }
+    }
+}
+
+impl federated_server::Authorize for AuthorizeLoginRequest<'_> {
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
+    fn request_parameters(&self) -> federated_server::FederationRequestParameters {
+        federated_server::FederationRequestParameters {
+            response_type: self.response_type.clone(),
+            client_id: self.client_id.clone(),
+            redirect_uri: self.redirect_uri.clone(),
+            state: self.state.clone(),
+            authorization_code: self.authorization_code.clone(),
+            metadata_policy: self.metadata_policy.clone(),
+            username: self.username.clone(),
+            password: self.password.clone(),
+        }
+    }
+
+    fn add_federated_authorization(
+        &mut self,
+        authorization: federated_server::FederatedAuthorization,
+    ) {
+        self.response.federated_authorization = Some(authorization);
+    }
+}
+
+impl federated_server::ExchangeToken for AuthorizeLoginRequest<'_> {
+    fn federation_authorization_code(&self) -> Option<&str> {
+        self.response.federation_authorization_code.as_deref()
+    }
+
+    fn federation_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+
+    fn add_federated_access_token(&mut self, access_token: String) {
+        self.response.federated_access_token = Some(access_token);
     }
 }
 
@@ -214,9 +325,8 @@ impl<'a> client_credentials::Validate for AuthorizeLoginRequest<'a> {
         self.client_id.as_deref()
     }
 
-    fn valid_client_id(&self, client_id: &str) -> bool {
-        client_id == client_credentials::CLIENT_ID
-            || valid_authorize_client_id(client_id, self.request)
+    fn valid_unregistered_client_id(&self, client_id: &str) -> bool {
+        valid_authorize_client_id(client_id, self.request)
     }
 
     fn require_client_secret(&self) -> bool {
@@ -322,7 +432,7 @@ impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
     }
 
     fn require_username(&self) -> bool {
-        true
+        self.response.federated_access_token.is_none()
     }
 }
 

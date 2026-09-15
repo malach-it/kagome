@@ -11,12 +11,22 @@ static NEXT_CONFIG_ID: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn loads_server_configuration_from_yaml() {
-    let file = ConfigFile::new("server:\n  address: 127.0.0.1:4100\n  workers: 8\n");
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 8\n",
+    ));
 
     let config = Config::load_from_path(file.path()).expect("configuration should load");
 
     assert_eq!(config.server.address, "127.0.0.1:4100");
+    assert_eq!(config.server.issuer, "https://kagome.example.com");
     assert_eq!(config.server.workers, 8);
+    assert_eq!(config.clients[0].client_id, "client_id");
+    assert_eq!(config.clients[0].client_secret, "client_secret");
+    assert_eq!(
+        config.clients[0].redirect_uris,
+        ["https://client.example.com/callback"]
+    );
+    assert_eq!(config.clients[0].federated_server, None);
 }
 
 #[test]
@@ -26,7 +36,39 @@ fn example_configuration_matches_server_defaults() {
     let config = Config::load_from_path(path).expect("example configuration should load");
 
     assert_eq!(config.server.address, "0.0.0.0:4000");
+    assert_eq!(config.server.issuer, "http://localhost:4000");
     assert_eq!(config.server.workers, 4);
+    assert_eq!(config.clients.len(), 1);
+    let federated_server = config.clients[0]
+        .federated_server
+        .as_ref()
+        .expect("example configuration should enable federation");
+    assert_eq!(federated_server.client_id, "kagome");
+    assert_eq!(federated_server.client_secret, "federated_client_secret");
+    assert_eq!(
+        federated_server.authorize_endpoint,
+        "https://identity.example.com/authorize"
+    );
+    assert_eq!(
+        federated_server.token_endpoint,
+        "https://identity.example.com/token"
+    );
+}
+
+#[test]
+fn initializes_global_configuration_only_once() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("kagome.example.yaml");
+    let config = Config::load_from_path(&path).expect("example configuration should load");
+
+    let initialized = Config::set_global(config).expect("global configuration should initialize");
+
+    assert!(std::ptr::eq(initialized, Config::global()));
+    assert_eq!(initialized.clients[0].client_id, "client_id");
+
+    let second = Config::load_from_path(path).expect("example configuration should load again");
+    let error = Config::set_global(second).expect_err("second initialization should fail");
+
+    assert!(matches!(error, ConfigError::AlreadyInitialized));
 }
 
 #[test]
@@ -41,22 +83,71 @@ fn checked_in_json_schema_matches_configuration_types() {
 }
 
 #[test]
-fn json_schema_describes_server_constraints() {
+fn json_schema_describes_configuration_constraints() {
     let schema =
         serde_json::to_value(Config::json_schema()).expect("configuration schema should serialize");
     let server = &schema["$defs"]["ServerConfig"];
+    let client = &schema["$defs"]["ClientConfig"];
+    let federated_server = &schema["$defs"]["FederatedServerConfig"];
 
     assert_eq!(
         schema["$schema"],
         "https://json-schema.org/draft/2020-12/schema"
     );
     assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(schema["properties"]["clients"]["minItems"], 1);
     assert_eq!(server["additionalProperties"], false);
     assert_eq!(server["properties"]["address"]["minLength"], 1);
+    assert_eq!(server["properties"]["issuer"]["minLength"], 1);
+    assert_eq!(server["properties"]["issuer"]["format"], "uri");
     assert_eq!(server["properties"]["workers"]["minimum"], 1);
     assert_eq!(
         server["required"],
-        serde_json::json!(["address", "workers"])
+        serde_json::json!(["address", "issuer", "workers"])
+    );
+    assert_eq!(client["additionalProperties"], false);
+    assert_eq!(client["properties"]["client_id"]["minLength"], 1);
+    assert_eq!(client["properties"]["client_secret"]["minLength"], 1);
+    assert_eq!(client["properties"]["redirect_uris"]["minItems"], 1);
+    assert!(client["properties"]["federated_server"]["anyOf"].is_array());
+    assert_eq!(
+        client["properties"]["redirect_uris"]["items"]["minLength"],
+        1
+    );
+    assert_eq!(
+        client["required"],
+        serde_json::json!(["client_id", "client_secret", "redirect_uris"])
+    );
+    assert_eq!(federated_server["additionalProperties"], false);
+    assert_eq!(federated_server["properties"]["client_id"]["minLength"], 1);
+    assert_eq!(
+        federated_server["properties"]["client_secret"]["minLength"],
+        1
+    );
+    assert_eq!(
+        federated_server["properties"]["authorize_endpoint"]["minLength"],
+        1
+    );
+    assert_eq!(
+        federated_server["properties"]["authorize_endpoint"]["format"],
+        "uri"
+    );
+    assert_eq!(
+        federated_server["properties"]["token_endpoint"]["minLength"],
+        1
+    );
+    assert_eq!(
+        federated_server["properties"]["token_endpoint"]["format"],
+        "uri"
+    );
+    assert_eq!(
+        federated_server["required"],
+        serde_json::json!([
+            "client_id",
+            "client_secret",
+            "authorize_endpoint",
+            "token_endpoint"
+        ])
     );
 }
 
@@ -96,7 +187,9 @@ fn rejects_malformed_yaml_configuration() {
 
 #[test]
 fn rejects_configuration_with_missing_server_field() {
-    let file = ConfigFile::new("server:\n  address: 127.0.0.1:4100\n");
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n",
+    ));
 
     let error = Config::load_from_path(file.path()).expect_err("missing workers should fail");
 
@@ -105,8 +198,22 @@ fn rejects_configuration_with_missing_server_field() {
 }
 
 #[test]
+fn rejects_configuration_with_missing_server_issuer() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  address: 127.0.0.1:4100\n  workers: 4\n",
+    ));
+
+    let error = Config::load_from_path(file.path()).expect_err("missing issuer should fail");
+
+    assert!(matches!(error, ConfigError::Parse { .. }));
+    assert!(error.to_string().contains("missing field `issuer`"));
+}
+
+#[test]
 fn rejects_unknown_configuration_field() {
-    let file = ConfigFile::new("server:\n  address: 127.0.0.1:4100\n  workers: 4\n  timeout: 30\n");
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n  timeout: 30\n",
+    ));
 
     let error = Config::load_from_path(file.path()).expect_err("unknown field should fail");
 
@@ -116,7 +223,9 @@ fn rejects_unknown_configuration_field() {
 
 #[test]
 fn rejects_empty_server_address() {
-    let file = ConfigFile::new("server:\n  address: \"\"\n  workers: 4\n");
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: \"\"\n  workers: 4\n",
+    ));
 
     let error = Config::load_from_path(file.path()).expect_err("empty address should fail");
 
@@ -129,8 +238,42 @@ fn rejects_empty_server_address() {
 }
 
 #[test]
+fn rejects_empty_server_issuer() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: \"\"\n  address: 127.0.0.1:4100\n  workers: 4\n",
+    ));
+
+    let error = Config::load_from_path(file.path()).expect_err("empty issuer should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("server.issuer must be an absolute HTTP or HTTPS URL")
+    );
+}
+
+#[test]
+fn rejects_non_http_server_issuer() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: javascript:alert(1)\n  address: 127.0.0.1:4100\n  workers: 4\n",
+    ));
+
+    let error = Config::load_from_path(file.path()).expect_err("non-HTTP issuer should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("server.issuer must be an absolute HTTP or HTTPS URL")
+    );
+}
+
+#[test]
 fn rejects_zero_server_workers() {
-    let file = ConfigFile::new("server:\n  address: 127.0.0.1:4100\n  workers: 0\n");
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 0\n",
+    ));
 
     let error = Config::load_from_path(file.path()).expect_err("zero workers should fail");
 
@@ -140,6 +283,168 @@ fn rejects_zero_server_workers() {
             .to_string()
             .contains("server.workers must be greater than zero")
     );
+}
+
+#[test]
+fn rejects_empty_client_list() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients: []\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("empty clients should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("clients must contain at least one client")
+    );
+}
+
+#[test]
+fn rejects_duplicate_client_id() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: duplicate\n    client_secret: first\n    redirect_uris: [https://first.example.com/callback]\n  - client_id: duplicate\n    client_secret: second\n    redirect_uris: [https://second.example.com/callback]\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("duplicate client_id should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("client_id must be unique: duplicate")
+    );
+}
+
+#[test]
+fn rejects_empty_client_id() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: \"\"\n    client_secret: client_secret\n    redirect_uris: [https://client.example.com/callback]\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("empty client_id should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("clients[0].client_id must not be empty")
+    );
+}
+
+#[test]
+fn rejects_empty_client_secret() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: \"\"\n    redirect_uris: [https://client.example.com/callback]\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("empty client_secret should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("clients[0].client_secret must not be empty")
+    );
+}
+
+#[test]
+fn rejects_empty_client_redirect_uris() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: []\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("empty redirect_uris should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("clients[0].redirect_uris must not be empty")
+    );
+}
+
+#[test]
+fn rejects_empty_client_redirect_uri() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: [\"\"]\n",
+    );
+
+    let error = Config::load_from_path(file.path()).expect_err("empty redirect_uri should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("clients[0].redirect_uris must not contain empty values")
+    );
+}
+
+#[test]
+fn rejects_empty_federated_server_fields() {
+    for field in [
+        "client_id",
+        "client_secret",
+        "authorize_endpoint",
+        "token_endpoint",
+    ] {
+        let client_id = if field == "client_id" { "" } else { "kagome" };
+        let client_secret = if field == "client_secret" {
+            ""
+        } else {
+            "federated_client_secret"
+        };
+        let authorize_endpoint = if field == "authorize_endpoint" {
+            ""
+        } else {
+            "https://identity.example.com/authorize"
+        };
+        let token_endpoint = if field == "token_endpoint" {
+            ""
+        } else {
+            "https://identity.example.com/token"
+        };
+        let file = ConfigFile::new(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: \"{client_id}\"\n      client_secret: \"{client_secret}\"\n      authorize_endpoint: \"{authorize_endpoint}\"\n      token_endpoint: \"{token_endpoint}\"\n"
+        ));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("empty federated server field should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(error.to_string().contains(&format!(
+            "clients[0].federated_server.{field} must not be empty"
+        )));
+    }
+}
+
+#[test]
+fn rejects_incomplete_federated_server_configuration() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: kagome\n      client_secret: federated_client_secret\n      authorize_endpoint: https://identity.example.com/authorize\n",
+    );
+
+    let error = Config::load_from_path(file.path())
+        .expect_err("federated server without token_endpoint should fail");
+
+    assert!(matches!(error, ConfigError::Parse { .. }));
+    assert!(error.to_string().contains("missing field `token_endpoint`"));
+}
+
+#[test]
+fn rejects_non_http_federated_server_endpoint() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: kagome\n      client_secret: federated_client_secret\n      authorize_endpoint: javascript:alert(1)\n      token_endpoint: https://identity.example.com/token\n",
+    );
+
+    let error =
+        Config::load_from_path(file.path()).expect_err("non-HTTP federated endpoint should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(error.to_string().contains(
+        "clients[0].federated_server.authorize_endpoint must be an absolute HTTP or HTTPS URL"
+    ));
 }
 
 struct ConfigFile {
@@ -169,4 +474,10 @@ fn unique_config_path() -> PathBuf {
     let id = NEXT_CONFIG_ID.fetch_add(1, Ordering::Relaxed);
 
     std::env::temp_dir().join(format!("kagome-config-{}-{id}.yaml", std::process::id()))
+}
+
+fn configuration_yaml(server: &str) -> String {
+    format!(
+        "{server}clients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n"
+    )
 }

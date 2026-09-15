@@ -50,6 +50,12 @@ responses.
 
 ![Token endpoint](token_endpoint.svg)
 
+## `/federation_callback` Endpoint
+
+[Mermaid source](federation_callback.mmd)
+
+![Federation callback endpoint](federation_callback.svg)
+
 ## Review Checklist
 
 - Update the Mermaid source and rendered SVG together.

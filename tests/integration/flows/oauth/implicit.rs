@@ -9,7 +9,7 @@ use super::*;
 // - resource owner: first configured owner | second configured owner | missing username |
 //   invalid username | missing password | invalid password | invalid embedded credentials
 // - state: absent | present
-// - response: login page | access-token fragment | login error | redirect error
+// - response: federated redirect | access-token fragment | login error | redirect error
 //
 // `response_type=token` is fixed for this flow; missing, unsupported, and invalidly
 // ordered response types are endpoint-level cases covered by the authorize tests.
@@ -17,17 +17,17 @@ use super::*;
 // failure and cannot be reached through a valid deterministic HTTP request.
 
 #[test]
-fn returns_login_page_preserving_state_for_implicit_get_request() {
+fn redirects_implicit_get_request_to_federated_server() {
     let response = send_implicit_get(
-        "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&state=opaque%20state",
+        "response_type=token&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&state=opaque%20state",
     );
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
-    assert!(response.contains("response_type=token"));
-    assert!(response.contains("state=opaque%20state"));
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains(
+        "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Ffederation_callback&state="
+    ));
     assert!(!response.contains("access_token="));
+    assert!(!response.contains("<title>kagome login</title>"));
 }
 
 #[test]
@@ -88,10 +88,7 @@ fn returns_oauth_error_for_invalid_implicit_redirect_uri() {
         "username=username&password=password",
     );
 
-    assert_login_error(
-        &response,
-        "redirect_uri must be: https://client.example.com/callback",
-    );
+    assert_login_error(&response, "redirect_uri is invalid");
 }
 
 #[test]

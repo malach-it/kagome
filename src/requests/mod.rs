@@ -1,9 +1,11 @@
 mod authorize;
+mod federation_callback;
 mod grant_type;
 mod oid4vci;
 mod oid4vp;
 
 pub use authorize::{AuthorizeCodeRequest, AuthorizeCodeResponse, AuthorizeLoginRequest};
+pub use federation_callback::{FederationCallbackRequest, FederationCallbackResponse};
 pub use grant_type::{
     AuthorizationCodeRequest, AuthorizationCodeResponse, ClientCredentialsRequest,
     ClientCredentialsResponse, CodeChainAuthorizationCodeRequest,

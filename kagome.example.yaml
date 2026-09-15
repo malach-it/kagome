@@ -1,4 +1,15 @@
 # yaml-language-server: $schema=./kagome.schema.json
 server:
   address: 0.0.0.0:4000
+  issuer: http://localhost:4000
   workers: 4
+clients:
+  - client_id: client_id
+    client_secret: client_secret
+    redirect_uris:
+      - https://client.example.com/callback
+    federated_server:
+      client_id: kagome
+      client_secret: federated_client_secret
+      authorize_endpoint: https://identity.example.com/authorize
+      token_endpoint: https://identity.example.com/token

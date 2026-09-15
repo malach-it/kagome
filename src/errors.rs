@@ -126,11 +126,11 @@ impl OAuthError {
         )
     }
 
-    pub fn invalid_client_secret(expected_client_secret: &str) -> Self {
+    pub fn invalid_client_secret() -> Self {
         Self::new(
             OAuthErrorCode::InvalidClientSecret,
             "invalid_client",
-            format!("client_secret must be: {expected_client_secret}"),
+            "client_secret is invalid",
         )
     }
 
@@ -174,11 +174,11 @@ impl OAuthError {
         )
     }
 
-    pub fn invalid_redirect_uri(expected_redirect_uri: &str) -> Self {
+    pub fn invalid_redirect_uri() -> Self {
         Self::new(
             OAuthErrorCode::InvalidRedirectUri,
             "invalid_request",
-            format!("redirect_uri must be: {expected_redirect_uri}"),
+            "redirect_uri is invalid",
         )
     }
 

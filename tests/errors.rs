@@ -64,13 +64,13 @@ fn returns_missing_client_id_oauth_response() {
 
 #[test]
 fn returns_invalid_client_secret_oauth_response() {
-    let response = kagome::errors::OAuthError::invalid_client_secret("client_secret").to_response();
+    let response = kagome::errors::OAuthError::invalid_client_secret().to_response();
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"invalid_client\""));
-    assert!(response.contains("\"error_description\":\"client_secret must be: client_secret\""));
+    assert!(response.contains("\"error_description\":\"client_secret is invalid\""));
 }
 
 #[test]

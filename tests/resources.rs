@@ -1,3 +1,12 @@
+fn configured_clients() -> Vec<kagome::config::ClientConfig> {
+    vec![kagome::config::ClientConfig {
+        client_id: "client_id".to_owned(),
+        client_secret: "client_secret".to_owned(),
+        redirect_uris: vec!["https://client.example.com/callback".to_owned()],
+        federated_server: None,
+    }]
+}
+
 mod resources {
     mod access_token {
         #[test]
@@ -228,6 +237,77 @@ mod resources {
         }
     }
 
+    mod federated_server {
+        #[test]
+        fn redirects_to_configured_authorize_endpoint() {
+            let request = authorize_request();
+            let authorize_request = validated_authorize_request(&request);
+            let federated_server = kagome::config::FederatedServerConfig {
+                client_id: "kagome".to_owned(),
+                client_secret: "federated_client_secret".to_owned(),
+                authorize_endpoint: "https://identity.example.com/authorize".to_owned(),
+                token_endpoint: "https://identity.example.com/token".to_owned(),
+            };
+            let authorize_request = kagome::resources::federated_server::authorize_with_server(
+                authorize_request,
+                &federated_server,
+                "https://kagome.example.com/",
+            )
+            .unwrap();
+
+            let response = authorize_request.to_response().unwrap();
+
+            assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+            assert!(response.contains(
+                "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=https%3A%2F%2Fkagome.example.com%2Ffederation_callback&state="
+            ));
+            assert!(!response.contains("kagome login"));
+        }
+
+        #[test]
+        fn retains_login_page_when_federated_server_is_not_configured() {
+            let request = authorize_request();
+            let authorize_request = validated_authorize_request(&request);
+
+            let response = authorize_request.to_response().unwrap();
+
+            assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+            assert!(response.contains("<title>kagome login</title>"));
+        }
+
+        fn validated_authorize_request<'a>(
+            request: &'a kagome::unit::KagomeRequest,
+        ) -> kagome::requests::AuthorizeLoginRequest<'a> {
+            let authorize_request = kagome::requests::AuthorizeLoginRequest::from_request(request);
+            let authorize_request =
+                kagome::resources::response_type::validate(authorize_request).unwrap();
+
+            kagome::resources::client_credentials::validate_with_clients(
+                authorize_request,
+                &crate::configured_clients(),
+            )
+            .unwrap()
+        }
+
+        fn authorize_request() -> kagome::unit::KagomeRequest {
+            kagome::unit::KagomeRequest {
+                method: "GET".to_owned(),
+                path: "/authorize".to_owned(),
+                protocol: "HTTP/1.1".to_owned(),
+                headers: Vec::new(),
+                query_params: vec![
+                    ("response_type".to_owned(), "code".to_owned()),
+                    ("client_id".to_owned(), "client_id".to_owned()),
+                    (
+                        "redirect_uri".to_owned(),
+                        "https://client.example.com/callback".to_owned(),
+                    ),
+                ],
+                body: String::new(),
+            }
+        }
+    }
+
     mod authorization_code {
         #[test]
         fn generates_cose_encrypt0_containing_client_id_and_id_token() {
@@ -383,8 +463,9 @@ mod resources {
                 Some("id_token"),
                 Some("app"),
             );
-            let token_response = kagome::resources::client_credentials::validate(
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
                 kagome::handlers::token::CodeChainRequest::empty(&request),
+                &crate::configured_clients(),
             )
             .unwrap();
             let error = kagome::resources::authorization_code::validate_optional(token_response)
@@ -417,8 +498,9 @@ mod resources {
                     .as_ref()
                     .map(|authorization_code| authorization_code.value.as_str()),
             );
-            let token_response = kagome::resources::client_credentials::validate(
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
                 kagome::handlers::token::CodeChainRequest::empty(&request),
+                &crate::configured_clients(),
             )
             .unwrap();
             let error = kagome::resources::authorization_code::validate_optional(token_response)
@@ -480,8 +562,9 @@ mod resources {
         #[test]
         fn returns_oauth_error_for_missing_id_token() {
             let request = token_request(Some("client_id"), None);
-            let token_response = kagome::resources::client_credentials::validate(
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
                 kagome::handlers::token::CodeChainRequest::empty(&request),
+                &crate::configured_clients(),
             )
             .unwrap();
             let error =
@@ -632,8 +715,11 @@ mod resources {
         fn validates_client_id() {
             let request = token_request(Some("client_id"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let token_response =
-                kagome::resources::client_credentials::validate(token_response).unwrap();
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap();
 
             assert_eq!(
                 token_response.response.client_id,
@@ -650,8 +736,11 @@ mod resources {
         fn returns_oauth_error_for_missing_client_id() {
             let request = token_request(None);
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let error =
-                kagome::resources::client_credentials::validate(token_response).unwrap_err();
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap_err();
 
             assert_eq!(error.error, "invalid_client");
             assert_eq!(error.error_description, "client_id is required");
@@ -661,8 +750,11 @@ mod resources {
         fn returns_oauth_error_for_invalid_client_id() {
             let request = token_request(Some("app"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let error =
-                kagome::resources::client_credentials::validate(token_response).unwrap_err();
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap_err();
 
             assert_eq!(error.error, "invalid_client");
             assert_eq!(error.error_description, "client_id is invalid");
@@ -691,16 +783,18 @@ mod resources {
 
         #[test]
         fn validates_redirect_uri_for_authorize_request() {
-            let request =
-                authorize_request(Some(kagome::resources::client_credentials::REDIRECT_URI));
+            let request = authorize_request(Some("https://client.example.com/callback"));
             let authorize_response =
                 kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
-            let authorize_response =
-                kagome::resources::client_credentials::validate(authorize_response).unwrap();
+            let authorize_response = kagome::resources::client_credentials::validate_with_clients(
+                authorize_response,
+                &crate::configured_clients(),
+            )
+            .unwrap();
 
             assert_eq!(
                 authorize_response.response.redirect_uri,
-                Some(kagome::resources::client_credentials::REDIRECT_URI.to_owned())
+                Some("https://client.example.com/callback".to_owned())
             );
         }
 
@@ -709,8 +803,11 @@ mod resources {
             let request = authorize_request(None);
             let authorize_response =
                 kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
-            let error =
-                kagome::resources::client_credentials::validate(authorize_response).unwrap_err();
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                authorize_response,
+                &crate::configured_clients(),
+            )
+            .unwrap_err();
 
             assert_eq!(error.error, "invalid_request");
             assert_eq!(error.error_description, "redirect_uri is required");
@@ -721,14 +818,14 @@ mod resources {
             let request = authorize_request(Some("https://app.example.com/callback"));
             let authorize_response =
                 kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
-            let error =
-                kagome::resources::client_credentials::validate(authorize_response).unwrap_err();
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                authorize_response,
+                &crate::configured_clients(),
+            )
+            .unwrap_err();
 
             assert_eq!(error.error, "invalid_request");
-            assert_eq!(
-                error.error_description,
-                "redirect_uri must be: https://client.example.com/callback"
-            );
+            assert_eq!(error.error_description, "redirect_uri is invalid");
         }
 
         fn token_request(client_id: Option<&str>) -> kagome::unit::KagomeRequest {
@@ -781,8 +878,11 @@ mod resources {
         fn validates_client_secret() {
             let request = token_request(Some("client_secret"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let token_response =
-                kagome::resources::client_credentials::validate(token_response).unwrap();
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap();
 
             assert_eq!(
                 token_response.response.client_secret,
@@ -799,8 +899,11 @@ mod resources {
         fn returns_oauth_error_for_missing_client_secret() {
             let request = token_request(None);
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let error =
-                kagome::resources::client_credentials::validate(token_response).unwrap_err();
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap_err();
 
             assert_eq!(error.error, "invalid_client");
             assert_eq!(error.error_description, "client_secret is required");
@@ -810,14 +913,14 @@ mod resources {
         fn returns_oauth_error_for_invalid_client_secret() {
             let request = token_request(Some("app"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let error =
-                kagome::resources::client_credentials::validate(token_response).unwrap_err();
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap_err();
 
             assert_eq!(error.error, "invalid_client");
-            assert_eq!(
-                error.error_description,
-                "client_secret must be: client_secret"
-            );
+            assert_eq!(error.error_description, "client_secret is invalid");
         }
 
         fn token_request(client_secret: Option<&str>) -> kagome::unit::KagomeRequest {
@@ -1160,8 +1263,11 @@ mod resources {
         fn converts_validated_token_response_to_response() {
             let request = token_request(Some("client_credentials"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let token_response =
-                kagome::resources::client_credentials::validate(token_response).unwrap();
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap();
             let token_response = kagome::resources::grant_type::validate(token_response).unwrap();
             let token_response = kagome::resources::access_token::generate(token_response).unwrap();
 
@@ -1182,8 +1288,11 @@ mod resources {
         fn returns_oauth_error_when_token_response_has_no_access_token() {
             let request = token_request(Some("client_credentials"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let token_response =
-                kagome::resources::client_credentials::validate(token_response).unwrap();
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap();
             let token_response = kagome::resources::grant_type::validate(token_response).unwrap();
 
             let error = token_response.to_response().unwrap_err();
@@ -1226,8 +1335,11 @@ mod resources {
         fn converts_token_response_with_no_client_secret_to_response() {
             let request = token_request(Some("client_credentials"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let token_response =
-                kagome::resources::client_credentials::validate(token_response).unwrap();
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap();
             let token_response = kagome::resources::grant_type::validate(token_response).unwrap();
             let token_response = kagome::resources::access_token::generate(token_response).unwrap();
 
@@ -1242,8 +1354,11 @@ mod resources {
         fn converts_token_response_with_no_grant_type_to_response() {
             let request = token_request(Some("client_credentials"));
             let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
-            let token_response =
-                kagome::resources::client_credentials::validate(token_response).unwrap();
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &crate::configured_clients(),
+            )
+            .unwrap();
             let token_response = kagome::resources::access_token::generate(token_response).unwrap();
 
             let response = token_response.to_response().unwrap();

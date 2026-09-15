@@ -8,28 +8,38 @@ use super::super::*;
 // - response_type: code | token | id_token | supported hybrid combinations |
 //   chained code | missing | unsupported | invalid ordering
 // - resource owner: form credentials | client_id credentials | missing | invalid
-// - client_id and redirect_uri: valid | missing | invalid
+// - client_id: local | second local | federated | resource-owner form | missing |
+//   unconfigured
+// - redirect_uri: matching first URI | matching alternate URI | another client's URI |
+//   missing | invalid
 // - metadata policy: missing | valid string | valid username superset | invalid |
 //   username mismatch
+// - federation: configured redirect | local login fallback (resource-level coverage)
 // Error rendering is covered for login-page and redirect response formats.
 
 #[test]
-fn returns_login_page_for_authorize_get_request() {
+fn redirects_authorize_get_request_to_federated_server() {
     let response = send_authorize_request(&format!(
-        "response_type=code&client_id=client_id&redirect_uri={}",
+        "response_type=code&client_id=federated_client&redirect_uri={}",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert_federated_authorize_redirect(&response);
+}
+
+#[test]
+fn rejects_authorize_post_request_for_federated_client() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=federated_client&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("connection: close\r\n"));
-    assert!(response.contains("<title>kagome login</title>"));
-    assert!(response.contains("<form method=\"post\" action=\"/authorize?"));
-    assert!(response.contains("response_type=code"));
-    assert!(response.contains("client_id=client_id"));
-    assert!(response.contains("redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"));
-    assert!(response.contains("name=\"username\""));
-    assert!(response.contains("name=\"password\""));
+    assert!(
+        response
+            .contains("<p role=\"alert\">POST /authorize is disabled for federated clients</p>")
+    );
 }
 
 #[test]
@@ -75,6 +85,16 @@ fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
     assert!(response.contains("location: https://client.example.com/callback?code="));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
+}
+
+#[test]
+fn redirects_to_alternate_uri_for_second_configured_client() {
+    let response = send_post_authorize_request(
+        "response_type=code&client_id=configured_client&redirect_uri=https%3A%2F%2Fconfigured.example.com%2Falternate",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://configured.example.com/alternate?code="));
 }
 
 #[test]
@@ -506,7 +526,7 @@ fn redirects_oauth_error_for_invalid_redirect_uri_with_client_id_resource_owner_
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://app.example.com/callback?error=invalid_request&error_description=redirect_uri%20must%20be%3A%20https%3A%2F%2Fclient.example.com%2Fcallback\r\n"
+        "location: https://app.example.com/callback?error=invalid_request&error_description=redirect_uri%20is%20invalid\r\n"
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
@@ -759,9 +779,18 @@ fn returns_oauth_error_for_invalid_authorize_redirect_uri() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains(
-        "<p role=\"alert\">redirect_uri must be: https://client.example.com/callback</p>"
-    ));
+    assert!(response.contains("<p role=\"alert\">redirect_uri is invalid</p>"));
+}
+
+#[test]
+fn returns_oauth_error_for_redirect_uri_registered_to_another_client() {
+    let response = send_post_authorize_request(
+        "response_type=code&client_id=client_id&redirect_uri=https%3A%2F%2Fconfigured.example.com%2Fcallback",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">redirect_uri is invalid</p>"));
 }
 
 #[test]
@@ -831,6 +860,16 @@ fn send_authorize_request(query: &str) -> String {
     send_request(&format!(
         "GET /authorize?{query} HTTP/1.1\r\nhost: example.com\r\n\r\n"
     ))
+}
+
+fn assert_federated_authorize_redirect(response: &str) {
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains(
+        "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Ffederation_callback&state="
+    ));
+    assert!(response.contains("content-length: 0\r\n"));
+    assert!(response.contains("connection: close\r\n"));
+    assert!(!response.contains("<title>kagome login</title>"));
 }
 
 fn send_post_authorize_request(query: &str) -> String {

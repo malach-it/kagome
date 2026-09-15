@@ -1,6 +1,7 @@
 mod authorization_code;
 mod client_credentials;
 mod code_chain;
+mod federation_callback;
 mod implicit;
 mod resource_owner_password_credentials;
 
@@ -45,7 +46,7 @@ fn assert_invalid_client_secret_response(response: &str) {
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"invalid_client\""));
-    assert!(response.contains("\"error_description\":\"client_secret must be: client_secret\""));
+    assert!(response.contains("\"error_description\":\"client_secret is invalid\""));
 }
 
 fn assert_missing_client_secret_response(response: &str) {

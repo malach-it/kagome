@@ -11,9 +11,9 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let config = kagome::config::Config::load()?;
+    let config = kagome::config::Config::initialize()?;
 
-    kagome::http_server::serve_with_workers(config.server.address, config.server.workers)?;
+    kagome::http_server::serve_with_workers(&config.server.address, config.server.workers)?;
 
     Ok(())
 }

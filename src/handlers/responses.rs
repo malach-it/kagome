@@ -121,6 +121,31 @@ pub fn code_redirect_response(
     )
 }
 
+pub fn federated_authorize_redirect_response(
+    authorize_endpoint: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    state: &str,
+) -> String {
+    let location = append_query_parameter(authorize_endpoint, "response_type", "code");
+    let location = append_query_parameter(
+        &location,
+        "client_id",
+        &percent_encode_query_value(client_id),
+    );
+    let location = append_query_parameter(
+        &location,
+        "redirect_uri",
+        &percent_encode_query_value(redirect_uri),
+    );
+    let location = append_query_parameter(&location, "state", &percent_encode_query_value(state));
+
+    format!(
+        "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        location
+    )
+}
+
 pub fn access_token_redirect_response(
     redirect_uri: &str,
     access_token: &AccessToken,
@@ -369,7 +394,15 @@ impl ResponseLog for AuthorizeLoginRequest<'_> {
     }
 
     fn log_success(&self) {
-        log_authorize_success("login", &[("request.method", "GET".to_owned())]);
+        let flow = if self.response.federated_authorization.is_some() {
+            "federated_redirect"
+        } else if self.response.federated_access_token.is_some() {
+            "federation_callback"
+        } else {
+            "login"
+        };
+
+        log_authorize_success(flow, &[("request.method", "GET".to_owned())]);
     }
 }
 

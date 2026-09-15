@@ -3,8 +3,12 @@ flowchart TD
     start[Start authorization code flow] --> authorize[GET or POST /authorize]
     authorize --> authorize_valid{Authorization request and resource owner valid?}
     authorize_valid -- no --> authorize_error["`**HTTP 400** login error or **HTTP 302** error redirect`"]
-    authorize_valid -- yes --> owner{Resource owner authenticated?}
-    owner -- no --> login["`**HTTP 200** login page`"]
+    authorize_valid -- yes --> federated_post{POST and client federated?}
+    federated_post -- yes --> authorize_error
+    federated_post -- no --> owner{Resource owner authenticated?}
+    owner -- no --> federation{Client has federated_server?}
+    federation -- yes --> federated_redirect["`**HTTP 302** federated authorize endpoint with response_type code, client_id, callback redirect_uri, and encrypted parsed request attributes`"]
+    federation -- no --> login["`**HTTP 200** login page`"]
     owner -- yes --> issue{Authorization code generated?}
     issue -- no --> issue_error["`**HTTP 400** authorization response error`"]
     issue -- yes --> redirect["`**HTTP 302** redirect with code`"]

@@ -1,8 +1,10 @@
 use std::{
+    collections::HashSet,
     env,
     error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings};
@@ -11,11 +13,16 @@ use serde::Deserialize;
 pub const CONFIG_PATH_ENV_VAR: &str = "KAGOME_CONFIG";
 pub const DEFAULT_CONFIG_PATH: &str = "kagome.yaml";
 
+static CONFIG: OnceLock<Config> = OnceLock::new();
+
 #[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// HTTP server settings.
     pub server: ServerConfig,
+    /// OAuth clients accepted by the authorization server.
+    #[schemars(length(min = 1))]
+    pub clients: Vec<ClientConfig>,
 }
 
 #[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -24,12 +31,68 @@ pub struct ServerConfig {
     /// Socket address on which the HTTP server listens.
     #[schemars(length(min = 1))]
     pub address: String,
+    /// Public HTTP origin used to construct callback URLs.
+    #[schemars(length(min = 1), url)]
+    pub issuer: String,
     /// Number of HTTP request worker threads.
     #[schemars(range(min = 1))]
     pub workers: usize,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ClientConfig {
+    /// Public identifier of the OAuth client.
+    #[schemars(length(min = 1))]
+    pub client_id: String,
+    /// Secret used to authenticate the OAuth client at the token endpoint.
+    #[schemars(length(min = 1))]
+    pub client_secret: String,
+    /// Exact redirect URIs accepted for authorization responses.
+    #[schemars(length(min = 1), inner(length(min = 1)))]
+    pub redirect_uris: Vec<String>,
+    /// Upstream OAuth server used to federate identities for this client.
+    pub federated_server: Option<FederatedServerConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FederatedServerConfig {
+    /// Client identifier used to authenticate Kagome to the federated server.
+    #[schemars(length(min = 1))]
+    pub client_id: String,
+    /// Client secret used to authenticate Kagome to the federated server.
+    #[schemars(length(min = 1))]
+    pub client_secret: String,
+    /// Federated server endpoint to which authorization requests are sent.
+    #[schemars(length(min = 1), url)]
+    pub authorize_endpoint: String,
+    /// Federated server endpoint at which authorization codes are exchanged.
+    #[schemars(length(min = 1), url)]
+    pub token_endpoint: String,
+}
+
 impl Config {
+    pub fn initialize() -> Result<&'static Self, ConfigError> {
+        Self::set_global(Self::load()?)
+    }
+
+    pub fn set_global(config: Self) -> Result<&'static Self, ConfigError> {
+        CONFIG
+            .set(config)
+            .map_err(|_| ConfigError::AlreadyInitialized)?;
+
+        Ok(CONFIG
+            .get()
+            .expect("configuration must be available after initialization"))
+    }
+
+    pub fn global() -> &'static Self {
+        CONFIG
+            .get()
+            .expect("configuration must be initialized at startup")
+    }
+
     pub fn json_schema() -> Schema {
         SchemaGenerator::new(SchemaSettings::draft2020_12()).into_root_schema_for::<Self>()
     }
@@ -62,23 +125,130 @@ impl Config {
         if self.server.address.trim().is_empty() {
             return Err(ConfigError::Validation {
                 path: path.to_owned(),
-                message: "server.address must not be empty",
+                message: "server.address must not be empty".to_owned(),
+            });
+        }
+
+        if !is_http_endpoint(&self.server.issuer) {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "server.issuer must be an absolute HTTP or HTTPS URL".to_owned(),
             });
         }
 
         if self.server.workers == 0 {
             return Err(ConfigError::Validation {
                 path: path.to_owned(),
-                message: "server.workers must be greater than zero",
+                message: "server.workers must be greater than zero".to_owned(),
             });
+        }
+
+        if self.clients.is_empty() {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "clients must contain at least one client".to_owned(),
+            });
+        }
+
+        let mut client_ids = HashSet::new();
+        for (index, client) in self.clients.iter().enumerate() {
+            if client.client_id.trim().is_empty() {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("clients[{index}].client_id must not be empty"),
+                });
+            }
+            if !client_ids.insert(client.client_id.as_str()) {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("client_id must be unique: {}", client.client_id),
+                });
+            }
+            if client.client_secret.trim().is_empty() {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("clients[{index}].client_secret must not be empty"),
+                });
+            }
+            if client.redirect_uris.is_empty() {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("clients[{index}].redirect_uris must not be empty"),
+                });
+            }
+            if client
+                .redirect_uris
+                .iter()
+                .any(|redirect_uri| redirect_uri.trim().is_empty())
+            {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "clients[{index}].redirect_uris must not contain empty values"
+                    ),
+                });
+            }
+            if let Some(federated_server) = &client.federated_server {
+                for (field, value) in [
+                    ("client_id", federated_server.client_id.as_str()),
+                    ("client_secret", federated_server.client_secret.as_str()),
+                    (
+                        "authorize_endpoint",
+                        federated_server.authorize_endpoint.as_str(),
+                    ),
+                    ("token_endpoint", federated_server.token_endpoint.as_str()),
+                ] {
+                    if value.trim().is_empty() {
+                        return Err(ConfigError::Validation {
+                            path: path.to_owned(),
+                            message: format!(
+                                "clients[{index}].federated_server.{field} must not be empty"
+                            ),
+                        });
+                    }
+                }
+                for (field, endpoint) in [
+                    (
+                        "authorize_endpoint",
+                        federated_server.authorize_endpoint.as_str(),
+                    ),
+                    ("token_endpoint", federated_server.token_endpoint.as_str()),
+                ] {
+                    if !is_http_endpoint(endpoint) {
+                        return Err(ConfigError::Validation {
+                            path: path.to_owned(),
+                            message: format!(
+                                "clients[{index}].federated_server.{field} must be an absolute HTTP or HTTPS URL"
+                            ),
+                        });
+                    }
+                }
+            }
         }
 
         Ok(())
     }
 }
 
+fn is_http_endpoint(endpoint: &str) -> bool {
+    let authority_and_path = endpoint
+        .strip_prefix("https://")
+        .or_else(|| endpoint.strip_prefix("http://"));
+
+    authority_and_path.is_some_and(|value| {
+        value
+            .split(['/', '?', '#'])
+            .next()
+            .is_some_and(|authority| !authority.is_empty())
+            && !value
+                .chars()
+                .any(|character| character.is_ascii_control() || character.is_whitespace())
+    })
+}
+
 #[derive(Debug)]
 pub enum ConfigError {
+    AlreadyInitialized,
     Read {
         path: PathBuf,
         source: io::Error,
@@ -89,13 +259,14 @@ pub enum ConfigError {
     },
     Validation {
         path: PathBuf,
-        message: &'static str,
+        message: String,
     },
 }
 
 impl fmt::Display for ConfigError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::AlreadyInitialized => write!(formatter, "configuration is already initialized"),
             Self::Read { path, source } => {
                 write!(
                     formatter,
@@ -124,6 +295,7 @@ impl fmt::Display for ConfigError {
 impl Error for ConfigError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::AlreadyInitialized => None,
             Self::Read { source, .. } => Some(source),
             Self::Parse { source, .. } => Some(source),
             Self::Validation { .. } => None,

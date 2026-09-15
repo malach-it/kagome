@@ -1,8 +1,8 @@
 use crate::{
     errors::OAuthError,
     resources::{
-        access_token, authorization_code, client_credentials, id_token, metadata_policy,
-        resource_owner,
+        access_token, authorization_code, client_credentials, federated_server, id_token,
+        metadata_policy, resource_owner,
         response_type::{self, ResponseType},
     },
     unit::KagomeRequest,
@@ -35,13 +35,14 @@ fn handle_authorization_request(request: &KagomeRequest) -> String {
                 }
             }
         }
-        Ok(authorize_request) => match logged_response(authorize_request) {
-            Ok(response) => response,
-            Err(error) => {
-                log_authorize_failure(&error);
-                authorize_error_response(request, error)
-            }
-        },
+        Ok(authorize_request) => match federated_server::configuration(&authorize_request) {
+            Some(_) => federated_server::authorize(authorize_request).and_then(logged_response),
+            None => logged_response(authorize_request),
+        }
+        .unwrap_or_else(|error| {
+            log_authorize_failure(&error);
+            authorize_error_response(request, error)
+        }),
         Err(error) => {
             log_authorize_failure(&error);
             authorize_error_response(request, error)
@@ -74,7 +75,7 @@ where
 
 trait GenerateAuthorizeResponse {
     fn response_types(&self) -> &[ResponseType];
-    fn has_valid_resource_owner(&self) -> bool;
+    fn is_authenticated(&self) -> bool;
 }
 
 impl GenerateAuthorizeResponse for AuthorizeLoginRequest<'_> {
@@ -82,8 +83,8 @@ impl GenerateAuthorizeResponse for AuthorizeLoginRequest<'_> {
         &self.response.response_types
     }
 
-    fn has_valid_resource_owner(&self) -> bool {
-        self.response.username.is_some()
+    fn is_authenticated(&self) -> bool {
+        self.response.username.is_some() || self.response.federated_access_token.is_some()
     }
 }
 
@@ -92,9 +93,19 @@ impl GenerateAuthorizeResponse for AuthorizeCodeRequest<'_> {
         &self.response.response_types
     }
 
-    fn has_valid_resource_owner(&self) -> bool {
+    fn is_authenticated(&self) -> bool {
         self.response.username.is_some()
     }
+}
+
+pub fn continue_federated_authorize(
+    authorize_request: AuthorizeLoginRequest<'_>,
+) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
+    validate_authorize(authorize_request)
+        .and_then(authorization_code::validate_optional)
+        .and_then(metadata_policy::validate)
+        .and_then(federated_server::request_access_token)
+        .and_then(generate_response)
 }
 
 fn generate_response<T>(authorize_request: T) -> Result<T, OAuthError>
@@ -109,32 +120,26 @@ where
             ResponseType::Code,
             ResponseType::IdToken,
             ResponseType::Token,
-        ] if authorize_request.has_valid_resource_owner() => {
+        ] if authorize_request.is_authenticated() => {
             authorization_code::generate(authorize_request)
                 .and_then(id_token::generate)
                 .and_then(access_token::generate)
         }
-        [ResponseType::Code, ResponseType::Token]
-            if authorize_request.has_valid_resource_owner() =>
-        {
+        [ResponseType::Code, ResponseType::Token] if authorize_request.is_authenticated() => {
             authorization_code::generate(authorize_request).and_then(access_token::generate)
         }
-        [ResponseType::Code, ResponseType::IdToken]
-            if authorize_request.has_valid_resource_owner() =>
-        {
+        [ResponseType::Code, ResponseType::IdToken] if authorize_request.is_authenticated() => {
             authorization_code::generate(authorize_request).and_then(id_token::generate)
         }
-        [ResponseType::IdToken, ResponseType::Token]
-            if authorize_request.has_valid_resource_owner() =>
-        {
+        [ResponseType::IdToken, ResponseType::Token] if authorize_request.is_authenticated() => {
             id_token::generate(authorize_request).and_then(access_token::generate)
         }
         [ResponseType::IdToken, ResponseType::Token] => Err(OAuthError::missing_username()),
-        [ResponseType::Token] if authorize_request.has_valid_resource_owner() => {
+        [ResponseType::Token] if authorize_request.is_authenticated() => {
             access_token::generate(authorize_request)
         }
         [ResponseType::Token] => Err(OAuthError::missing_username()),
-        [ResponseType::IdToken] if authorize_request.has_valid_resource_owner() => {
+        [ResponseType::IdToken] if authorize_request.is_authenticated() => {
             id_token::generate(authorize_request)
         }
         [ResponseType::IdToken] => Err(OAuthError::missing_username()),

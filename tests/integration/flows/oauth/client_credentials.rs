@@ -2,8 +2,8 @@ use super::*;
 
 // Branch matrix:
 // - representation: form | JSON (success exercises both parser branches)
-// - client_id: valid | missing | invalid
-// - client_secret: valid | missing | invalid
+// - client_id: first configured | second configured | missing | unconfigured
+// - client_secret: matching | missing | invalid
 // Missing and invalid credential failures are representation-independent after parsing,
 // so each equivalent validation path is exercised once with form input.
 
@@ -41,6 +41,17 @@ fn returns_token_response_for_json_client_credentials_grant_type() {
     assert!(!response.contains("\"client_id\""));
     assert!(!response.contains("\"client_secret\""));
     assert!(!response.contains("\"grant_type\""));
+}
+
+#[test]
+fn returns_token_response_for_second_configured_client() {
+    let response = send_form_token_request(
+        "client_id=configured_client&client_secret=configured_secret&grant_type=client_credentials",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("\"token_type\":\"bearer\""));
+    assert!(response.contains("\"access_token\":\""));
 }
 
 #[test]

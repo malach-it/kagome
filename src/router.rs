@@ -11,6 +11,10 @@ pub fn route_request(request: &KagomeRequest) -> String {
         return crate::handlers::authorize::handle_authorize(request);
     }
 
+    if request.path == "/federation_callback" {
+        return crate::handlers::federation_callback::handle_federation_callback(request);
+    }
+
     if request.method.eq_ignore_ascii_case("POST") && request.path == "/token" {
         return crate::handlers::token::handle_token(request);
     }

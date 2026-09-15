@@ -140,6 +140,31 @@ fn server_address() -> &'static str {
 }
 
 fn start_server() -> String {
+    let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kagome.example.yaml");
+    let mut config = kagome::config::Config::load_from_path(config_path)
+        .expect("example configuration should load");
+    let mut federated_server = config.clients[0]
+        .federated_server
+        .take()
+        .expect("example client should configure federation");
+    federated_server.token_endpoint = start_federated_token_server();
+    config.clients.push(kagome::config::ClientConfig {
+        client_id: "configured_client".to_owned(),
+        client_secret: "configured_secret".to_owned(),
+        redirect_uris: vec![
+            "https://configured.example.com/callback".to_owned(),
+            "https://configured.example.com/alternate".to_owned(),
+        ],
+        federated_server: None,
+    });
+    config.clients.push(kagome::config::ClientConfig {
+        client_id: "federated_client".to_owned(),
+        client_secret: "federated_secret".to_owned(),
+        redirect_uris: vec!["https://client.example.com/callback".to_owned()],
+        federated_server: Some(federated_server),
+    });
+    kagome::config::Config::set_global(config)
+        .expect("integration configuration should initialize");
     let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind kagome server");
     let address = listener
         .local_addr()
@@ -152,4 +177,75 @@ fn start_server() -> String {
     });
 
     address
+}
+
+fn start_federated_token_server() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind federated token server");
+    let address = listener
+        .local_addr()
+        .expect("failed to read federated token server address");
+
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { continue };
+            thread::spawn(move || respond_to_federated_token_request(stream));
+        }
+    });
+
+    format!("http://{address}/token")
+}
+
+fn respond_to_federated_token_request(mut stream: TcpStream) {
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .expect("failed to clone federated token connection"),
+    );
+    let mut content_length = 0;
+
+    loop {
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .expect("failed to read federated token request header");
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            content_length = value.trim().parse().unwrap_or_default();
+        }
+        if line == "\r\n" || line == "\n" {
+            break;
+        }
+    }
+
+    let mut body = vec![0; content_length];
+    reader
+        .read_exact(&mut body)
+        .expect("failed to read federated token request body");
+    let parameters = String::from_utf8_lossy(&body);
+
+    let (status, response_body) = if parameters.contains("code=malformed-token") {
+        ("200 OK", "not-json")
+    } else if parameters.contains("code=empty-token") {
+        ("200 OK", r#"{"access_token":""}"#)
+    } else if parameters.contains("code=federated-code")
+        && parameters.contains("grant_type=authorization_code")
+        && parameters.contains("client_id=kagome")
+        && parameters.contains("client_secret=federated_client_secret")
+        && parameters.contains("redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Ffederation_callback")
+    {
+        (
+            "200 OK",
+            r#"{"access_token":"upstream-access-token","token_type":"bearer","expires_in":3600}"#,
+        )
+    } else {
+        ("400 Bad Request", r#"{"error":"invalid_grant"}"#)
+    };
+    let response = format!(
+        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response_body}",
+        response_body.len()
+    );
+    stream
+        .write_all(response.as_bytes())
+        .expect("failed to write federated token response");
 }

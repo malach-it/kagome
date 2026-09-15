@@ -210,9 +210,12 @@ impl<'a> client_credentials::Validate for AuthorizeCodeRequest<'a> {
         self.client_id.as_deref()
     }
 
-    fn valid_client_id(&self, client_id: &str) -> bool {
-        client_id == client_credentials::CLIENT_ID
-            || valid_authorize_client_id(client_id, self.request)
+    fn is_authorize_post_request(&self) -> bool {
+        true
+    }
+
+    fn valid_unregistered_client_id(&self, client_id: &str) -> bool {
+        valid_authorize_client_id(client_id, self.request)
     }
 
     fn require_client_secret(&self) -> bool {

@@ -3,6 +3,14 @@
   "title": "Config",
   "type": "object",
   "properties": {
+    "clients": {
+      "description": "OAuth clients accepted by the authorization server.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ClientConfig"
+      },
+      "minItems": 1
+    },
     "server": {
       "description": "HTTP server settings.",
       "$ref": "#/$defs/ServerConfig"
@@ -10,15 +18,97 @@
   },
   "additionalProperties": false,
   "required": [
-    "server"
+    "server",
+    "clients"
   ],
   "$defs": {
+    "ClientConfig": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "description": "Public identifier of the OAuth client.",
+          "type": "string",
+          "minLength": 1
+        },
+        "client_secret": {
+          "description": "Secret used to authenticate the OAuth client at the token endpoint.",
+          "type": "string",
+          "minLength": 1
+        },
+        "federated_server": {
+          "description": "Upstream OAuth server used to federate identities for this client.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FederatedServerConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "redirect_uris": {
+          "description": "Exact redirect URIs accepted for authorization responses.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "client_id",
+        "client_secret",
+        "redirect_uris"
+      ]
+    },
+    "FederatedServerConfig": {
+      "type": "object",
+      "properties": {
+        "authorize_endpoint": {
+          "description": "Federated server endpoint to which authorization requests are sent.",
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        },
+        "client_id": {
+          "description": "Client identifier used to authenticate Kagome to the federated server.",
+          "type": "string",
+          "minLength": 1
+        },
+        "client_secret": {
+          "description": "Client secret used to authenticate Kagome to the federated server.",
+          "type": "string",
+          "minLength": 1
+        },
+        "token_endpoint": {
+          "description": "Federated server endpoint at which authorization codes are exchanged.",
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "client_id",
+        "client_secret",
+        "authorize_endpoint",
+        "token_endpoint"
+      ]
+    },
     "ServerConfig": {
       "type": "object",
       "properties": {
         "address": {
           "description": "Socket address on which the HTTP server listens.",
           "type": "string",
+          "minLength": 1
+        },
+        "issuer": {
+          "description": "Public HTTP origin used to construct callback URLs.",
+          "type": "string",
+          "format": "uri",
           "minLength": 1
         },
         "workers": {
@@ -31,6 +121,7 @@
       "additionalProperties": false,
       "required": [
         "address",
+        "issuer",
         "workers"
       ]
     }
