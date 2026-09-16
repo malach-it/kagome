@@ -28,7 +28,8 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
 // - authorization request delivery: redirect | QR-code HTML with matching deep link;
-//   nonce, state, and redirect URI occur only in the signed request JWT
+//   nonce and state occur only in the signed request JWT, while redirect URI is
+//   also carried as an outer query parameter
 // - client authentication: local and federated clients start SIOPv2; federated
 //   clients then authenticate upstream with the wallet-bound code preserved
 // - authenticated continuation delivery: redirect even when the client enables QR
@@ -69,7 +70,10 @@ fn returns_signed_direct_post_siop_authorization_request() {
     assert_eq!(fixture.parameters["scope"], "openid");
     assert!(fixture.parameters.get("nonce").is_none());
     assert!(fixture.parameters.get("state").is_none());
-    assert!(fixture.parameters.get("redirect_uri").is_none());
+    assert_eq!(
+        fixture.parameters["redirect_uri"],
+        fixture.body["redirect_uri"]
+    );
     assert!(
         fixture.body["redirect_uri"]
             .as_str()
@@ -161,7 +165,11 @@ fn renders_siop_authorization_request_as_qr_code_with_deep_link() {
     let parameters = uri_parameters(&deep_link);
     assert!(parameters.get("nonce").is_none());
     assert!(parameters.get("state").is_none());
-    assert!(parameters.get("redirect_uri").is_none());
+    assert!(
+        parameters["redirect_uri"]
+            .as_str()
+            .is_some_and(|uri| uri.starts_with(RESPONSE_URI))
+    );
     assert!(deep_link.contains("&request="));
 }
 

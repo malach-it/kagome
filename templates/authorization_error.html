@@ -1,1 +1,1 @@
-<!doctype html><html><head><title>authorization error</title></head><body><main><h1>{{ error }}</h1><p role="alert">{{ error_description }}</p></main></body></html>
+{% extends "base.html" %}{% block title %}authorization error{% endblock %}{% block content %}<h1>{{ error }}</h1><p role="alert">{{ error_description }}</p>{% endblock %}

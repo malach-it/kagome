@@ -36,9 +36,9 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 //   equivalent because presentation state uses the configured credential issuer.
 // - generated transaction values: fresh nonce/state | generation failure (not
 //   reachable with the process RNG and embedded encryption key)
-// - request object: signed ES256 JWT redirect with nonce, state, and redirect URI
-//   omitted from the outer deep link | signing failure (not reachable with the
-//   embedded signing key)
+// - request object: signed ES256 JWT redirect with nonce and state omitted from
+//   the outer deep link and redirect URI duplicated in the outer query | signing
+//   failure (not reachable with the embedded signing key)
 // - authorization request delivery: redirect | QR-code HTML with matching deep link
 // - response media type: form (case-insensitive, parameters allowed) | missing |
 //   unsupported
@@ -85,8 +85,9 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
     let request = presentation_request();
 
     assert!(request.response.starts_with(&format!(
-        "HTTP/1.1 302 Found\r\nlocation: {AUTHORIZE_REDIRECT_URI}?client_id={}&response_type=vp_token&request=",
-        form_encode(CLIENT_ID)
+        "HTTP/1.1 302 Found\r\nlocation: {AUTHORIZE_REDIRECT_URI}?client_id={}&response_type=vp_token&redirect_uri={}%3Fstate%3D",
+        form_encode(CLIENT_ID),
+        form_encode(PRESENTATION_REDIRECT_URI)
     )));
     assert!(request.response.contains("cache-control: no-store\r\n"));
     assert_eq!(request.body["client_id"], CLIENT_ID);
@@ -100,7 +101,10 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
     );
     assert!(redirect_query_parameter_optional(&request.response, "nonce").is_none());
     assert!(redirect_query_parameter_optional(&request.response, "state").is_none());
-    assert!(redirect_query_parameter_optional(&request.response, "redirect_uri").is_none());
+    assert_eq!(
+        redirect_query_parameter(&request.response, "redirect_uri"),
+        request.body["redirect_uri"]
+    );
     let presentation_redirect_uri = request.body["redirect_uri"].as_str().unwrap();
     assert!(presentation_redirect_uri.starts_with(&format!("{PRESENTATION_REDIRECT_URI}?state=")));
     assert_eq!(
@@ -264,7 +268,7 @@ fn renders_presentation_request_as_qr_code_with_deep_link() {
     assert!(deep_link.contains("&response_type=vp_token"));
     assert!(!deep_link.contains("&nonce="));
     assert!(!deep_link.contains("&state="));
-    assert!(!deep_link.contains("&redirect_uri="));
+    assert!(deep_link.contains("&redirect_uri="));
     assert!(deep_link.contains("&request="));
 }
 

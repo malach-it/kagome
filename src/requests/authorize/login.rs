@@ -199,6 +199,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 &[
                     ("client_id", &state.claims.client_id),
                     ("response_type", "vp_token"),
+                    ("redirect_uri", &signed_request.redirect_uri),
                     ("request", &signed_request.value),
                 ],
             );

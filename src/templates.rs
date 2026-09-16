@@ -1,7 +1,9 @@
 use std::{error::Error, fmt, sync::OnceLock};
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use minijinja::{Environment, Value, context};
 
+const BASE: &str = "base.html";
 const AUTHORIZATION_ERROR: &str = "authorization_error.html";
 const WALLET_AUTHORIZATION: &str = "wallet_authorization.html";
 
@@ -26,8 +28,10 @@ pub fn authorization_error(error: &str, error_description: &str) -> Result<Strin
     render(
         AUTHORIZATION_ERROR,
         context! {
+            brand_logo => brand_logo(),
             error => escaped_html(error),
             error_description => escaped_html(error_description),
+            style_nonce => "",
         },
     )
 }
@@ -41,12 +45,20 @@ pub fn wallet_authorization(
     render(
         WALLET_AUTHORIZATION,
         context! {
+            brand_logo => brand_logo(),
             authorization_uri => escaped_html(authorization_uri),
             qr_uri => escaped_html(qr_uri),
             qr_svg => qr_svg,
             script_nonce => script_nonce,
+            style_nonce => script_nonce,
         },
     )
+}
+
+fn brand_logo() -> Value {
+    let encoded = STANDARD.encode(include_bytes!("../templates/assets/malachit-logo.png"));
+
+    Value::from_safe_string(format!("data:image/png;base64,{encoded}"))
 }
 
 fn escaped_html(value: &str) -> Value {
@@ -72,6 +84,9 @@ fn environment() -> Result<&'static Environment<'static>, &'static TemplateError
 
 fn build_environment() -> Result<Environment<'static>, TemplateError> {
     let mut environment = Environment::new();
+    environment
+        .add_template(BASE, include_str!("../templates/base.html"))
+        .map_err(TemplateError::from)?;
     environment
         .add_template(
             AUTHORIZATION_ERROR,
@@ -113,6 +128,8 @@ mod tests {
             .expect("authorization error template should render");
 
         assert!(html.contains("<h1>invalid_&lt;request&gt;</h1>"), "{html}");
+        assert!(html.contains("alt=\"malach.it\""), "{html}");
+        assert!(html.contains("src=\"data:image/png;base64,"), "{html}");
         assert!(
             html.contains("&lt;script&gt;alert(&#39;unsafe&#39;)&lt;/script&gt;"),
             "{html}"
@@ -136,5 +153,7 @@ mod tests {
             "{html}"
         );
         assert!(html.contains("<svg><path d=\"M0 0\"/></svg>"));
+        assert!(html.contains("<style nonce=\"nonce\">"));
+        assert!(html.contains("alt=\"malach.it\""));
     }
 }

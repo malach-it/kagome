@@ -12,6 +12,7 @@ pub(super) fn qr_page_deep_link(response: &str) -> String {
     assert!(response.contains(&format!(
         "content-security-policy: default-src 'none'; script-src 'nonce-{script_nonce}';"
     )));
+    assert!(response.contains(&format!("style-src 'nonce-{script_nonce}'; img-src data:;")));
     assert!(response.contains("referrer-policy: no-referrer\r\n"));
     assert!(response.contains("<svg"));
     assert!(!response.contains("\r\nlocation:"));

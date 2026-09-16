@@ -27,4 +27,4 @@ flowchart TD
     state -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
     state -- ok --> request_object["presentation_request::generate"]
     request_object -- error --> generation_error
-    request_object -- ok --> success["`**HTTP 302** wallet redirect or **HTTP 200** QR relay with nonce, state, and redirect URI only in signed request`"]
+    request_object -- ok --> success["`**HTTP 302** wallet redirect or **HTTP 200** QR relay with nonce and state only in signed request`"]
