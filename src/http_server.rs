@@ -56,17 +56,17 @@ async fn handle_request(request: Request<Body>) -> Response<Body> {
 
     let request = match kagome_request(request).await {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     raw_http_response(&crate::router::route_request(&request), keep_alive)
 }
 
-async fn kagome_request(request: Request<Body>) -> Result<KagomeRequest, Response<Body>> {
+async fn kagome_request(request: Request<Body>) -> Result<KagomeRequest, Box<Response<Body>>> {
     let (parts, body) = request.into_parts();
     let body = to_bytes(body, MAX_REQUEST_BODY_BYTES)
         .await
-        .map_err(|_| payload_too_large_response())?;
+        .map_err(|_| Box::new(payload_too_large_response()))?;
     let headers = parts
         .headers
         .iter()
