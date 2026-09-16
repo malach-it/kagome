@@ -39,5 +39,6 @@ clients:
       token_endpoint: https://identity.example.com/token
       endpoints:
         - endpoint: https://identity.example.com/userinfo
-          claim: sub
-          target: username
+          claims:
+            - claim: sub
+              target: sub

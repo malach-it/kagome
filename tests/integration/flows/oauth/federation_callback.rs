@@ -6,8 +6,10 @@ use super::*;
 // - authorization response: code | upstream error | code and error | neither
 // - values: non-empty | empty
 // - token endpoint: valid token | rejected request | malformed response
-// - identity endpoint: valid string claim | rejected request | malformed response |
-//   missing or non-string claim
+// - identity endpoint: multiple valid string claims | rejected request |
+//   malformed response | missing or non-string claim
+// - resource owner identifier: username | sub fallback | missing
+// - ID token profile: all mapped resource-owner attributes are signed
 // - identity error response: error_description | message | error | HTTP status fallback
 // - error destination: validated redirect URI with error, description, and optional
 //   client state | local JSON error when callback state is missing or invalid
@@ -15,7 +17,7 @@ use super::*;
 // Missing and non-string identity claims intentionally share a validation path and response.
 
 #[test]
-fn accepts_federation_callback_authorization_code() {
+fn populates_resource_owner_from_federated_identity() {
     let response = send_callback_request("code=federated-code");
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
@@ -26,6 +28,43 @@ fn accepts_federation_callback_authorization_code() {
     )
     .expect("downstream authorization code should decode");
     assert_eq!(payload.username.as_deref(), Some("federated-user"));
+}
+
+#[test]
+fn signs_federated_resource_owner_profile_in_id_token() {
+    let state = federation_state_for(
+        "response_type=id_token&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
+    );
+    let response = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+    let id_token = response
+        .lines()
+        .find_map(|line| line.strip_prefix("location: "))
+        .and_then(|location| location.split_once('#'))
+        .map(|(_, fragment)| fragment)
+        .and_then(|fragment| {
+            fragment
+                .split('&')
+                .filter_map(|parameter| parameter.split_once('='))
+                .find_map(|(name, value)| (name == "id_token").then(|| decode_form_value(value)))
+        })
+        .expect("federated response should contain an id token");
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::EdDSA);
+    validation.validate_aud = false;
+    let payload = jsonwebtoken::decode::<kagome::resources::id_token::IdTokenJwtPayload>(
+        &id_token,
+        &kagome::resources::crypto::SigningArtifact::IdToken
+            .decoding_key()
+            .expect("ID token decoding key should load"),
+        &validation,
+    )
+    .expect("federated ID token should have a valid signature")
+    .claims;
+
+    assert_eq!(payload.username, "federated-user");
+    assert_eq!(payload.profile["username"], "federated-user");
+    assert_eq!(payload.profile["sub"], "ignored-user");
 }
 
 #[test]
@@ -144,6 +183,17 @@ fn rejects_invalid_federated_identity_response() {
 #[test]
 fn rejects_missing_federated_identity_claim() {
     let response = send_callback_request("code=identity-missing-claim");
+
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity claim is missing or invalid",
+    );
+}
+
+#[test]
+fn rejects_missing_later_claim_from_federated_identity_endpoint() {
+    let response = send_callback_request("code=identity-missing-second-claim");
 
     assert_callback_error(
         &response,

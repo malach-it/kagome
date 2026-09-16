@@ -9,7 +9,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{
     config::{Config, DEFAULT_ID_TOKEN_TTL_SECONDS},
     errors::OAuthError,
-    resources::crypto::{self, SigningArtifact},
+    resources::{
+        crypto::{self, SigningArtifact},
+        resource_owner::{ResourceOwner, ResourceOwnerProfile},
+    },
 };
 
 pub const ID_TOKEN_TTL_SECONDS: u64 = DEFAULT_ID_TOKEN_TTL_SECONDS;
@@ -25,6 +28,7 @@ pub struct IdToken {
 pub struct IdTokenJwtPayload {
     pub client_id: String,
     pub username: String,
+    pub profile: ResourceOwnerProfile,
     pub iat: u64,
     pub exp: u64,
 }
@@ -37,6 +41,9 @@ pub trait Validate {
 pub trait Generate {
     fn client_id(&self) -> Option<&str>;
     fn username(&self) -> Option<&str>;
+    fn resource_owner_profile(&self) -> Option<&ResourceOwnerProfile> {
+        None
+    }
     fn add_generated_id_token(&mut self, id_token: IdToken);
 }
 
@@ -47,6 +54,10 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let username = request
         .username()
         .ok_or_else(OAuthError::missing_username)?;
+    let profile = request
+        .resource_owner_profile()
+        .cloned()
+        .unwrap_or_else(|| ResourceOwner::from_username(username.to_owned()).profile);
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("id_token generation failed"))?
@@ -57,6 +68,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let payload = IdTokenJwtPayload {
         client_id: client_id.to_owned(),
         username: username.to_owned(),
+        profile,
         iat,
         exp,
     };

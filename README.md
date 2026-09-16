@@ -39,8 +39,9 @@ clients:
       token_endpoint: https://identity.example.com/token
       endpoints:
         - endpoint: https://identity.example.com/userinfo
-          claim: sub
-          target: username
+          claims:
+            - claim: sub
+              target: sub
 ```
 
 Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
@@ -81,9 +82,11 @@ five-minute issuer relay URL that redirects to the same deep link and remains
 usable for retries until it expires. Its default is `false`. The
 optional per-client `federated_server` block configures the upstream OAuth
 client, its authorization and token endpoints, and identity endpoints. Each
-identity endpoint is called with the upstream bearer token; its dot-separated
-JSON `claim` is copied into the typed `target` (`username` is currently
-supported). Clients without this block continue to use local authentication.
+identity endpoint is called once with the upstream bearer token. Its non-empty
+`claims` list maps dot-separated JSON claim paths to arbitrary resource-owner
+profile attributes. A `username` or `sub` target identifies the resource owner;
+the complete profile is included as a signed `profile` claim in generated ID
+tokens. Clients without this block continue to use local authentication.
 Each client must explicitly opt into protocol capabilities through
 `supported_grant_types` and `supported_response_types`; omitted or empty lists
 deny every corresponding type. Every type in a combined request must be

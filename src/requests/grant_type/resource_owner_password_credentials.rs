@@ -118,6 +118,12 @@ impl grant_type::Validate for ResourceOwnerPasswordCredentialsRequest {
     }
 }
 
+impl resource_owner::Populate for ResourceOwnerPasswordCredentialsRequest {
+    fn add_resource_owner(&mut self, resource_owner: resource_owner::ResourceOwner) {
+        self.response.username = Some(resource_owner.username);
+    }
+}
+
 impl resource_owner::Validate for ResourceOwnerPasswordCredentialsRequest {
     fn client_id(&self) -> Option<&str> {
         self.response.client_id.as_deref()
@@ -129,9 +135,5 @@ impl resource_owner::Validate for ResourceOwnerPasswordCredentialsRequest {
 
     fn request_password(&self) -> Option<&str> {
         self.password.as_deref()
-    }
-
-    fn add_resource_owner(&mut self, resource_owner: resource_owner::ResourceOwner) {
-        self.response.username = Some(resource_owner.username);
     }
 }

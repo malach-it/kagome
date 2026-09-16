@@ -207,6 +207,13 @@ fn start_server() -> String {
     let (token_endpoint, identity_endpoint) = start_federated_server();
     federated_server.token_endpoint = token_endpoint;
     federated_server.endpoints[0].endpoint = identity_endpoint;
+    federated_server.endpoints[0].claims[0].target = "sub".to_owned();
+    federated_server.endpoints[0]
+        .claims
+        .push(kagome::config::FederatedIdentityClaimConfig {
+            claim: "profile.username".to_owned(),
+            target: "username".to_owned(),
+        });
     config.clients.push(kagome::config::ClientConfig {
         client_id: "configured_client".to_owned(),
         public: None,
@@ -346,9 +353,15 @@ fn respond_to_federated_request(mut stream: TcpStream) {
     let parameters = String::from_utf8_lossy(&body);
     let (status, response_body) = if path == "/userinfo" {
         match authorization.as_deref() {
-            Some("Bearer upstream-access-token") => ("200 OK", r#"{"sub":"federated-user"}"#),
+            Some("Bearer upstream-access-token") => (
+                "200 OK",
+                r#"{"sub":"ignored-user","profile":{"username":"federated-user"}}"#,
+            ),
             Some("Bearer identity-malformed-token") => ("200 OK", "not-json"),
             Some("Bearer identity-missing-claim-token") => ("200 OK", "{}"),
+            Some("Bearer identity-missing-second-claim-token") => {
+                ("200 OK", r#"{"sub":"federated-user"}"#)
+            }
             Some("Bearer identity-non-string-token") => ("200 OK", r#"{"sub":123}"#),
             Some("Bearer identity-error-code-token") => {
                 ("403 Forbidden", r#"{"error":"insufficient_scope"}"#)
@@ -377,6 +390,11 @@ fn respond_to_federated_request(mut stream: TcpStream) {
         (
             "200 OK",
             r#"{"access_token":"identity-missing-claim-token"}"#,
+        )
+    } else if parameters.contains("code=identity-missing-second-claim") {
+        (
+            "200 OK",
+            r#"{"access_token":"identity-missing-second-claim-token"}"#,
         )
     } else if parameters.contains("code=identity-non-string") {
         ("200 OK", r#"{"access_token":"identity-non-string-token"}"#)

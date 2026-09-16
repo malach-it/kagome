@@ -126,7 +126,7 @@
         "key_file"
       ]
     },
-    "FederatedIdentityEndpointConfig": {
+    "FederatedIdentityClaimConfig": {
       "type": "object",
       "properties": {
         "claim": {
@@ -134,28 +134,40 @@
           "type": "string",
           "minLength": 1
         },
+        "target": {
+          "description": "Resource-owner attribute populated from the claim.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "claim",
+        "target"
+      ]
+    },
+    "FederatedIdentityEndpointConfig": {
+      "type": "object",
+      "properties": {
+        "claims": {
+          "description": "Claims copied from the endpoint response into resource-owner attributes.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FederatedIdentityClaimConfig"
+          },
+          "minItems": 1
+        },
         "endpoint": {
           "description": "Endpoint called with the federated bearer access token.",
           "type": "string",
           "format": "uri",
           "minLength": 1
-        },
-        "target": {
-          "description": "Authorize request identity field populated from the claim.",
-          "$ref": "#/$defs/FederatedIdentityTarget"
         }
       },
       "additionalProperties": false,
       "required": [
         "endpoint",
-        "claim",
-        "target"
-      ]
-    },
-    "FederatedIdentityTarget": {
-      "type": "string",
-      "enum": [
-        "username"
+        "claims"
       ]
     },
     "FederatedServerConfig": {

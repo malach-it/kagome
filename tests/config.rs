@@ -95,11 +95,9 @@ fn example_configuration_matches_server_defaults() {
         federated_server.endpoints[0].endpoint,
         "https://identity.example.com/userinfo"
     );
-    assert_eq!(federated_server.endpoints[0].claim, "sub");
-    assert_eq!(
-        federated_server.endpoints[0].target,
-        kagome::config::FederatedIdentityTarget::Username
-    );
+    assert_eq!(federated_server.endpoints[0].claims.len(), 1);
+    assert_eq!(federated_server.endpoints[0].claims[0].claim, "sub");
+    assert_eq!(federated_server.endpoints[0].claims[0].target, "sub");
 }
 
 #[test]
@@ -137,8 +135,8 @@ fn json_schema_describes_configuration_constraints() {
     let server = &schema["$defs"]["ServerConfig"];
     let client = &schema["$defs"]["ClientConfig"];
     let federated_server = &schema["$defs"]["FederatedServerConfig"];
+    let identity_claim = &schema["$defs"]["FederatedIdentityClaimConfig"];
     let identity_endpoint = &schema["$defs"]["FederatedIdentityEndpointConfig"];
-    let identity_target = &schema["$defs"]["FederatedIdentityTarget"];
     let grant_type = &schema["$defs"]["GrantType"];
     let response_type = &schema["$defs"]["ResponseType"];
     let token_ttls = &schema["$defs"]["TokenTtlsConfig"];
@@ -247,11 +245,21 @@ fn json_schema_describes_configuration_constraints() {
         "uri"
     );
     assert_eq!(federated_server["properties"]["endpoints"]["minItems"], 1);
+    assert_eq!(identity_claim["additionalProperties"], false);
     assert_eq!(identity_endpoint["additionalProperties"], false);
+    assert_eq!(identity_endpoint["properties"]["claims"]["minItems"], 1);
     assert_eq!(identity_endpoint["properties"]["endpoint"]["minLength"], 1);
     assert_eq!(identity_endpoint["properties"]["endpoint"]["format"], "uri");
-    assert_eq!(identity_endpoint["properties"]["claim"]["minLength"], 1);
-    assert_eq!(identity_target["enum"], serde_json::json!(["username"]));
+    assert_eq!(identity_claim["properties"]["claim"]["minLength"], 1);
+    assert_eq!(identity_claim["properties"]["target"]["minLength"], 1);
+    assert_eq!(
+        identity_claim["required"],
+        serde_json::json!(["claim", "target"])
+    );
+    assert_eq!(
+        identity_endpoint["required"],
+        serde_json::json!(["endpoint", "claims"])
+    );
     assert_eq!(
         federated_server["required"],
         serde_json::json!([
@@ -957,7 +965,7 @@ fn rejects_empty_federated_server_fields() {
             "https://identity.example.com/token"
         };
         let file = ConfigFile::new(&format!(
-            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: \"{client_id}\"\n      client_secret: \"{client_secret}\"\n      authorize_endpoint: \"{authorize_endpoint}\"\n      token_endpoint: \"{token_endpoint}\"\n      endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claim: sub\n          target: username\n"
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: \"{client_id}\"\n      client_secret: \"{client_secret}\"\n      authorize_endpoint: \"{authorize_endpoint}\"\n      token_endpoint: \"{token_endpoint}\"\n      endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username\n"
         ));
 
         let error = Config::load_from_path(file.path())
@@ -973,7 +981,7 @@ fn rejects_empty_federated_server_fields() {
 #[test]
 fn rejects_incomplete_federated_server_configuration() {
     let file = ConfigFile::new(
-        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: kagome\n      client_secret: federated_client_secret\n      authorize_endpoint: https://identity.example.com/authorize\n      endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claim: sub\n          target: username\n",
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: kagome\n      client_secret: federated_client_secret\n      authorize_endpoint: https://identity.example.com/authorize\n      endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username\n",
     );
 
     let error = Config::load_from_path(file.path())
@@ -986,7 +994,7 @@ fn rejects_incomplete_federated_server_configuration() {
 #[test]
 fn rejects_non_http_federated_server_endpoint() {
     let file = ConfigFile::new(
-        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: kagome\n      client_secret: federated_client_secret\n      authorize_endpoint: javascript:alert(1)\n      token_endpoint: https://identity.example.com/token\n      endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claim: sub\n          target: username\n",
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris:\n      - https://client.example.com/callback\n    federated_server:\n      client_id: kagome\n      client_secret: federated_client_secret\n      authorize_endpoint: javascript:alert(1)\n      token_endpoint: https://identity.example.com/token\n      endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username\n",
     );
 
     let error =
@@ -1014,9 +1022,47 @@ fn rejects_empty_federated_identity_endpoints() {
 }
 
 #[test]
+fn loads_multiple_claims_for_one_federated_identity_endpoint() {
+    let file = ConfigFile::new(&federated_configuration_yaml(
+        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username\n            - claim: profile.username\n              target: display_name",
+    ));
+
+    let config = Config::load_from_path(file.path())
+        .expect("multiple claims for one identity endpoint should load");
+    let claims = &config.clients[0]
+        .federated_server
+        .as_ref()
+        .expect("federated server should load")
+        .endpoints[0]
+        .claims;
+
+    assert_eq!(claims.len(), 2);
+    assert_eq!(claims[0].claim, "sub");
+    assert_eq!(claims[1].claim, "profile.username");
+    assert_eq!(claims[1].target, "display_name");
+}
+
+#[test]
+fn rejects_empty_federated_identity_claims() {
+    let file = ConfigFile::new(&federated_configuration_yaml(
+        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims: []",
+    ));
+
+    let error = Config::load_from_path(file.path())
+        .expect_err("empty federated identity claims should fail");
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("clients[0].federated_server.endpoints[0].claims must not be empty")
+    );
+}
+
+#[test]
 fn rejects_non_http_federated_identity_endpoint() {
     let file = ConfigFile::new(&federated_configuration_yaml(
-        "endpoints:\n        - endpoint: javascript:alert(1)\n          claim: sub\n          target: username",
+        "endpoints:\n        - endpoint: javascript:alert(1)\n          claims:\n            - claim: sub\n              target: username",
     ));
 
     let error = Config::load_from_path(file.path())
@@ -1032,7 +1078,7 @@ fn rejects_non_http_federated_identity_endpoint() {
 fn rejects_invalid_federated_identity_claim_paths() {
     for claim in ["", ".sub", "profile.", "profile..username"] {
         let file = ConfigFile::new(&federated_configuration_yaml(&format!(
-            "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claim: \"{claim}\"\n          target: username"
+            "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: \"{claim}\"\n              target: username"
         )));
 
         let error = Config::load_from_path(file.path())
@@ -1040,22 +1086,47 @@ fn rejects_invalid_federated_identity_claim_paths() {
 
         assert!(matches!(error, ConfigError::Validation { .. }));
         assert!(error.to_string().contains(
-            "clients[0].federated_server.endpoints[0].claim must be a dot-separated JSON claim path"
+            "clients[0].federated_server.endpoints[0].claims[0].claim must be a dot-separated JSON claim path"
         ));
     }
 }
 
 #[test]
-fn rejects_unknown_federated_identity_target() {
+fn loads_arbitrary_federated_identity_target() {
     let file = ConfigFile::new(&federated_configuration_yaml(
-        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claim: sub\n          target: subject",
+        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: subject",
+    ));
+
+    let config =
+        Config::load_from_path(file.path()).expect("arbitrary identity target should load");
+
+    assert_eq!(
+        config.clients[0]
+            .federated_server
+            .as_ref()
+            .unwrap()
+            .endpoints[0]
+            .claims[0]
+            .target,
+        "subject"
+    );
+}
+
+#[test]
+fn rejects_empty_federated_identity_target() {
+    let file = ConfigFile::new(&federated_configuration_yaml(
+        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: \"\"",
     ));
 
     let error = Config::load_from_path(file.path())
-        .expect_err("unknown federated identity target should fail");
+        .expect_err("empty federated identity target should fail");
 
-    assert!(matches!(error, ConfigError::Parse { .. }));
-    assert!(error.to_string().contains("unknown variant `subject`"));
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(
+        error.to_string().contains(
+            "clients[0].federated_server.endpoints[0].claims[0].target must not be empty"
+        )
+    );
 }
 
 struct ConfigFile {

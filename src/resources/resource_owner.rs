@@ -1,21 +1,64 @@
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
 use crate::{
     config::Config,
     errors::{OAuthError, OAuthErrorCode},
 };
 
-#[derive(Debug)]
+pub type ResourceOwnerProfile = BTreeMap<String, String>;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ResourceOwner {
     pub username: String,
+    pub profile: ResourceOwnerProfile,
 }
 
-pub trait Validate {
+#[derive(Debug, Default)]
+pub struct ResourceOwnerAttributes {
+    profile: ResourceOwnerProfile,
+}
+
+impl ResourceOwner {
+    pub fn from_username(username: String) -> Self {
+        let mut profile = ResourceOwnerProfile::new();
+        profile.insert("username".to_owned(), username.clone());
+
+        Self { username, profile }
+    }
+
+    pub fn from_attributes(attributes: ResourceOwnerAttributes) -> Option<Self> {
+        let username = attributes
+            .profile
+            .get("username")
+            .or_else(|| attributes.profile.get("sub"))?
+            .to_owned();
+
+        Some(Self {
+            username,
+            profile: attributes.profile,
+        })
+    }
+}
+
+impl ResourceOwnerAttributes {
+    pub fn add(&mut self, target: &str, value: String) {
+        self.profile.insert(target.to_owned(), value);
+    }
+}
+
+pub trait Populate {
+    fn add_resource_owner(&mut self, resource_owner: ResourceOwner);
+}
+
+pub trait Validate: Populate {
     fn client_id(&self) -> Option<&str>;
     fn request_username(&self) -> Option<&str>;
     fn request_password(&self) -> Option<&str>;
     fn client_id_username(&self) -> Option<&str> {
         None
     }
-    fn add_resource_owner(&mut self, resource_owner: ResourceOwner);
 }
 
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
@@ -74,9 +117,7 @@ fn validate_resource_owner<T: Validate>(request: &T) -> Result<Option<ResourceOw
         return Err(OAuthError::invalid_password());
     }
 
-    Ok(Some(ResourceOwner {
-        username: username.to_owned(),
-    }))
+    Ok(Some(ResourceOwner::from_username(username.to_owned())))
 }
 
 fn verify_password(passwords: &str, username: &str, password: &str) -> bool {
@@ -97,7 +138,7 @@ pub fn configured_username(client_id: &str, username: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::verify_password;
+    use super::{ResourceOwner, ResourceOwnerAttributes, verify_password};
 
     const PASSWORDS: &str = concat!(
         "# password: password\n",
@@ -116,5 +157,36 @@ mod tests {
         assert!(!verify_password(PASSWORDS, "username", "wrong"));
         assert!(!verify_password(PASSWORDS, "unknown", "password"));
         assert!(!verify_password(PASSWORDS, "broken", "password"));
+    }
+
+    #[test]
+    fn builds_resource_owner_from_attributes() {
+        let resource_owner = ResourceOwner::from_attributes(ResourceOwnerAttributes {
+            profile: [("username".to_owned(), "username".to_owned())]
+                .into_iter()
+                .collect(),
+        })
+        .expect("resource owner attributes should be complete");
+
+        assert_eq!(resource_owner.username, "username");
+        assert_eq!(resource_owner.profile["username"], "username");
+    }
+
+    #[test]
+    fn rejects_resource_owner_attributes_without_identifier() {
+        assert!(ResourceOwner::from_attributes(ResourceOwnerAttributes::default()).is_none());
+    }
+
+    #[test]
+    fn uses_subject_as_resource_owner_username_fallback() {
+        let resource_owner = ResourceOwner::from_attributes(ResourceOwnerAttributes {
+            profile: [("sub".to_owned(), "subject".to_owned())]
+                .into_iter()
+                .collect(),
+        })
+        .expect("subject should identify the resource owner");
+
+        assert_eq!(resource_owner.username, "subject");
+        assert_eq!(resource_owner.profile["sub"], "subject");
     }
 }

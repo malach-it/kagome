@@ -245,8 +245,10 @@ mod resources {
                 token_endpoint: "https://identity.example.com/token".to_owned(),
                 endpoints: vec![kagome::config::FederatedIdentityEndpointConfig {
                     endpoint: "https://identity.example.com/userinfo".to_owned(),
-                    claim: "sub".to_owned(),
-                    target: kagome::config::FederatedIdentityTarget::Username,
+                    claims: vec![kagome::config::FederatedIdentityClaimConfig {
+                        claim: "sub".to_owned(),
+                        target: "username".to_owned(),
+                    }],
                 }],
             };
             let authorize_request = kagome::resources::federated_server::authorize_with_server(

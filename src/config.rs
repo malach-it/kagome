@@ -186,17 +186,20 @@ pub struct FederatedIdentityEndpointConfig {
     /// Endpoint called with the federated bearer access token.
     #[schemars(length(min = 1), url)]
     pub endpoint: String,
+    /// Claims copied from the endpoint response into resource-owner attributes.
+    #[schemars(length(min = 1))]
+    pub claims: Vec<FederatedIdentityClaimConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FederatedIdentityClaimConfig {
     /// Dot-separated JSON claim path read from the endpoint response.
     #[schemars(length(min = 1))]
     pub claim: String,
-    /// Authorize request identity field populated from the claim.
-    pub target: FederatedIdentityTarget,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum FederatedIdentityTarget {
-    Username,
+    /// Resource-owner attribute populated from the claim.
+    #[schemars(length(min = 1))]
+    pub target: String,
 }
 
 impl Config {
@@ -532,18 +535,37 @@ impl Config {
                             ),
                         });
                     }
-                    if identity_endpoint.claim.trim().is_empty()
-                        || identity_endpoint
-                            .claim
-                            .split('.')
-                            .any(|segment| segment.is_empty())
-                    {
+                    if identity_endpoint.claims.is_empty() {
                         return Err(ConfigError::Validation {
                             path: path.to_owned(),
                             message: format!(
-                                "clients[{index}].federated_server.endpoints[{endpoint_index}].claim must be a dot-separated JSON claim path"
+                                "clients[{index}].federated_server.endpoints[{endpoint_index}].claims must not be empty"
                             ),
                         });
+                    }
+                    for (claim_index, identity_claim) in identity_endpoint.claims.iter().enumerate()
+                    {
+                        if identity_claim.claim.trim().is_empty()
+                            || identity_claim
+                                .claim
+                                .split('.')
+                                .any(|segment| segment.is_empty())
+                        {
+                            return Err(ConfigError::Validation {
+                                path: path.to_owned(),
+                                message: format!(
+                                    "clients[{index}].federated_server.endpoints[{endpoint_index}].claims[{claim_index}].claim must be a dot-separated JSON claim path"
+                                ),
+                            });
+                        }
+                        if identity_claim.target.trim().is_empty() {
+                            return Err(ConfigError::Validation {
+                                path: path.to_owned(),
+                                message: format!(
+                                    "clients[{index}].federated_server.endpoints[{endpoint_index}].claims[{claim_index}].target must not be empty"
+                                ),
+                            });
+                        }
                     }
                 }
             }

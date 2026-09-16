@@ -57,6 +57,7 @@ pub struct AuthorizeLoginResponse {
     pub redirect_uri: Option<String>,
     pub previous_authorization_code: Option<String>,
     pub username: Option<String>,
+    pub resource_owner_profile: Option<resource_owner::ResourceOwnerProfile>,
     pub metadata_policy: Option<MetadataPolicy>,
     pub code_challenge: Option<CodeChallenge>,
     pub response_types: Vec<ResponseType>,
@@ -369,6 +370,7 @@ impl AuthorizeLoginResponse {
             redirect_uri: None,
             previous_authorization_code: None,
             username: None,
+            resource_owner_profile: None,
             metadata_policy: None,
             code_challenge: None,
             response_types: Vec::new(),
@@ -504,18 +506,6 @@ impl federated_server::FetchIdentity for AuthorizeLoginRequest<'_> {
     fn federation_client_id(&self) -> Option<&str> {
         self.response.client_id.as_deref()
     }
-
-    fn add_federated_identity(
-        &mut self,
-        target: crate::config::FederatedIdentityTarget,
-        value: String,
-    ) {
-        match target {
-            crate::config::FederatedIdentityTarget::Username => {
-                self.response.username = Some(value);
-            }
-        }
-    }
 }
 
 impl<'a> response_type::Validate for AuthorizeLoginRequest<'a> {
@@ -593,6 +583,13 @@ impl<'a> metadata_policy::Validate for AuthorizeLoginRequest<'a> {
     }
 }
 
+impl resource_owner::Populate for AuthorizeLoginRequest<'_> {
+    fn add_resource_owner(&mut self, resource_owner: resource_owner::ResourceOwner) {
+        self.response.username = Some(resource_owner.username);
+        self.response.resource_owner_profile = Some(resource_owner.profile);
+    }
+}
+
 impl<'a> resource_owner::Validate for AuthorizeLoginRequest<'a> {
     fn client_id(&self) -> Option<&str> {
         self.response.client_id.as_deref()
@@ -608,10 +605,6 @@ impl<'a> resource_owner::Validate for AuthorizeLoginRequest<'a> {
 
     fn client_id_username(&self) -> Option<&str> {
         client_id_username(self.response.client_id.as_deref())
-    }
-
-    fn add_resource_owner(&mut self, resource_owner: resource_owner::ResourceOwner) {
-        self.response.username = Some(resource_owner.username);
     }
 }
 
@@ -698,6 +691,10 @@ impl<'a> id_token::Generate for AuthorizeLoginRequest<'a> {
 
     fn username(&self) -> Option<&str> {
         self.response.username.as_deref()
+    }
+
+    fn resource_owner_profile(&self) -> Option<&resource_owner::ResourceOwnerProfile> {
+        self.response.resource_owner_profile.as_ref()
     }
 
     fn add_generated_id_token(&mut self, id_token: IdToken) {

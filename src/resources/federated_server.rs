@@ -3,11 +3,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::{Config, FederatedIdentityTarget, FederatedServerConfig},
+    config::{Config, FederatedServerConfig},
     errors::OAuthError,
 };
 
-use super::crypto::{self, CoseEncrypt0Errors, EncryptedArtifact};
+use super::{
+    crypto::{self, CoseEncrypt0Errors, EncryptedArtifact},
+    resource_owner::{self, ResourceOwner, ResourceOwnerAttributes},
+};
 
 const FEDERATION_STATE_TTL_SECONDS: u64 = 300;
 const TOKEN_REQUEST_TIMEOUT_SECONDS: u64 = 10;
@@ -90,10 +93,9 @@ pub trait ExchangeToken {
     fn add_federated_access_token(&mut self, access_token: String);
 }
 
-pub trait FetchIdentity {
+pub trait FetchIdentity: resource_owner::Populate {
     fn federated_access_token(&self) -> Option<&str>;
     fn federation_client_id(&self) -> Option<&str>;
-    fn add_federated_identity(&mut self, target: FederatedIdentityTarget, value: String);
 }
 
 pub fn authorize<T: Authorize>(request: T) -> Result<T, OAuthError> {
@@ -275,6 +277,7 @@ pub fn fetch_identity_with_server<T: FetchIdentity>(
         .http_status_as_error(false)
         .build()
         .into();
+    let mut resource_owner_attributes = ResourceOwnerAttributes::default();
 
     for identity_endpoint in &server.endpoints {
         let mut response = agent
@@ -301,14 +304,22 @@ pub fn fetch_identity_with_server<T: FetchIdentity>(
             .body_mut()
             .read_json()
             .map_err(|_| OAuthError::invalid_grant("federated identity response is invalid"))?;
-        let value = identity_claim(&identity, &identity_endpoint.claim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                OAuthError::invalid_grant("federated identity claim is missing or invalid")
-            })?;
+        for identity_claim_config in &identity_endpoint.claims {
+            let value = identity_claim(&identity, &identity_claim_config.claim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    OAuthError::invalid_grant("federated identity claim is missing or invalid")
+                })?;
 
-        request.add_federated_identity(identity_endpoint.target, value.to_owned());
+            resource_owner_attributes.add(&identity_claim_config.target, value.to_owned());
+        }
     }
+
+    let resource_owner =
+        ResourceOwner::from_attributes(resource_owner_attributes).ok_or_else(|| {
+            OAuthError::invalid_grant("federated identity profile must define username or sub")
+        })?;
+    request.add_resource_owner(resource_owner);
 
     Ok(request)
 }

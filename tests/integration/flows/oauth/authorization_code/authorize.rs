@@ -144,6 +144,7 @@ fn redirects_to_client_redirect_uri_with_id_token_for_post_authorize_id_token_re
     assert_eq!(expires_in, "3600");
     assert_eq!(payload.client_id, "client_id");
     assert_eq!(payload.username, "username");
+    assert_eq!(payload.profile["username"], "username");
 }
 
 #[test]
@@ -160,6 +161,7 @@ fn redirects_to_client_redirect_uri_with_id_token_for_client_id_resource_owner_c
     assert!(response.contains("location: https://client.example.com/callback#id_token="));
     assert_eq!(payload.client_id, "other_username@example.com");
     assert_eq!(payload.username, "other_username");
+    assert_eq!(payload.profile["username"], "other_username");
 }
 
 #[test]
@@ -1068,6 +1070,7 @@ fn decode_id_token_payload(id_token: &str) -> IdTokenPayload {
 struct IdTokenPayload {
     client_id: String,
     username: String,
+    profile: std::collections::BTreeMap<String, String>,
 }
 
 fn authorize_redirect_query(response: &str) -> Option<String> {
