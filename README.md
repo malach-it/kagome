@@ -9,6 +9,16 @@ state effects, and failure boundaries inline through Rustdoc.
 
 ## Server configuration
 
+Kagome’s configuration is organized into five areas: `server` defines the
+listening address and public issuer URL; `crypto` points to the generated key
+material; `tokens` sets token lifetimes and authorization-code chain limits;
+`credentials` and `presentation_definitions` describe credentials and the
+scopes that request them; and `clients` defines OAuth clients, redirect URIs,
+supported protocol capabilities, wallet-binding/QR behavior, and optional
+federation or password authentication. Copy the example configuration, set
+`KAGOME_CONFIG` when using another file, and keep configuration and generated
+keys private because they contain client secrets and signing material.
+
 Copy the example configuration before starting Kagome:
 
 ```bash
@@ -67,156 +77,31 @@ clients:
               credential: [UniversityDegreeCredential]
 ```
 
-Each `credentials` entry is advertised under its
-`credential_configuration_id`. Its `name` is used for display metadata, while
-`type` is a non-empty array of domain-specific credential types; Kagome prepends
-`VerifiableCredential` when advertising and issuing the credential. The type
-array and `vct` are used by presentation requests and validation.
+The example above is the complete configuration shape. In practice:
 
-Each `presentation_definitions` entry associates an OAuth scope value in
-`identifier` with the Presentation Exchange object in `definition`. An
-OpenID4VP authorization request selects exactly one configured definition by
-including its identifier in the space-delimited `scope` parameter. When only
-one definition is configured, `scope` may be omitted for compatibility;
-multiple definitions require an explicit, unambiguous selection.
+- `credentials` define issuable credential metadata and types.
+- `presentation_definitions` map OAuth scopes to Presentation Exchange rules.
+- `clients` must use unique IDs, non-empty secrets, and registered redirect URIs.
+  Configure supported grants, response types, scopes, wallet binding, QR pages,
+  password authentication, or federation as needed.
+- `crypto.key_file` is generated once, resolved relative to the YAML file, and
+  must be protected with owner-only permissions. Rotating keys invalidates
+  related artifacts or signatures.
+- `KAGOME_CONFIG` selects another configuration file. Startup rejects malformed
+  YAML, unknown fields, invalid URLs, keys, clients, and capabilities.
 
-Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
-error when the file cannot be read, contains invalid YAML or unknown fields, or
-configures invalid server settings or clients. Client IDs must be unique, and
-each client must have a non-empty secret and at least one redirect URI. The
-required `crypto.key_file` is resolved relative to the main configuration and
-loaded once at startup. It contains the distinct COSE encryption secrets plus
-the private and public JWK material for credential, ID-token, and request-object
-signatures. Startup verifies the configured algorithms, key IDs, public-key
-shape, and every private/public key pairing. Keep the local key file out of
-version control; `kagome.crypto.yaml` is ignored. The generator creates fresh
-encryption secrets, Ed25519 credential and ID-token pairs, and a P-256 request-
-object pair without overwriting an existing file. It requires OpenSSL and writes
-the result with owner-only permissions. Restrict the local file to the server
-account (for example,
-`chmod 600 kagome.crypto.yaml`). Replacing an encryption secret invalidates all
-outstanding artifacts in that context; replacing a signing pair immediately
-changes its published JWK and invalidates signatures made with the previous
-key. Coordinate rotation with the configured token and state lifetimes. The
-optional per-client `password_file` points to an nginx-style
-`name:bcrypt-hash[:comment]` file. Other password-hash formats are rejected at
-startup. Relative paths are resolved from the YAML file, and credentials are
-loaded once at startup. A client without `password_file`
-cannot authenticate local resource owners. The committed
-`kagome.htpasswd.example` contains the example users; create the ignored local
-file with `htpasswd -B kagome.htpasswd username`. The
-server returns the same `username or password is invalid` description for
-unknown usernames, missing passwords, wrong passwords, and clients without a
-password file. Each attempted credential pair performs one bcrypt verification,
-using a configured or dummy hash, so username validity does not select a cheap
-failure path.
-optional per-client `require_wallet_binding` flag requires wallet presentation
-and credential-proof signatures to verify with the holder public key explicitly
-bound into the incoming authorization `code` during wallet authentication.
-ID-token issuer signing keys are not treated as holder proof keys. Its default
-is `false`. The optional per-client `qr_code` flag changes successful SIOPv2,
-OpenID4VP, and pre-authorized-code wallet redirects into an HTML page containing
-an inline QR code, an `open in wallet` button, and a copyable URL. The button
-opens the exact deep link that would otherwise be returned in the `Location`
-header in a 390-by-844 popup, with a normal link fallback when JavaScript is
-disabled. Because signed request URLs can exceed standard QR capacity, the QR
-contains a random, five-minute issuer relay URL that redirects to the same deep
-link and remains usable for retries until it expires. Its default is `false`. The
-optional per-client `federated_server` block configures the upstream OAuth
-client, its authorization and token endpoints, and identity endpoints. Each
-identity endpoint is called once with the upstream bearer token. Its non-empty
-`claims` list maps dot-separated JSON claim paths to arbitrary resource-owner
-profile attributes. A `username` or `sub` target identifies the resource owner.
-Set a claim's `id_token` flag to include the mapped attribute in the signed
-ID-token `profile`. Set `credential` to an array of credential configuration
-IDs to include the attribute only in those credentials' subjects. `id_token`
-defaults to `false`, and `credential` defaults to an empty array. Clients without
-this block
-continue to use local authentication.
-Federated token and identity endpoints must return an `application/json` or
-`application/*+json` body no larger than 64 KiB. Kagome exposes only stable
-local OAuth errors when an upstream callback, request, status, content type, or
-body is invalid; upstream error descriptions and response fields are not copied
-into downstream errors or logs. Only configured identity claim paths are
-retained.
-Each client must explicitly opt into protocol capabilities through
-`supported_grant_types`, `supported_response_types`, and `scopes`; omitted or
-empty lists deny every corresponding grant type, response type, or requested
-scope. Requests may omit `scope`, but every scope value they include must be
-listed for the client. Every type in a combined request must be
-allowed. Authorization responses also require their associated grant:
-`code` requires `authorization_code`, `token` and `id_token` require `implicit`,
-and the pre-authorized-code response requires its pre-authorized-code grant.
-The local `kagome.yaml` is ignored by Git.
+For deployments, Kagome supports optional HTTPS through `KAGOME_HTTPS_CERT` and
+`KAGOME_HTTPS_KEY`, and Docker Compose mounts configuration, keys, and password
+files as read-only secrets under `/run/secrets`. The server enforces bounded
+connection, request, header, body, and response-generation limits. Custom client
+error and wallet templates can be mounted under `/templates`.
 
-`server.address` controls the listening socket, while `server.issuer` is the
-public HTTP origin used to construct federation callback URLs. The `tokens`
-values configure access-token, authorization-code, and ID-token lifetimes in
-seconds. `tokens.authorization_code_chain_max_depth` bounds nested authorization
-codes (default `8`, accepted range `1..=32`). Omitted `tokens` configuration uses
-the example defaults.
-
-The HTTP boundary accepts at most 256 concurrent connections and 128 in-flight
-requests. It permits 64 request headers in a 32 KiB parsing buffer, allows five
-seconds to receive each header block, and applies separate 30-second body-read
-and response-generation deadlines. Protocol request bodies are limited to
-256 KiB and the development echo endpoint to 1 MiB. Credential issuance and
-presentation-response requests have route-specific 10 MiB ceilings to
-accommodate large credential and `vp_token` payloads. Connections or requests
-above their concurrency budgets fail closed instead of waiting in an unbounded
-application queue.
-
-Kagome serves plain HTTP by default. Set both `KAGOME_HTTPS_CERT` and
-`KAGOME_HTTPS_KEY` to PEM-formatted certificate-chain and private-key contents
-to terminate HTTPS directly in Kagome. Setting only one variable, leaving one
-empty, or providing invalid PEM prevents startup. Keep the private-key variable
-restricted to the server process and continue to set `server.issuer` to the
-public HTTPS origin.
-
-The container image does not contain a configuration file, password database,
-or generated cryptographic material. Supply them at runtime under
-`/run/secrets`; the image reads `/run/secrets/kagome.yaml` by default and
-resolves its relative `crypto.key_file` and `password_file` paths in that same
-directory. The provided Compose configuration mounts `kagome.yaml`,
-`kagome.crypto.yaml`, and `kagome.htpasswd.example` as read-only secrets. Treat
-the main configuration as a secret because it contains OAuth client and
-federation credentials, and replace the example password source in production.
-The image runs as the dedicated numeric user and group `10001:10001`. Because
-local-file Compose secrets retain host ownership, Compose instead uses
-`KAGOME_UID` and `KAGOME_GID` (both default to `1000`) for its non-root process;
-set them to the owner of the `0600` secret files. Compose additionally uses a
-read-only root filesystem, drops all Linux capabilities, and prevents privilege
-escalation. Client-specific HTML templates may be mounted read-only under
-`/templates` when required.
-
-For a federated client, `GET /authorize` redirects to the configured upstream
-authorization endpoint with `response_type=code`, the upstream `client_id`, the
-callback URI derived from `server.issuer`, and authenticated short-lived state.
-The encrypted state carries the parsed authorization request attributes. The
-callback restores an `AuthorizeLoginRequest`, exchanges a returned authorization
-code at the upstream token endpoint, fetches and maps the configured identity
-claims, and continues the authorize response flow. Local `POST /authorize`
-authentication is disabled for that client.
-Direct validation and generation failures from `/authorize` and
-`/siopv2-request` render an HTML authorization-error page; these endpoints do
-not return JSON error bodies. When a client ID is available, Kagome first looks
-for `templates/<client_id>.authorization_error.html`. QR-code wallet responses
-similarly look for `templates/<client_id>.wallet_authorization.html`. A missing
-client-specific file falls back to the corresponding bundled template. Kagome
-loads client-specific templates once during startup; restart it after changing
-these files.
-[`kagome.schema.json`](kagome.schema.json) provides editor validation
-and completion for the example. After changing the Rust configuration types,
-regenerate it with:
-
-```bash
-cargo run --example generate_config_schema > kagome.schema.json
-```
+[`kagome.schema.json`](kagome.schema.json) provides editor validation and
+completion; regenerate it with `cargo run --example generate_config_schema > kagome.schema.json`.
 
 ## OpenID for Verifiable Credential Issuance
 
-Kagome implements a bounded profile of the OpenID for Verifiable Credential
-Issuance 1.0 Final specification:
+Kagome provides a bounded OpenID4VCI 1.0 Final profile:
 
 - Credential Issuer metadata at `/.well-known/openid-credential-issuer`
 - OAuth Authorization Server metadata at
@@ -225,54 +110,21 @@ Issuance 1.0 Final specification:
 - The Pre-Authorized Code grant at `/token`
 - Immediate issuance of configured `jwt_vc` credentials at `/credential`
 - Centralized public signing keys for credentials, ID tokens, and request
-  objects at `/jwks`
+  objects at `/jwks`.
 
-The Pre-Authorized Code is a five-minute COSE_Encrypt0 artifact containing the
-authorized credential configuration and subject. The profile does not use a
-second-channel user code, so possession of a Pre-Authorized Code is sufficient
-to exchange it. Authorization and Pre-Authorized Codes are consumed once in a
-bounded process-local replay store. This follows the wallet-authorization relay
-storage pattern and prevents reuse within one running server, but consumption
-state is not shared across replicas and is lost on restart. Validated SIOPv2
-state is consumed through the same replay store after an accepted ID-token or
-wallet-error response. Valid federation callback state is likewise consumed
-after accepting a non-empty upstream code or error callback. Presentation state
-is consumed after accepting a validated presentation or supported wallet error.
-
-Authorization requests whose `response_type` contains `code`, including hybrid
-and chained responses, require an S256 PKCE challenge. Authorization-code token
-requests require the matching verifier and reject codes without a PKCE binding.
-
-OAuth access tokens and credential access tokens are opaque COSE_Encrypt0
-artifacts. Encryption is centralized and domain-separated by artifact-specific
-keys and external authenticated data, so an artifact cannot be substituted in
-another protocol context. Each credential access token carries a fresh 256-bit
-`c_nonce`; following the OpenID4VCI draft-11 profile, `/token` returns that
-nonce and its lifetime, and every submitted JWT issuance proof must contain the
-same value in its `nonce` claim. Server-generated credentials and ID tokens use
-separate centralized Ed25519 signing identities; request objects retain their
-centralized ES256 identity for wallet interoperability. All public keys are
-published by the JWKS endpoint. ID tokens carry issuer, subject, and audience
-claims; code-chain validation requires Kagome's configured ID-token signing key
-and binds the audience to the authenticated client.
-
-The issued JWT VC is signed with Ed25519 and bound through its `cnf` claim to
-the key from the required Credential Request proof. Every proof must contain
-the access token's `c_nonce`. This proof of concept does not support a nonce
-endpoint, deferred issuance, request or response encryption, batch issuance,
-or notifications.
-The embedded keys are development fixtures and must be replaced for deployment.
+Pre-authorized codes and tokens are short-lived encrypted artifacts. Credential
+proofs must include the access token’s `c_nonce`, and authorization-code or
+chained flows require S256 PKCE. Credentials, ID tokens, and request objects use
+separate signing identities. Replay tracking is bounded to the running process
+and is not shared across replicas. Nonce endpoints, deferred or batch issuance,
+request/response encryption, and notifications are not implemented. Replace
+embedded development keys before deployment.
 
 ## Agent chat code-chain example
 
-The agent chat example obtains a server-signed ID token and authorization code
-through the hybrid `code id_token` response, using the configured dynamic public
-client identifier `username:password@agent-chat.local:4000`. It then uses the
-normalized `username@agent-chat.local:4000` client identifier, the ID token, and
-the hybrid code to start a code chain without a client secret. The trusted
-ID-token signature and audience authenticate the public client. Each agent
-handoff extends the preceding authorization-code chain before the receiving
-agent handles its message.
+The agent-chat example demonstrates public-client authentication and chained
+authorization codes: it obtains a hybrid `code id_token` response, then extends
+the authorization-code chain for each agent handoff.
 
 Run the example against the Docker Compose server with:
 
@@ -280,18 +132,15 @@ Run the example against the Docker Compose server with:
 docker compose --profile tools run --rm agent-chat
 ```
 
-The defaults match `kagome.example.yaml`. They can be overridden with
-`KAGOME_SERVER_TARGET`, `KAGOME_PUBLIC_HOST`, `KAGOME_REDIRECT_URI`,
-`KAGOME_USERNAME`, `KAGOME_PASSWORD`, and `KAGOME_TIMEOUT`.
+Defaults match `kagome.example.yaml`; documented `KAGOME_*` variables override
+the server, public host, redirect URI, credentials, and timeout.
 
 ## OpenID for Verifiable Presentations
 
-Kagome implements a bounded verifier profile of OpenID for Verifiable
-Presentations 1.0 Final:
+Kagome provides a bounded OpenID4VP 1.0 Final verifier profile:
 
-- `GET /presentation-request` creates authorization request parameters using
-  `response_type=vp_token`, `response_mode=direct_post`, and a DCQL query for
-  one configured `jwt_vc` credential.
+- `GET /authorize?response_type=vp_token` creates a wallet authorization request
+  using `response_mode=direct_post` for one configured presentation definition.
 - `POST /presentation-response` accepts the form-encoded direct-post response.
 - Presentation JWTs and embedded Credential JWTs use Ed25519. The verifier
   validates their signatures, validity periods, requested type and claims,
@@ -299,33 +148,44 @@ Presentations 1.0 Final:
 - Wallet error responses are accepted for the bounded set documented by the
   response implementation.
 
-The presentation request endpoint is a proof-of-concept helper that returns the
-authorization request parameters as JSON; wallet invocation and QR rendering
-are outside this profile. The five-minute nonce and transaction context are
-carried in COSE_Encrypt0 state. No Credential, Presentation, or replay state is
-stored. A valid presentation response can therefore be replayed until its state
-expires. Deployments that require replay prevention need an atomic shared
-single-use store. The embedded verifier, issuer, and holder keys are development
-fixtures and must be replaced for deployment.
+Wallet invocation and QR rendering are handled by the authorization flow.
+Transaction state is encrypted and short-lived, but replay state is not
+persisted or shared across replicas. Strict single-use deployments must provide
+an atomic shared store. Replace embedded development keys before deployment.
+
+## Self-Issued OpenID Provider v2
+
+Kagome implements a stateless SIOPv2 direct-post authentication stage for OAuth
+authorization:
+
+- `GET /siopv2-request` creates a signed self-issued ID-token request.
+- `POST /siopv2-response` accepts the wallet’s form-encoded ID token or a
+  supported wallet error.
+- Requested response types, client and redirect parameters, client state, and
+  optional authorization codes are retained in encrypted short-lived state.
+- The configured `server.issuer` is the wallet-facing verifier `client_id`, and
+  the returned ID token must use it as its audience.
+- P-256 `did:key` and Boruta Wallet’s canonical `jwk_jcs-pub` representation are
+  supported. S256 PKCE is required whenever the response includes `code`.
+
+After validation, Kagome continues the original authorization flow and redirects
+to the trusted client URI. Replay tracking is bounded to the running process and
+is not shared across replicas; replace development signing keys before
+deployment.
 
 ## Load testing
 
-The k6 scripts cover every documented identity flow. Run one through its
-Compose service, for example:
+The k6 scripts exercise every documented identity flow. Run one through Compose,
+for example:
 
 ```bash
 docker compose --profile loadtest run --rm k6-openid4vp
 ```
 
-Available services are `k6-authorization-code`, `k6-client-credentials`,
-`k6-code-chain`, `k6-resource-owner-password`, `k6-implicit`,
-`k6-pre-authorized-code`, `k6-siopv2`, and `k6-openid4vp`. Set `K6_VUS` and
-`K6_DURATION` to change the default four-user, 30-second run. The scripts also
-accept `KAGOME_SERVER_TARGET`, `KAGOME_TOKEN_TARGET`, `KAGOME_CLIENT_ID`,
-`KAGOME_CLIENT_SECRET`, `KAGOME_REDIRECT_URI`, `KAGOME_USERNAME`,
-`KAGOME_PASSWORD`, `KAGOME_ISSUER`,
-`KAGOME_AUTHORIZE_CLIENT_ID`, `KAGOME_AUTHORIZE_METHOD`, and
-`KAGOME_PUBLIC_HOST` where applicable.
+Services cover authorization code, client credentials, code chain, resource
+owner password, implicit, pre-authorized code, SIOPv2, and OpenID4VP flows. Set
+`K6_VUS` and `K6_DURATION` to change the defaults; flow-specific `KAGOME_*`
+variables configure targets and credentials.
 
 ## License
 

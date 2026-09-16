@@ -10,7 +10,7 @@ SVG files are rendered for direct review.
 
 ![OpenID4VP presentation flow](presentation.svg)
 
-## Presentation Request Endpoint
+## Presentation Authorization Flow
 
 `GET /authorize?response_type=vp_token` selects this flow through the main
 authorize handler. It uses the common authorize response-type, client and
@@ -64,10 +64,6 @@ client/redirect-URI revalidation redirect to the same URI with `error`,
 `error_description`, and `state`. This revalidated destination is the trusted
 redirect URI. Failures before a trusted redirect URI is established return an
 escaped local HTML error page.
-
-[Mermaid source](presentation_request_endpoint.mmd)
-
-![Presentation request endpoint](presentation_request_endpoint.svg)
 
 ## Presentation Response Endpoint
 

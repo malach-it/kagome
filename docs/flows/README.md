@@ -126,12 +126,6 @@ this catalog.
 
 ### Endpoints
 
-#### Presentation Request
-
-[Mermaid source](openid4vp/presentation_request_endpoint.mmd)
-
-[Presentation request endpoint](openid4vp/presentation_request_endpoint.svg)
-
 #### Presentation Response
 
 [Mermaid source](openid4vp/presentation_response_endpoint.mmd)
