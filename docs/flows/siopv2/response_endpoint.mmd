@@ -19,8 +19,8 @@ flowchart TD
     client -- ok --> pkce["pkce::validate"]
     pkce -- error --> failure
     pkce -- ok --> code["authorization_code::validate_optional"]
-    code -- error --> failure
-    code -- ok --> policy["metadata_policy::validate"]
+    code -- invalid, oversized, or excessive depth --> failure
+    code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> failure
     policy -- ok --> response[Generate selected authorize response]
     response -- error --> failure

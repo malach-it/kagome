@@ -8,7 +8,8 @@ use super::*;
 // - id_token: valid asymmetric | missing | malformed | symmetric algorithm |
 //   missing JWK | invalid JWK | invalid signature | invalid claims | missing iat |
 //   missing exp | expired | future iat | exp before iat
-// - previous authorization_code: missing | valid | invalid | issued to another client
+// - previous authorization_code: missing | valid below maximum depth | valid at maximum depth |
+//   exceeding maximum depth | invalid | issued to another client
 // - chained authorization_code exchange: absent | valid | invalid
 // Validation failures are representation-independent after parsing, so each equivalent
 // failure path is exercised once with form input.
@@ -57,6 +58,33 @@ fn accepts_valid_previous_authorization_code() {
 
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(response.contains("\"authorization_code\":\""));
+}
+
+#[test]
+fn accepts_previous_authorization_code_chain_at_maximum_depth() {
+    let authorization_code =
+        issue_authorization_code_chain(kagome::config::DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH);
+
+    assert!(!authorization_code.is_empty());
+}
+
+#[test]
+fn rejects_previous_authorization_code_chain_exceeding_maximum_depth() {
+    let previous_code =
+        issue_authorization_code_chain(kagome::config::DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH);
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=code_chain&id_token={}&authorization_code={previous_code}",
+        valid_id_token()
+    );
+
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(
+        response
+            .contains("\"error_description\":\"authorization_code chain exceeds maximum depth\"")
+    );
 }
 
 #[test]
@@ -317,4 +345,25 @@ fn assert_code_chain_id_token_error(id_token: &str, description: &str) {
     let response = send_form_token_request(&body);
 
     assert_invalid_id_token_response_with_description(&response, description);
+}
+
+fn issue_authorization_code_chain(depth: usize) -> String {
+    let mut previous_code = None;
+
+    for _ in 0..depth {
+        let authorization_code = previous_code
+            .as_deref()
+            .map(|code| format!("&authorization_code={code}"))
+            .unwrap_or_default();
+        let body = format!(
+            "client_id=client_id&client_secret=client_secret&grant_type=code_chain&id_token={}{}",
+            valid_id_token(),
+            authorization_code
+        );
+        let response = send_form_token_request(&body);
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        previous_code = json_string_field(&response, "authorization_code");
+    }
+
+    previous_code.expect("a non-empty chain should contain an authorization code")
 }

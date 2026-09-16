@@ -5,18 +5,18 @@ flowchart TD
     grant -- code_chain --> client["client_credentials::validate"]
     client -- error --> oauth_error
     client -- ok --> previous["authorization_code::validate_optional"]
-    previous -- error --> oauth_error
-    previous -- ok --> id_token["id_token::validate"]
+    previous -- invalid, oversized, or excessive depth --> oauth_error
+    previous -- absent or valid within depth limit --> id_token["id_token::validate"]
     id_token -- error --> oauth_error
     id_token -- ok --> issue["authorization_code::generate"]
-    issue -- error --> oauth_error
+    issue -- excessive depth or generation error --> oauth_error
     issue -- ok --> combined{authorization_code exchange requested?}
     combined -- no --> code_success["`**HTTP 200** authorization code`"]
     combined -- yes --> exchange_client["client_credentials::validate"]
     exchange_client -- error --> oauth_error
     exchange_client -- ok --> exchange_code["authorization_code::validate"]
-    exchange_code -- error --> oauth_error
-    exchange_code -- ok --> pkce["pkce::verify"]
+    exchange_code -- invalid, oversized, or excessive depth --> oauth_error
+    exchange_code -- valid within depth limit --> pkce["pkce::verify"]
     pkce -- error --> oauth_error
     pkce -- ok --> access["access_token::generate"]
     access -- error --> oauth_error

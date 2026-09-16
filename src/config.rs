@@ -16,6 +16,8 @@ pub const CONFIG_PATH_ENV_VAR: &str = "KAGOME_CONFIG";
 pub const DEFAULT_CONFIG_PATH: &str = "kagome.yaml";
 pub const DEFAULT_ACCESS_TOKEN_TTL_SECONDS: u64 = 3600;
 pub const DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS: u64 = 600;
+pub const DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH: usize = 8;
+pub const MAX_AUTHORIZATION_CODE_CHAIN_DEPTH: usize = 32;
 pub const DEFAULT_ID_TOKEN_TTL_SECONDS: u64 = 3600;
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -27,7 +29,7 @@ pub struct Config {
     pub server: ServerConfig,
     /// External file containing encryption secrets and signing key pairs.
     pub crypto: CryptoConfig,
-    /// Lifetimes, in seconds, for OAuth tokens and authorization codes.
+    /// OAuth token lifetime and authorization-code chain settings.
     #[serde(default)]
     #[schemars(default)]
     pub tokens: TokenTtlsConfig,
@@ -67,6 +69,13 @@ pub struct TokenTtlsConfig {
     /// Lifetime of an ID token, in seconds.
     #[schemars(range(min = 1))]
     pub id_token_ttl: u64,
+    /// Maximum number of nested authorization codes accepted in one chain.
+    #[serde(default = "default_authorization_code_chain_max_depth")]
+    #[schemars(
+        default = "default_authorization_code_chain_max_depth",
+        range(min = 1, max = 32)
+    )]
+    pub authorization_code_chain_max_depth: usize,
 }
 
 impl Default for TokenTtlsConfig {
@@ -75,8 +84,13 @@ impl Default for TokenTtlsConfig {
             access_token_ttl: DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
             authorization_code_ttl: DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS,
             id_token_ttl: DEFAULT_ID_TOKEN_TTL_SECONDS,
+            authorization_code_chain_max_depth: DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH,
         }
     }
+}
+
+fn default_authorization_code_chain_max_depth() -> usize {
+    DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH
 }
 
 #[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -355,6 +369,17 @@ impl Config {
                     message: format!("tokens.{field} must be greater than zero"),
                 });
             }
+        }
+
+        if !(1..=MAX_AUTHORIZATION_CODE_CHAIN_DEPTH)
+            .contains(&self.tokens.authorization_code_chain_max_depth)
+        {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: format!(
+                    "tokens.authorization_code_chain_max_depth must be between 1 and {MAX_AUTHORIZATION_CODE_CHAIN_DEPTH}"
+                ),
+            });
         }
 
         let mut client_ids = HashSet::new();

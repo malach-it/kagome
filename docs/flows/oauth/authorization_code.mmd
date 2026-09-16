@@ -7,8 +7,8 @@ flowchart TD
     client -- ok --> challenge["pkce::validate"]
     challenge -- error --> authorize_error
     challenge -- ok --> previous["authorization_code::validate_optional"]
-    previous -- error --> authorize_error
-    previous -- ok --> policy["metadata_policy::validate"]
+    previous -- invalid, oversized, or excessive depth --> authorize_error
+    previous -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> authorize_error
     policy -- ok --> method{GET or POST?}
     method -- GET --> owner_optional["resource_owner::validate_optional"]
@@ -22,7 +22,7 @@ flowchart TD
     method -- POST --> owner["resource_owner::validate"]
     owner -- error --> authorize_error
     owner -- ok --> issue["authorization_code::generate"]
-    issue -- error --> authorize_error
+    issue -- excessive depth or generation error --> authorize_error
     issue -- ok --> redirect["`**HTTP 302** client redirect with code`"]
     redirect --> token[POST /token]
     token --> grant["grant_type::validate"]
@@ -30,8 +30,8 @@ flowchart TD
     grant -- authorization_code --> token_client["client_credentials::validate"]
     token_client -- error --> token_error
     token_client -- ok --> code["authorization_code::validate"]
-    code -- error --> token_error
-    code -- ok --> verifier["pkce::verify"]
+    code -- invalid, oversized, or excessive depth --> token_error
+    code -- valid within depth limit --> verifier["pkce::verify"]
     verifier -- error --> token_error
     verifier -- ok --> access["access_token::generate"]
     access -- error --> token_error

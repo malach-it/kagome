@@ -89,7 +89,9 @@ The local `kagome.yaml` is ignored by Git.
 `server.address` controls the listening socket, while `server.issuer` is the
 public HTTP origin used to construct federation callback URLs. The `tokens`
 values configure access-token, authorization-code, and ID-token lifetimes in
-seconds; omitted `tokens` configuration uses the example defaults.
+seconds. `tokens.authorization_code_chain_max_depth` bounds nested authorization
+codes (default `8`, accepted range `1..=32`). Omitted `tokens` configuration uses
+the example defaults.
 
 For a federated client, `GET /authorize` redirects to the configured upstream
 authorization endpoint with `response_type=code`, the upstream `client_id`, the

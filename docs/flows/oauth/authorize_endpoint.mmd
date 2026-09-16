@@ -9,8 +9,8 @@ flowchart TD
     client -- ok --> pkce["pkce::validate"]
     pkce -- error --> error
     pkce -- ok --> code["authorization_code::validate_optional"]
-    code -- error --> error
-    code -- ok --> policy["metadata_policy::validate"]
+    code -- invalid, oversized, or excessive depth --> error
+    code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> error
     policy -- ok --> flow{Response pipeline?}
     flow -- vp_token --> verifier["verifier::validate"]
@@ -38,7 +38,7 @@ flowchart TD
     generate -- id_token --> id_token["id_token::generate"]
     generate -- combined --> combined[Compose selected generation actions]
     pre_code -- error --> error
-    auth_code -- error --> error
+    auth_code -- excessive depth or generation error --> error
     access -- error --> error
     id_token -- error --> error
     combined -- error --> error

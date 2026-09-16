@@ -20,7 +20,7 @@
       "$ref": "#/$defs/ServerConfig"
     },
     "tokens": {
-      "description": "Lifetimes, in seconds, for OAuth tokens and authorization codes.",
+      "description": "OAuth token lifetime and authorization-code chain settings.",
       "$ref": "#/$defs/TokenTtlsConfig"
     }
   },
@@ -229,6 +229,14 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 1
+        },
+        "authorization_code_chain_max_depth": {
+          "description": "Maximum number of nested authorization codes accepted in one chain.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "maximum": 32,
+          "default": 8
         },
         "id_token_ttl": {
           "description": "Lifetime of an ID token, in seconds.",

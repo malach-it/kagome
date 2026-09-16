@@ -13,8 +13,8 @@ flowchart TD
     client -- ok --> pkce["pkce::validate"]
     pkce -- error --> redirect_error
     pkce -- ok --> code["authorization_code::validate_optional"]
-    code -- error --> redirect_error
-    code -- ok --> policy["metadata_policy::validate"]
+    code -- invalid, oversized, or excessive depth --> redirect_error
+    code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> redirect_error
     policy -- ok --> token["federated_server::request_access_token"]
     token -- error --> redirect_error

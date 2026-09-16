@@ -351,15 +351,26 @@ mod resources {
 
         #[test]
         fn generates_authorization_code_containing_previous_code() {
+            let previous_request = token_request(Some("client_id"), Some("id_token"));
+            let previous_response = kagome::resources::authorization_code::generate(
+                token_response_with_validated_response(&previous_request, "client_id", "id_token"),
+            )
+            .unwrap();
+            let previous_code = previous_response
+                .response
+                .authorization_code
+                .as_ref()
+                .unwrap()
+                .value
+                .clone();
             let request = token_request_with_authorization_code(
                 Some("client_id"),
                 Some("id_token"),
-                Some("previous.cose.code"),
+                Some(&previous_code),
             );
             let mut token_response =
                 continue_token_response_with_validated_response(&request, "client_id", "id_token");
-            token_response.response.previous_authorization_code =
-                Some("previous.cose.code".to_owned());
+            token_response.response.previous_authorization_code = Some(previous_code.clone());
 
             let token_response =
                 kagome::resources::authorization_code::generate(token_response).unwrap();
@@ -368,9 +379,48 @@ mod resources {
 
             assert_eq!(
                 authorization_code.payload.previous_code,
-                Some("previous.cose.code".to_owned())
+                Some(previous_code.clone())
             );
-            assert_eq!(payload.previous_code, Some("previous.cose.code".to_owned()));
+            assert_eq!(payload.previous_code, Some(previous_code));
+        }
+
+        #[test]
+        fn validates_authorization_code_chain_at_maximum_depth() {
+            let authorization_code = issue_authorization_code_chain(
+                kagome::config::DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH,
+            );
+
+            let usernames = kagome::resources::authorization_code::chain_usernames(
+                Some(&authorization_code),
+                Some("client_id"),
+            )
+            .unwrap();
+
+            assert!(usernames.is_empty());
+        }
+
+        #[test]
+        fn rejects_authorization_code_generation_exceeding_maximum_depth() {
+            let previous_code = issue_authorization_code_chain(
+                kagome::config::DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH,
+            );
+            let request = token_request_with_authorization_code(
+                Some("client_id"),
+                Some("id_token"),
+                Some(&previous_code),
+            );
+            let mut token_response =
+                continue_token_response_with_validated_response(&request, "client_id", "id_token");
+            token_response.response.previous_authorization_code = Some(previous_code);
+
+            let error =
+                kagome::resources::authorization_code::generate(token_response).unwrap_err();
+
+            assert_eq!(error.error, "invalid_grant");
+            assert_eq!(
+                error.error_description,
+                "authorization_code chain exceeds maximum depth"
+            );
         }
 
         #[test]
@@ -477,6 +527,28 @@ mod resources {
                 error.error_description,
                 "authorization_code must be a cose_encrypt0"
             );
+        }
+
+        #[test]
+        fn rejects_oversized_authorization_code_before_decoding() {
+            let oversized_code =
+                "a".repeat(kagome::resources::authorization_code::MAX_AUTHORIZATION_CODE_BYTES + 1);
+            let request = token_request_with_authorization_code(
+                Some("client_id"),
+                Some("id_token"),
+                Some(&oversized_code),
+            );
+            let token_response = kagome::resources::client_credentials::validate_with_clients(
+                kagome::handlers::token::CodeChainRequest::empty(&request),
+                &crate::configured_clients(),
+            )
+            .unwrap();
+
+            let error = kagome::resources::authorization_code::validate_optional(token_response)
+                .unwrap_err();
+
+            assert_eq!(error.error, "invalid_grant");
+            assert_eq!(error.error_description, "authorization_code is too large");
         }
 
         #[test]
@@ -605,6 +677,31 @@ mod resources {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs()
+        }
+
+        fn issue_authorization_code_chain(depth: usize) -> String {
+            let mut previous_code = None;
+
+            for _ in 0..depth {
+                let request = token_request_with_authorization_code(
+                    Some("client_id"),
+                    Some("id_token"),
+                    previous_code.as_deref(),
+                );
+                let mut response = continue_token_response_with_validated_response(
+                    &request,
+                    "client_id",
+                    "id_token",
+                );
+                response.response.previous_authorization_code = previous_code;
+                let response = kagome::resources::authorization_code::generate(response).unwrap();
+                previous_code = response
+                    .response
+                    .authorization_code
+                    .map(|authorization_code| authorization_code.value);
+            }
+
+            previous_code.expect("a non-empty chain should contain an authorization code")
         }
 
         fn token_request(

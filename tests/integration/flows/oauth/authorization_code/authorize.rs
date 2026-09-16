@@ -13,6 +13,7 @@ use super::super::*;
 //   username mismatch
 // - PKCE: absent | valid S256 | missing challenge | missing method | unsupported
 //   method | malformed challenge
+// - authorization-code chain depth: below maximum | exactly maximum | exceeding maximum
 // - generated artifacts: COSE_Encrypt0 code/access token | EdDSA ID token
 // - federation: configured redirect | local authentication not implemented
 // Error rendering: validated redirect | missing, invalid, or another client's redirect;
@@ -609,6 +610,48 @@ fn redirects_back_to_authorize_until_final_code_response_type() {
     assert!(third_response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(third_response.contains("location: https://client.example.com/callback?code="));
     assert!(!final_code.is_empty());
+}
+
+#[test]
+fn accepts_authorization_code_chain_at_maximum_depth() {
+    let maximum_depth = kagome::config::DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH;
+    let response_type = vec!["code"; maximum_depth].join("+");
+    let mut response = send_post_authorize_request(&format!(
+        "response_type={response_type}&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    for _ in 1..maximum_depth {
+        let next_query = authorize_redirect_query(&response)
+            .expect("non-final code should redirect back to authorize");
+        response = send_post_authorize_request(&next_query);
+    }
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
+    assert!(authorize_redirect_query(&response).is_none());
+}
+
+#[test]
+fn rejects_authorization_code_chain_exceeding_maximum_depth() {
+    let maximum_depth = kagome::config::DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH;
+    let response_type = vec!["code"; maximum_depth + 1].join("+");
+    let mut response = send_post_authorize_request(&format!(
+        "response_type={response_type}&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    for _ in 1..=maximum_depth {
+        let next_query = authorize_redirect_query(&response)
+            .expect("code chain should continue until the maximum depth is exceeded");
+        response = send_post_authorize_request(&next_query);
+    }
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(
+        response.contains("<p role=\"alert\">authorization_code chain exceeds maximum depth</p>")
+    );
 }
 
 #[test]

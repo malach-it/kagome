@@ -8,6 +8,8 @@ use crate::{
 };
 
 pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS;
+pub const MAX_AUTHORIZATION_CODE_BYTES: usize = 128 * 1024;
+pub const MAX_AUTHORIZATION_CODE_PAYLOAD_BYTES: usize = 64 * 1024;
 const COSE_ENCRYPT0_ERRORS: crypto::CoseEncrypt0Errors = crypto::CoseEncrypt0Errors {
     invalid_cose: "authorization_code must be a cose_encrypt0",
     missing_ciphertext: "authorization_code ciphertext is required",
@@ -119,6 +121,14 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         (None, false) => None,
     };
     let previous_code = request.previous_authorization_code().map(str::to_owned);
+    if let Some(previous_code) = previous_code.as_deref()
+        && validated_code_chain(previous_code, Some(client_id))?.len()
+            >= Config::token_ttls().authorization_code_chain_max_depth
+    {
+        return Err(invalid_authorization_code(
+            "authorization_code chain exceeds maximum depth",
+        ));
+    }
     let code_challenge = request.code_challenge().cloned();
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -152,6 +162,16 @@ fn validate_request_authorization_code(
     authorization_code: &str,
     client_id: Option<&str>,
 ) -> Result<AuthorizationCodeCosePayload, OAuthError> {
+    validated_code_chain(authorization_code, client_id)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| invalid_authorization_code("authorization_code claims are invalid"))
+}
+
+fn validate_single_authorization_code(
+    authorization_code: &str,
+    client_id: Option<&str>,
+) -> Result<AuthorizationCodeCosePayload, OAuthError> {
     let payload = validate_cose_encrypt0(authorization_code)?;
 
     if let Some(client_id) = client_id
@@ -165,10 +185,38 @@ fn validate_request_authorization_code(
     Ok(payload)
 }
 
+fn validated_code_chain(
+    authorization_code: &str,
+    client_id: Option<&str>,
+) -> Result<Vec<AuthorizationCodeCosePayload>, OAuthError> {
+    let maximum_depth = Config::token_ttls().authorization_code_chain_max_depth;
+    let mut current_code = Some(authorization_code.to_owned());
+    let mut payloads = Vec::with_capacity(maximum_depth);
+
+    while let Some(code) = current_code {
+        if payloads.len() >= maximum_depth {
+            return Err(invalid_authorization_code(
+                "authorization_code chain exceeds maximum depth",
+            ));
+        }
+
+        let payload = validate_single_authorization_code(&code, client_id)?;
+        current_code = payload.previous_code.clone();
+        payloads.push(payload);
+    }
+
+    Ok(payloads)
+}
+
 fn encode_cose_encrypt0(payload: &AuthorizationCodeCosePayload) -> Result<String, OAuthError> {
     let mut payload_bytes = Vec::new();
     ciborium::into_writer(payload, &mut payload_bytes)
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?;
+    if payload_bytes.len() > MAX_AUTHORIZATION_CODE_PAYLOAD_BYTES {
+        return Err(OAuthError::invalid_token_response(
+            "authorization code payload is too large",
+        ));
+    }
 
     crypto::encode_cose_encrypt0(&payload_bytes, EncryptedArtifact::AuthorizationCode).map_err(
         |error| {
@@ -210,14 +258,11 @@ pub fn chain_usernames(
         return Ok(Vec::new());
     };
 
-    let payload = validate_request_authorization_code(authorization_code, client_id)?;
-    let mut usernames = chain_usernames(payload.previous_code.as_deref(), client_id)?;
-
-    if let Some(username) = payload.username {
-        usernames.push(username);
-    }
-
-    Ok(usernames)
+    Ok(validated_code_chain(authorization_code, client_id)?
+        .into_iter()
+        .rev()
+        .filter_map(|payload| payload.username)
+        .collect())
 }
 
 fn validate_cose_encrypt0(
@@ -248,11 +293,24 @@ fn validate_cose_encrypt0(
 }
 
 fn decode_cose_encrypt0(authorization_code: &str) -> Result<Vec<u8>, OAuthError> {
-    crypto::decode_cose_encrypt0(
+    if authorization_code.len() > MAX_AUTHORIZATION_CODE_BYTES {
+        return Err(invalid_authorization_code(
+            "authorization_code is too large",
+        ));
+    }
+
+    let payload = crypto::decode_cose_encrypt0(
         authorization_code,
         EncryptedArtifact::AuthorizationCode,
         COSE_ENCRYPT0_ERRORS,
-    )
+    )?;
+    if payload.len() > MAX_AUTHORIZATION_CODE_PAYLOAD_BYTES {
+        return Err(invalid_authorization_code(
+            "authorization_code payload is too large",
+        ));
+    }
+
+    Ok(payload)
 }
 
 fn current_timestamp() -> Result<u64, OAuthError> {
@@ -264,4 +322,24 @@ fn current_timestamp() -> Result<u64, OAuthError> {
 
 fn invalid_authorization_code(error_description: &str) -> OAuthError {
     OAuthError::invalid_authorization_code(error_description)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_decrypted_payload_larger_than_the_cbor_limit() {
+        let payload = vec![0; MAX_AUTHORIZATION_CODE_PAYLOAD_BYTES + 1];
+        let authorization_code =
+            crypto::encode_cose_encrypt0(&payload, EncryptedArtifact::AuthorizationCode).unwrap();
+
+        let error = decode_cose_encrypt0(&authorization_code).unwrap_err();
+
+        assert_eq!(error.error, "invalid_grant");
+        assert_eq!(
+            error.error_description,
+            "authorization_code payload is too large"
+        );
+    }
 }

@@ -10,8 +10,8 @@ flowchart TD
     client -- ok --> pkce["pkce::validate"]
     pkce -- error --> request_error
     pkce -- ok --> code["authorization_code::validate_optional"]
-    code -- error --> request_error
-    code -- ok --> policy["metadata_policy::validate"]
+    code -- invalid, oversized, or excessive depth --> request_error
+    code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> request_error
     policy -- ok --> state["siopv2_state::generate"]
     state -- error --> generation_error["`**HTTP 400** invalid_token_response`"]

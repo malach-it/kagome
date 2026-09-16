@@ -10,10 +10,10 @@ flowchart TD
     password_client -- ok --> owner["resource_owner::validate"]
     grant -- authorization_code --> code_client["client_credentials::validate"]
     code_client -- ok --> code["authorization_code::validate"]
-    code -- ok --> pkce["pkce::verify"]
+    code -- valid within depth limit --> pkce["pkce::verify"]
     grant -- code_chain --> chain_client["client_credentials::validate"]
     chain_client -- ok --> previous["authorization_code::validate_optional"]
-    previous -- ok --> id_token["id_token::validate"]
+    previous -- absent or valid within depth limit --> id_token["id_token::validate"]
     id_token -- ok --> issue["authorization_code::generate"]
     grant -- pre-authorized_code --> pre_code["pre_authorized_code::validate"]
     pre_code -- ok --> credential_access["credential_access_token::generate"]
@@ -29,12 +29,12 @@ flowchart TD
     password_client -- error --> oauth_error
     owner -- error --> oauth_error
     code_client -- error --> oauth_error
-    code -- error --> oauth_error
+    code -- invalid, oversized, or excessive depth --> oauth_error
     pkce -- error --> oauth_error
     chain_client -- error --> oauth_error
-    previous -- error --> oauth_error
+    previous -- invalid, oversized, or excessive depth --> oauth_error
     id_token -- error --> oauth_error
-    issue -- error --> oauth_error
+    issue -- excessive depth or generation error --> oauth_error
     pre_code -- error --> oauth_error
     credential_access -- error --> oauth_error
     access -- error --> oauth_error

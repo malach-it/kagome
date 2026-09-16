@@ -27,6 +27,7 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.tokens.access_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
+    assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
     assert_eq!(config.clients[0].client_id, "client_id");
     assert_eq!(config.clients[0].public, None);
     assert_eq!(config.clients[0].client_secret, "client_secret");
@@ -52,6 +53,7 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.tokens.access_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
+    assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
     assert_eq!(config.clients.len(), 1);
     assert_eq!(config.clients[0].public.as_deref(), Some("localhost:4000"));
     assert!(
@@ -152,6 +154,14 @@ fn json_schema_describes_configuration_constraints() {
         1
     );
     assert_eq!(token_ttls["properties"]["id_token_ttl"]["minimum"], 1);
+    assert_eq!(
+        token_ttls["properties"]["authorization_code_chain_max_depth"]["minimum"],
+        1
+    );
+    assert_eq!(
+        token_ttls["properties"]["authorization_code_chain_max_depth"]["maximum"],
+        32
+    );
     assert_eq!(
         server["required"],
         serde_json::json!(["address", "issuer", "workers"])
@@ -398,9 +408,9 @@ fn rejects_duplicate_public_client_hosts() {
 }
 
 #[test]
-fn loads_token_ttls_from_yaml() {
+fn loads_token_settings_from_yaml() {
     let file = ConfigFile::new(&configuration_yaml(
-        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ntokens:\n  access_token_ttl: 120\n  authorization_code_ttl: 30\n  id_token_ttl: 90\n",
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ntokens:\n  access_token_ttl: 120\n  authorization_code_ttl: 30\n  id_token_ttl: 90\n  authorization_code_chain_max_depth: 4\n",
     ));
 
     let config = Config::load_from_path(file.path()).expect("token TTLs should load");
@@ -408,6 +418,7 @@ fn loads_token_ttls_from_yaml() {
     assert_eq!(config.tokens.access_token_ttl, 120);
     assert_eq!(config.tokens.authorization_code_ttl, 30);
     assert_eq!(config.tokens.id_token_ttl, 90);
+    assert_eq!(config.tokens.authorization_code_chain_max_depth, 4);
 }
 
 #[test]
@@ -431,6 +442,25 @@ fn rejects_zero_token_ttls() {
             error
                 .to_string()
                 .contains(&format!("tokens.{field} must be greater than zero"))
+        );
+    }
+}
+
+#[test]
+fn rejects_authorization_code_chain_depth_outside_safe_range() {
+    for depth in [0, 33] {
+        let file = ConfigFile::new(&configuration_yaml(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ntokens:\n  access_token_ttl: 120\n  authorization_code_ttl: 30\n  id_token_ttl: 90\n  authorization_code_chain_max_depth: {depth}\n"
+        )));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("unsafe authorization code chain depth should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("tokens.authorization_code_chain_max_depth must be between 1 and 32")
         );
     }
 }

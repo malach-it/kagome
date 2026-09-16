@@ -9,6 +9,7 @@ tokens:
   access_token_ttl: 3600
   authorization_code_ttl: 600
   id_token_ttl: 3600
+  authorization_code_chain_max_depth: 8
 clients:
   - client_id: client_id
     public: localhost:4000
