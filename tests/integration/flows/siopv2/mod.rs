@@ -20,6 +20,8 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - endpoint method: supported | unsupported
 // - OAuth authorization attributes: valid response type(s), client, redirect URI,
 //   client state, and optional code | missing/invalid value for each
+// - authorization request error format: invalid redirect URI renders HTML because
+//   it is not a trusted error destination | other validation failures render JSON
 // - wallet binding policy: SIOPv2-authenticated continuation does not require it
 // - verifier origin: configured issuer | unrelated or missing Host (equivalent)
 // - generated values: fresh nonce/state/request object | RNG/signing failure
@@ -261,6 +263,20 @@ fn requires_valid_oauth_authorization_attributes() {
         "unsupported_response_type"
     );
     assert_eq!(json_body(&invalid_code)["error"], "invalid_grant");
+}
+
+#[test]
+fn renders_html_error_for_invalid_authorization_request_redirect_uri() {
+    let response = send_request(&format!(
+        "GET /siopv2-request?response_type=code&client_id={CLIENT_ID}&redirect_uri={} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        form_encode("https://untrusted.example.com/callback")
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>authorization error</title>"));
+    assert!(response.contains("<p role=\"alert\">redirect_uri is invalid</p>"));
+    assert!(!response.contains("\r\nlocation:"));
 }
 
 #[test]

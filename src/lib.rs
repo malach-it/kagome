@@ -8,4 +8,5 @@ pub mod requests;
 #[path = "resources/lib.rs"]
 pub mod resources;
 pub mod router;
+pub mod templates;
 pub mod unit;

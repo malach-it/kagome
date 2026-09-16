@@ -10,6 +10,7 @@ ciborium = "0.2.2"
 coset = "0.4.2"
 htpasswd-verify = "0.3.0"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+minijinja = "2.24.0"
 p256 = "0.13.2"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 ring = "0.17.14"

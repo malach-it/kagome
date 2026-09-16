@@ -1,6 +1,7 @@
 use crate::{
+    errors::OAuthErrorCode,
     handlers::authorize,
-    handlers::responses::{logged_response, oid4vp_error_response},
+    handlers::responses::{logged_response, oauth_error_html_response, oid4vp_error_response},
     requests::{AuthorizeLoginRequest, SiopAuthorizationRequest},
     resources::{siopv2_request, siopv2_state},
     unit::KagomeRequest,
@@ -14,6 +15,9 @@ pub fn handle_siop_authorization_request(request: &KagomeRequest) -> String {
         .and_then(logged_response)
     {
         Ok(response) => response,
+        Err(error) if error.kind == OAuthErrorCode::InvalidRedirectUri => {
+            oauth_error_html_response(&error.error, Some(&error.error_description))
+        }
         Err(error) => oid4vp_error_response(&error),
     }
 }

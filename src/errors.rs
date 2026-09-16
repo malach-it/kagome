@@ -288,10 +288,9 @@ impl OAuthError {
     }
 
     fn to_html_response(&self) -> String {
-        let response_body = format!(
-            "<!doctype html><html><head><title>authorization error</title></head><body><main><h1>authorization error</h1><p role=\"alert\">{}</p></main></body></html>",
-            escape_html(&self.error_description)
-        );
+        let response_body =
+            crate::templates::authorization_error(&self.error, &self.error_description)
+                .expect("bundled authorization error template must render");
 
         format!(
             "HTTP/1.1 400 Bad Request\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
@@ -327,21 +326,6 @@ fn escape_json(value: &str) -> String {
             character if character.is_control() => {
                 escaped.push_str(&format!("\\u{:04x}", character as u32));
             }
-            character => escaped.push(character),
-        }
-
-        escaped
-    })
-}
-
-fn escape_html(value: &str) -> String {
-    value.chars().fold(String::new(), |mut escaped, character| {
-        match character {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
             character => escaped.push(character),
         }
 

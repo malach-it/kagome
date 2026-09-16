@@ -12,6 +12,7 @@ use crate::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
         id_token::IdToken, pre_authorized_code, wallet_authorization,
     },
+    templates,
 };
 use qrcode::{EcLevel, QrCode, render::svg};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -179,13 +180,13 @@ fn qr_code_response(authorization_uri: &str) -> Result<String, OAuthError> {
         .render::<svg::Color>()
         .min_dimensions(320, 320)
         .build();
-    let escaped_uri = escape_html(authorization_uri);
-    let escaped_qr_uri = escape_html(&relay.uri);
-    let script = "const button=document.getElementById('open-wallet');button.addEventListener('click',()=>window.open(button.dataset.deepLink,'_blank','popup,width=390,height=844,noopener,noreferrer'));";
-    let response_body = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>authorization request</title></head><body><main><h1>scan authorization request</h1><figure data-qr-uri=\"{escaped_qr_uri}\">{svg}<figcaption>Scan this QR code with your wallet.</figcaption></figure><p><button id=\"open-wallet\" type=\"button\" data-deep-link=\"{escaped_uri}\">open in wallet</button><noscript><a href=\"{escaped_uri}\" target=\"_blank\" rel=\"noopener noreferrer\">open in wallet</a></noscript></p><details><summary>copy deep link</summary><code>{escaped_uri}</code></details></main><script nonce=\"{}\">{script}</script></body></html>",
-        relay.identifier
-    );
+    let response_body =
+        templates::wallet_authorization(authorization_uri, &relay.uri, &svg, &relay.identifier)
+            .map_err(|error| {
+                OAuthError::invalid_token_response(format!(
+                    "wallet authorization page could not be rendered: {error}"
+                ))
+            })?;
 
     Ok(format!(
         "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncache-control: no-store\r\ncontent-security-policy: default-src 'none'; script-src 'nonce-{}'; base-uri 'none'; frame-ancestors 'none'\r\nreferrer-policy: no-referrer\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
@@ -223,10 +224,8 @@ pub fn authorization_error_redirect_response(
 
 pub fn oauth_error_html_response(error: &str, error_description: Option<&str>) -> String {
     let description = error_description.unwrap_or(error);
-    let response_body = format!(
-        "<!doctype html><html><head><title>authorization error</title></head><body><main><h1>authorization error</h1><p role=\"alert\">{}</p></main></body></html>",
-        escape_html(description)
-    );
+    let response_body = templates::authorization_error(error, description)
+        .expect("bundled authorization error template must render");
 
     format!(
         "HTTP/1.1 400 Bad Request\r\ncontent-type: text/html\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
@@ -966,20 +965,6 @@ fn percent_encode_query_value(value: &str) -> String {
             byte => format!("%{byte:02X}").chars().collect(),
         })
         .collect()
-}
-
-fn escape_html(value: &str) -> String {
-    value.chars().fold(String::new(), |mut escaped, character| {
-        match character {
-            '&' => escaped.push_str("&amp;"),
-            '"' => escaped.push_str("&quot;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            character => escaped.push(character),
-        }
-
-        escaped
-    })
 }
 
 fn escape_json(value: &str) -> String {
