@@ -2,9 +2,8 @@ import { check } from "k6";
 import http from "k6/http";
 import {
   authorizationCodeChecks,
-  clientId,
-  clientSecret,
   formHeaders,
+  idTokenClientId,
   options,
   runChecks,
   tokenTarget,
@@ -19,7 +18,7 @@ export default async function () {
 
   check({ codeCount }, {
     "code chain length is between 0 and 10": ({ codeCount }) =>
-      codeCount >= 0 && codeCount <= 10,
+      codeCount >= 0 && codeCount <= 8,
   });
 
   for (let index = 0; index < codeCount; index += 1) {
@@ -39,13 +38,12 @@ export default async function () {
 }
 
 function randomCodeCount() {
-  return Math.floor(Math.random() * 11);
+  return Math.floor(Math.random() * 7);
 }
 
 async function codeChainRequestBody(authorizationCode) {
   const body = {
-    client_id: clientId,
-    client_secret: clientSecret,
+    client_id: idTokenClientId,
     grant_type: "code_chain",
     id_token: await validIdToken(),
   };

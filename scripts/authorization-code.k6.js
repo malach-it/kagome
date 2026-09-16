@@ -1,37 +1,28 @@
 import { check } from "k6";
 import http from "k6/http";
 import {
-  clientId,
   clientSecret,
   formHeaders,
+  idTokenClientId,
   options,
   runChecks,
   tokenChecks,
   tokenTarget,
-  validIdToken,
+  validHybridGrant,
 } from "./token-helpers.js";
 
 export { options };
 
 export default async function () {
-  const codeChainResponse = http.post(
-    tokenTarget,
-    {
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "code_chain",
-      id_token: await validIdToken(),
-    },
-    formHeaders(),
-  );
-  const authorizationCode = codeChainResponse.json().authorization_code;
+  const grant = validHybridGrant();
   const response = http.post(
     tokenTarget,
     {
-      client_id: clientId,
+      client_id: idTokenClientId,
       client_secret: clientSecret,
       grant_type: "authorization_code",
-      code: authorizationCode,
+      code: grant.authorizationCode,
+      code_verifier: grant.codeVerifier,
     },
     formHeaders(),
   );

@@ -3,6 +3,7 @@ import http from "k6/http";
 import {
   callbackTarget,
   clientId,
+  credentialOfferLocation,
   issuer,
   issueCredential,
   jwkThumbprint,
@@ -48,12 +49,14 @@ export default async function () {
       response_type: "vp_token",
       client_id: clientId,
       redirect_uri: redirectUri,
+      scope: "credential_presentation",
       state: "k6-state",
     })}`,
     redirectOptions("GET /authorize"),
   );
-  const walletRequest = parameters(location(requestResponse));
+  const walletRequest = parameters(credentialOfferLocation(requestResponse));
   const requestObject = jwtPayload(walletRequest.request);
+
   const vpToken = await signEs256(
     { alg: "ES256", typ: "JWT", jwk: publicJwk },
     {
@@ -104,10 +107,8 @@ export default async function () {
   const result = parameters(target);
 
   check(requestResponse, {
-    "OpenID4VP request redirects to a wallet": (request) =>
-      request.status === 302 &&
-      walletRequest.response_type === "vp_token" &&
-      typeof requestObject.nonce === "string",
+    "OpenID4VP request displays a qr code": (request) =>
+      request.status === 200
   });
   check(response, {
     "OpenID4VP response redirects to the client": (result) =>

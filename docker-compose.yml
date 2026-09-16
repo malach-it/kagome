@@ -74,9 +74,12 @@ services:
       kagome:
         condition: service_healthy
     environment:
+      KAGOME_SERVER_TARGET: ${KAGOME_SERVER_TARGET:-http://kagome:4000}
       KAGOME_TOKEN_TARGET: ${KAGOME_TOKEN_TARGET:-http://kagome:4000/token}
-      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
-      KAGOME_CLIENT_SECRET: ${KAGOME_CLIENT_SECRET:-client_secret}
+      KAGOME_PUBLIC_HOST: ${KAGOME_PUBLIC_HOST:-localhost:4000}
+      KAGOME_REDIRECT_URI: ${KAGOME_REDIRECT_URI:-https://client.example.com/callback}
+      KAGOME_USERNAME: ${KAGOME_USERNAME:-username}
+      KAGOME_PASSWORD: ${KAGOME_PASSWORD:-password}
       K6_VUS: ${K6_VUS:-4}
       K6_DURATION: ${K6_DURATION:-30s}
     volumes:
@@ -93,9 +96,12 @@ services:
       kagome:
         condition: service_healthy
     environment:
+      KAGOME_SERVER_TARGET: ${KAGOME_SERVER_TARGET:-http://kagome:4000}
       KAGOME_TOKEN_TARGET: ${KAGOME_TOKEN_TARGET:-http://kagome:4000/token}
-      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
-      KAGOME_CLIENT_SECRET: ${KAGOME_CLIENT_SECRET:-client_secret}
+      KAGOME_PUBLIC_HOST: ${KAGOME_PUBLIC_HOST:-localhost:4000}
+      KAGOME_REDIRECT_URI: ${KAGOME_REDIRECT_URI:-https://client.example.com/callback}
+      KAGOME_USERNAME: ${KAGOME_USERNAME:-username}
+      KAGOME_PASSWORD: ${KAGOME_PASSWORD:-password}
       K6_VUS: ${K6_VUS:-4}
       K6_DURATION: ${K6_DURATION:-30s}
     volumes:

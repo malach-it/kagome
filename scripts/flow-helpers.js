@@ -31,7 +31,8 @@ export const preAuthorizedCodeGrant =
   "urn:ietf:params:oauth:grant-type:pre-authorized_code";
 export const preAuthorizedCodeResponse =
   "urn:ietf:params:oauth:response-type:pre-authorized_code";
-export const credentialIdentifier = "UniversityDegreeCredential";
+export const credentialIdentifier =
+  __ENV.KAGOME_CREDENTIAL_IDENTIFIER || "UniversityDegreeCredential";
 
 const credentialProofPublicJwk = {
   kty: "EC",
@@ -47,11 +48,6 @@ const credentialProofPrivateJwk = {
 };
 
 const noRedirects = { redirects: 0 };
-const formNoRedirects = {
-  headers: { "content-type": "application/x-www-form-urlencoded" },
-  redirects: 0,
-};
-
 export function formOptions(name) {
   return {
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -74,17 +70,6 @@ export function authorize(responseType) {
       state: "k6-state",
     })}`;
 
-  if ((__ENV.KAGOME_AUTHORIZE_METHOD || "GET").toUpperCase() === "POST") {
-    return http.post(target, { username, password }, {
-      ...formNoRedirects,
-      headers: {
-        ...formNoRedirects.headers,
-        Host: publicHost,
-      },
-      tags: { name: "POST /authorize" },
-    });
-  }
-
   return http.get(target, {
     ...noRedirects,
     headers: { Host: publicHost },
@@ -94,17 +79,31 @@ export function authorize(responseType) {
 
 export async function issueCredential(proofFactory = defaultCredentialProof) {
   const authorizeResponse = authorize(preAuthorizedCodeResponse);
-  const authorizeLocation = location(authorizeResponse);
+  const authorizeLocation = credentialOfferLocation(authorizeResponse);
   const offer = jsonParameter(authorizeLocation, "credential_offer");
   const code =
     offer?.grants?.[preAuthorizedCodeGrant]?.["pre-authorized_code"];
 
+  const offerDelivered =
+    (authorizeResponse.status === 302 &&
+      authorizeLocation.startsWith(redirectUri)) ||
+    (authorizeResponse.status === 200 && authorizeLocation.length > 0);
+
   check(authorizeResponse, {
-    "credential offer redirects to the client": (response) =>
-      response.status === 302 && authorizeLocation.startsWith(redirectUri),
+    "credential offer is delivered to the client": () => offerDelivered,
     "credential offer contains a pre-authorized code": () =>
       typeof code === "string" && code.length > 0,
   });
+  if (
+    !offerDelivered ||
+    typeof code !== "string" ||
+    code.length === 0
+  ) {
+    const authorizeBody = json(authorizeResponse);
+    throw new Error(
+      `credential authorization failed: HTTP ${authorizeResponse.status} ${authorizeBody.error_description || authorizeLocation || String(authorizeResponse.body || "").slice(0, 200)}`,
+    );
+  }
 
   const tokenResponse = http.post(
     `${serverTarget}/token`,
@@ -126,6 +125,17 @@ export async function issueCredential(proofFactory = defaultCredentialProof) {
     "credential nonce is present": () =>
       typeof cNonce === "string" && cNonce.length > 0,
   });
+  if (
+    tokenResponse.status !== 200 ||
+    typeof token !== "string" ||
+    token.length === 0 ||
+    typeof cNonce !== "string" ||
+    cNonce.length === 0
+  ) {
+    throw new Error(
+      `pre-authorized code exchange failed: HTTP ${tokenResponse.status} ${tokenBody.error_description || tokenResponse.body}`,
+    );
+  }
 
   const credentialRequest = {
     credential_identifier: credentialIdentifier,
@@ -153,8 +163,32 @@ export async function issueCredential(proofFactory = defaultCredentialProof) {
       json(response).format === "jwt_vc",
     "issued credential is a JWT": () => isJwt(credential),
   });
+  if (
+    credentialResponse.status !== 200 ||
+    json(credentialResponse).format !== "jwt_vc" ||
+    !isJwt(credential)
+  ) {
+    const credentialBody = json(credentialResponse);
+    throw new Error(
+      `credential issuance failed: HTTP ${credentialResponse.status} ${credentialBody.error_description || credentialResponse.body}`,
+    );
+  }
 
   return credential;
+}
+
+export function credentialOfferLocation(response) {
+  const redirect = location(response);
+  if (redirect) {
+    return redirect;
+  }
+
+  if (response.status !== 200 || typeof response.body !== "string") {
+    return "";
+  }
+
+  const match = response.body.match(/data-deep-link="([^"]+)"/);
+  return match ? match[1].replace(/&amp;/g, "&") : "";
 }
 
 async function defaultCredentialProof(cNonce) {
