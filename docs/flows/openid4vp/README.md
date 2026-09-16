@@ -41,9 +41,11 @@ remain strictly checked.
 Presentation JWTs may use any asymmetric algorithm supported by the JWT
 implementation: ECDSA, RSA PKCS#1, RSA-PSS, or EdDSA. Symmetric HMAC algorithms
 are rejected. The presentation signature key is resolved from an embedded
-header `jwk`, falling back to an issuer-bound P-256 `did:key` in `kid`. It is
-intentionally independent of the credential's `cnf.jwk`; credential-subject and
-presentation-issuer equality remains required.
+header `jwk`, falling back to an issuer-bound P-256 `did:key` in `kid`. Its
+RFC 7638 SHA-256 thumbprint must match the issuer-signed credential's `cnf.jwk`
+thumbprint. Credential-subject and presentation-issuer equality is also
+required, so possession of an unrelated presentation key cannot establish the
+credential holder.
 
 The verifier accepts the standard nested JWT VP profile and Boruta wallet's
 compact top-level VP profile. Audience and JWT time claims are optional, but are

@@ -67,14 +67,15 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - presentation JWT key source: embedded JWK | issuer-bound did:key kid |
 //   neither | invalid or unrelated kid. Embedded JWK takes precedence over kid.
 // - presentation JWT: valid asymmetric signature | malformed | invalid signature |
-//   expired. Its signing key is intentionally independent of credential cnf.
+//   expired. Its signing key must match the credential cnf key.
 // - code ID-token public key: absent | matching VP signature | mismatching VP
 //   signature. Configured wallet binding makes absence invalid.
 // - presentation claims profile: standard nested VP with audience and time claims |
 //   Boruta top-level VP with issuer/subject, nonce, and definition ID bindings.
 // - audience and time claims: absent | present and valid | present and invalid.
 //   Missing values intentionally rely on the short-lived encrypted state binding.
-// - holder binding: matching audience/nonce/subject/key | mismatch for each
+// - holder binding: matching audience/nonce/subject/credential confirmation key |
+//   mismatch for each | missing credential confirmation
 // - presentation contents: VerifiablePresentation with one credential | wrong type |
 //   multiple credentials
 // - credential: trusted issuer JWT satisfying the selected definition | valid
@@ -763,7 +764,7 @@ fn rejects_presentation_with_wrong_algorithm() {
 fn accepts_es256_presentation_with_embedded_jwk_before_kid() {
     let request = presentation_request();
     let holder_jwk = ec_holder_jwk();
-    let credential = issued_credential();
+    let credential = issued_credential_with_proof_subject(Some("did:example:alice"));
     let claims = presentation_claims(&request, &credential, &PresentationOverrides::default());
     let mut header = Header::new(Algorithm::ES256);
     header.kid = Some("unrelated-key-id".to_owned());
@@ -949,21 +950,42 @@ fn rejects_did_key_kid_that_does_not_identify_presentation_issuer() {
 }
 
 #[test]
-fn accepts_presentation_key_different_from_credential_confirmation_key() {
+fn rejects_presentation_key_different_from_credential_confirmation_key() {
     let request = presentation_request();
     let credential = issued_credential();
     let claims = presentation_claims(&request, &credential, &PresentationOverrides::default());
-    let mut header = Header::new(Algorithm::EdDSA);
-    header.jwk = Some(issuer_jwk());
+    let mut header = Header::new(Algorithm::ES256);
+    header.jwk = Some(ec_holder_jwk());
     let jwt = encode(
         &header,
         &claims,
-        &EncodingKey::from_ed_pem(ISSUER_PRIVATE_KEY).unwrap(),
+        &EncodingKey::from_ec_pem(EC_HOLDER_PRIVATE_KEY).unwrap(),
     )
     .unwrap();
     let response = submit(&request.state(), Some(&jwt), None, FORM_CONTENT_TYPE);
 
-    assert_presentation_success(&response);
+    assert_error(
+        &response,
+        "vp_token presentation key must match the credential confirmation key",
+    );
+}
+
+#[test]
+fn rejects_credential_without_confirmation_key() {
+    let request = presentation_request();
+    let credential = credential_with_confirmation(None);
+    let claims = presentation_claims(&request, &credential, &PresentationOverrides::default());
+    let mut header = Header::new(Algorithm::EdDSA);
+    header.jwk = Some(holder_jwk());
+    let jwt = encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ed_pem(HOLDER_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap();
+    let response = submit(&request.state(), Some(&jwt), None, FORM_CONTENT_TYPE);
+
+    assert_error(&response, "presented credential claims are invalid");
 }
 
 #[test]
@@ -1586,6 +1608,35 @@ fn issued_credential_with_proof_subject(proof_subject: Option<&str>) -> String {
         .as_str()
         .unwrap()
         .to_owned()
+}
+
+fn credential_with_confirmation(confirmation_jwk: Option<Value>) -> String {
+    let credential = issued_credential();
+    let mut validation = Validation::new(Algorithm::EdDSA);
+    validation.validate_aud = false;
+    let mut claims = decode::<Value>(
+        &credential,
+        &DecodingKey::from_jwk(&issuer_jwk()).unwrap(),
+        &validation,
+    )
+    .unwrap()
+    .claims;
+    let claims = claims.as_object_mut().unwrap();
+    match confirmation_jwk {
+        Some(jwk) => {
+            claims.insert("cnf".to_owned(), json!({"jwk": jwk}));
+        }
+        None => {
+            claims.remove("cnf");
+        }
+    }
+
+    encode(
+        &Header::new(Algorithm::EdDSA),
+        claims,
+        &EncodingKey::from_ed_pem(ISSUER_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap()
 }
 
 #[derive(Default)]

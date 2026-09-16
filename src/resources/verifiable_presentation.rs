@@ -2,6 +2,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken::{
     Algorithm, AlgorithmFamily, DecodingKey, Validation, decode, decode_header,
     get_current_timestamp,
+    jwk::{Jwk, ThumbprintHash},
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -65,6 +66,12 @@ struct CredentialClaims {
     sub: String,
     iat: u64,
     exp: u64,
+    cnf: CredentialConfirmation,
+}
+
+#[derive(Debug, Deserialize)]
+struct CredentialConfirmation {
+    jwk: Jwk,
 }
 
 pub trait Validate {
@@ -78,8 +85,8 @@ pub trait Validate {
 ///
 /// Requires presentation state and submission validation. It verifies the asymmetric VP signature,
 /// optional ID-token key binding, nonce, audience and time claims, exactly one embedded issuer-signed
-/// credential, the requested definition, and holder-to-subject binding. The trusted subject and
-/// credential issuer are added to the request.
+/// credential, the requested definition, and subject and confirmation-key holder binding. The
+/// trusted subject and credential issuer are added to the request.
 ///
 /// # Errors
 ///
@@ -133,6 +140,13 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     if credential.sub != presentation.iss {
         return Err(invalid(
             "vp_token presentation holder must match the credential subject",
+        ));
+    }
+    if credential.cnf.jwk.thumbprint(ThumbprintHash::SHA256)
+        != holder_jwk.thumbprint(ThumbprintHash::SHA256)
+    {
+        return Err(invalid(
+            "vp_token presentation key must match the credential confirmation key",
         ));
     }
 
