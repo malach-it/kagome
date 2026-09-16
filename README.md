@@ -144,6 +144,13 @@ seconds. `tokens.authorization_code_chain_max_depth` bounds nested authorization
 codes (default `8`, accepted range `1..=32`). Omitted `tokens` configuration uses
 the example defaults.
 
+Kagome serves plain HTTP by default. Set both `KAGOME_HTTPS_CERT` and
+`KAGOME_HTTPS_KEY` to PEM-formatted certificate-chain and private-key contents
+to terminate HTTPS directly in Kagome. Setting only one variable, leaving one
+empty, or providing invalid PEM prevents startup. Keep the private-key variable
+restricted to the server process and continue to set `server.issuer` to the
+public HTTPS origin.
+
 For a federated client, `GET /authorize` redirects to the configured upstream
 authorization endpoint with `response_type=code`, the upstream `client_id`, the
 callback URI derived from `server.issuer`, and authenticated short-lived state.
