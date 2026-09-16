@@ -153,8 +153,13 @@ code at the upstream token endpoint, fetches and maps the configured identity
 claims, and continues the authorize response flow. Local `POST /authorize`
 authentication is disabled for that client.
 Direct validation and generation failures from `/authorize` and
-`/siopv2-request` render the branded HTML authorization-error page; these
-endpoints do not return JSON error bodies.
+`/siopv2-request` render an HTML authorization-error page; these endpoints do
+not return JSON error bodies. When a client ID is available, Kagome first looks
+for `templates/<client_id>.authorization_error.html`. QR-code wallet responses
+similarly look for `templates/<client_id>.wallet_authorization.html`. A missing
+client-specific file falls back to the corresponding bundled template. Kagome
+loads client-specific templates once during startup; restart it after changing
+these files.
 [`kagome.schema.json`](kagome.schema.json) provides editor validation
 and completion for the example. After changing the Rust configuration types,
 regenerate it with:

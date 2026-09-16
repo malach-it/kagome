@@ -307,7 +307,7 @@ impl OAuthError {
 
     fn to_html_response(&self) -> String {
         let response_body =
-            crate::templates::authorization_error(&self.error, &self.error_description)
+            crate::templates::authorization_error(None, &self.error, &self.error_description)
                 .expect("bundled authorization error template must render");
 
         format!(

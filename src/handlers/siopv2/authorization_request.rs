@@ -4,7 +4,7 @@ use crate::{
     handlers::responses::{log_timestamp, logged_response, oauth_error_html_response},
     requests::{AuthorizeLoginRequest, SiopAuthorizationRequest},
     resources::{siopv2_request, siopv2_state},
-    unit::KagomeRequest,
+    unit::{KagomeRequest, parse_query_parameter},
 };
 
 pub fn handle_siop_authorization_request(request: &KagomeRequest) -> String {
@@ -17,7 +17,12 @@ pub fn handle_siop_authorization_request(request: &KagomeRequest) -> String {
         Ok(response) => response,
         Err(error) => {
             log_siopv2_request_failure(&error);
-            oauth_error_html_response(&error.error, Some(&error.error_description))
+            let client_id = parse_query_parameter(request, "client_id");
+            oauth_error_html_response(
+                client_id.as_deref(),
+                &error.error,
+                Some(&error.error_description),
+            )
         }
     }
 }

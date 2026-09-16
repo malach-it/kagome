@@ -151,7 +151,7 @@ pub fn wallet_authorization_response(
         .client(client_id)
         .is_some_and(|client| client.qr_code)
     {
-        return qr_code_response(authorization_uri);
+        return qr_code_response(client_id, authorization_uri);
     }
 
     Ok(redirect_response(authorization_uri))
@@ -167,7 +167,7 @@ pub fn wallet_authorization_redirect_response(location: &str) -> String {
     redirect_response(location)
 }
 
-fn qr_code_response(authorization_uri: &str) -> Result<String, OAuthError> {
+fn qr_code_response(client_id: &str, authorization_uri: &str) -> Result<String, OAuthError> {
     let relay = wallet_authorization::store(authorization_uri)?;
     let qr_code =
         QrCode::with_error_correction_level(relay.uri.as_bytes(), EcLevel::M).map_err(|_| {
@@ -179,13 +179,18 @@ fn qr_code_response(authorization_uri: &str) -> Result<String, OAuthError> {
         .render::<svg::Color>()
         .min_dimensions(320, 320)
         .build();
-    let response_body =
-        templates::wallet_authorization(authorization_uri, &relay.uri, &svg, &relay.identifier)
-            .map_err(|error| {
-                OAuthError::invalid_token_response(format!(
-                    "wallet authorization page could not be rendered: {error}"
-                ))
-            })?;
+    let response_body = templates::wallet_authorization(
+        client_id,
+        authorization_uri,
+        &relay.uri,
+        &svg,
+        &relay.identifier,
+    )
+    .map_err(|error| {
+        OAuthError::invalid_token_response(format!(
+            "wallet authorization page could not be rendered: {error}"
+        ))
+    })?;
 
     Ok(format!(
         "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncache-control: no-store\r\ncontent-security-policy: default-src 'none'; script-src 'nonce-{}'; style-src 'nonce-{}'; img-src data:; base-uri 'none'; frame-ancestors 'none'\r\nreferrer-policy: no-referrer\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
@@ -222,9 +227,13 @@ pub fn authorization_error_redirect_response(
     authorization_request_redirect_response(redirect_uri, &parameters)
 }
 
-pub fn oauth_error_html_response(error: &str, error_description: Option<&str>) -> String {
+pub fn oauth_error_html_response(
+    client_id: Option<&str>,
+    error: &str,
+    error_description: Option<&str>,
+) -> String {
     let description = error_description.unwrap_or(error);
-    let response_body = templates::authorization_error(error, description)
+    let response_body = templates::authorization_error(client_id, error, description)
         .expect("bundled authorization error template must render");
 
     format!(

@@ -2,3 +2,4 @@
 /kagome.yaml
 /kagome.crypto.yaml
 /kagome.htpasswd
+/templates/*.*.html

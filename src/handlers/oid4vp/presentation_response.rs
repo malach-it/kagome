@@ -20,7 +20,7 @@ pub fn handle_presentation_response(request: &KagomeRequest) -> String {
     let request = match validated_state {
         Ok(request) => request,
         Err(error) => {
-            return oauth_error_html_response(&error.error, Some(&error.error_description));
+            return oauth_error_html_response(None, &error.error, Some(&error.error_description));
         }
     };
     let destination = request
@@ -47,7 +47,7 @@ pub fn handle_presentation_response(request: &KagomeRequest) -> String {
                 Some(&error.error_description),
                 state.as_deref(),
             ),
-            None => oauth_error_html_response(&error.error, Some(&error.error_description)),
+            None => oauth_error_html_response(None, &error.error, Some(&error.error_description)),
         },
     }
 }

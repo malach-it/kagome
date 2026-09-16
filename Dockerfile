@@ -18,6 +18,7 @@ COPY --from=builder /app/target/release/kagome /usr/local/bin/kagome
 COPY --from=builder /app/kagome.example.yaml /etc/kagome/kagome.yaml
 COPY --from=builder /app/kagome.crypto.yaml /etc/kagome/kagome.crypto.yaml
 COPY --from=builder /app/kagome.htpasswd.example /etc/kagome/kagome.htpasswd.example
+COPY --from=builder /app/templates/*.html /templates/
 
 ENV KAGOME_CONFIG=/etc/kagome/kagome.yaml
 ENV KAGOME_PORT=4000

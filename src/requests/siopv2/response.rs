@@ -50,6 +50,7 @@ impl<'a> SiopResponseRequest<'a> {
         })?;
         let Some(redirect_uri) = state.authorization.redirect_uri.as_deref() else {
             return Ok(oauth_error_html_response(
+                state.authorization.client_id.as_deref(),
                 &wallet_error.error,
                 wallet_error.error_description.as_deref(),
             ));

@@ -36,7 +36,7 @@ pub fn handle_siop_response(request: &KagomeRequest) -> String {
                 Some(&error.error_description),
                 state.as_deref(),
             ),
-            None => oauth_error_html_response(&error.error, Some(&error.error_description)),
+            None => oauth_error_html_response(None, &error.error, Some(&error.error_description)),
         },
     }
 }

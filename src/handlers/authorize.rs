@@ -7,7 +7,7 @@ use crate::{
         response_type::{self, ResponseType},
         scope, verifier,
     },
-    unit::KagomeRequest,
+    unit::{KagomeRequest, parse_query_parameter, parse_request_parameter},
 };
 
 use super::responses::{log_timestamp, logged_response, oauth_error_html_response};
@@ -45,7 +45,7 @@ fn handle_authorization_request(request: &KagomeRequest) -> String {
         Ok(response) => response,
         Err(error) => {
             log_authorize_failure(&error);
-            authorize_error_response(error)
+            authorize_error_response(request, error)
         }
     }
 }
@@ -112,7 +112,7 @@ fn handle_authentication(request: &KagomeRequest) -> String {
         Ok(response) => response,
         Err(error) => {
             log_authorize_failure(&error);
-            authorize_error_response(error)
+            authorize_error_response(request, error)
         }
     }
 }
@@ -265,8 +265,14 @@ fn log_authorize_failure(error: &OAuthError) {
     );
 }
 
-fn authorize_error_response(error: OAuthError) -> String {
-    oauth_error_html_response(&error.error, Some(&error.error_description))
+fn authorize_error_response(request: &KagomeRequest, error: OAuthError) -> String {
+    let client_id = parse_query_parameter(request, "client_id")
+        .or_else(|| parse_request_parameter(request, "client_id"));
+    oauth_error_html_response(
+        client_id.as_deref(),
+        &error.error,
+        Some(&error.error_description),
+    )
 }
 
 fn not_found_response() -> String {
