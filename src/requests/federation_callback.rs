@@ -15,6 +15,7 @@ pub struct FederationCallbackRequest {
 #[derive(Debug)]
 pub struct FederationCallbackResponse {
     pub authorization_code: Option<String>,
+    pub encoded_federation_state: Option<String>,
     pub federation_state: Option<federated_server::FederationState>,
 }
 
@@ -23,6 +24,7 @@ impl FederationCallbackRequest {
         Self {
             response: FederationCallbackResponse {
                 authorization_code: None,
+                encoded_federation_state: None,
                 federation_state: None,
             },
             code: parse_query_parameter(request, "code"),
@@ -38,8 +40,26 @@ impl federated_server::ValidateCallbackState for FederationCallbackRequest {
         self.state.as_deref()
     }
 
-    fn add_federation_state(&mut self, state: federated_server::FederationState) {
+    fn add_federation_state(
+        &mut self,
+        encoded_state: &str,
+        state: federated_server::FederationState,
+    ) {
+        self.response.encoded_federation_state = Some(encoded_state.to_owned());
         self.response.federation_state = Some(state);
+    }
+}
+
+impl federated_server::ConsumeCallbackState for FederationCallbackRequest {
+    fn validated_federation_state(&self) -> Option<&str> {
+        self.response.encoded_federation_state.as_deref()
+    }
+
+    fn federation_state_expiration(&self) -> Option<u64> {
+        self.response
+            .federation_state
+            .as_ref()
+            .map(|state| state.expires_at)
     }
 }
 

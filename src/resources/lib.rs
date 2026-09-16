@@ -15,6 +15,7 @@ pub mod presentation_definition;
 pub mod presentation_request;
 pub mod presentation_state;
 pub mod presentation_submission;
+pub mod replay;
 pub mod request_object;
 pub mod resource_owner;
 pub mod response_type;

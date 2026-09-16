@@ -4,7 +4,11 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 
-use crate::{config::Config, errors::OAuthError};
+use crate::{
+    config::Config,
+    errors::OAuthError,
+    resources::replay::{self, Artifact, ConsumeError},
+};
 
 use super::crypto::{self, EncryptedArtifact};
 
@@ -49,7 +53,12 @@ pub trait Generate {
 
 pub trait Validate {
     fn request_state(&self) -> Option<&str>;
-    fn add_siop_state_claims(&mut self, claims: SiopStateClaims);
+    fn add_siop_state_claims(&mut self, state: &str, claims: SiopStateClaims);
+}
+
+pub trait Consume {
+    fn validated_state(&self) -> Option<&str>;
+    fn state_expiration(&self) -> Option<u64>;
 }
 
 /// Encrypts downstream authorization parameters into fresh, short-lived SIOPv2 state.
@@ -99,9 +108,10 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let state = request
         .request_state()
+        .map(str::to_owned)
         .ok_or_else(|| OAuthError::invalid_request("state is required"))?;
     let plaintext = crypto::decode_cose_encrypt0(
-        state,
+        &state,
         EncryptedArtifact::Siopv2State,
         crypto::CoseEncrypt0Errors {
             invalid_cose: "state is invalid",
@@ -142,7 +152,39 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         return Err(OAuthError::invalid_request("state is invalid or expired"));
     }
 
-    request.add_siop_state_claims(claims);
+    request.add_siop_state_claims(&state, claims);
+    Ok(request)
+}
+
+/// Atomically consumes validated SIOPv2 state after accepting a wallet response.
+///
+/// The encrypted state is recorded as a domain-separated digest until its validated expiration.
+/// Call this only after the ID token or wallet error has been authenticated so malformed callbacks
+/// cannot invalidate an outstanding authorization request.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when the state was already consumed and `invalid_token_response` when
+/// validated state or replay storage is unavailable.
+pub fn consume<T: Consume>(request: T) -> Result<T, OAuthError> {
+    let state = request.validated_state().ok_or_else(|| {
+        OAuthError::invalid_token_response("siop state must be validated before consumption")
+    })?;
+    let expires_at = request.state_expiration().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "siop state expiration must be validated before consumption",
+        )
+    })?;
+
+    replay::consume(Artifact::Siopv2State, state, expires_at).map_err(|error| match error {
+        ConsumeError::AlreadyConsumed => OAuthError::invalid_request("state has already been used"),
+        ConsumeError::CapacityExceeded
+        | ConsumeError::StorageUnavailable
+        | ConsumeError::TimeUnavailable => {
+            OAuthError::invalid_token_response("siop state replay storage failed")
+        }
+    })?;
+
     Ok(request)
 }
 

@@ -44,11 +44,13 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 //   unsupported
 // - state source: callback query | form body. These sources are intentionally
 //   equivalent after parsing and exercise the same validation path.
-// - state value: valid | missing | invalid | expired | replayed
+// - state value: valid | missing | invalid | expired | first accepted response | replayed
 // - response kind: vp_token | supported wallet error | unsupported wallet error |
 //   neither | both (invalid)
 // - response destination: trusted redirect URI with code/error and client state |
 //   local HTML error when presentation state or redirect URI cannot be trusted
+// Accepted presentations and supported wallet errors consume state; malformed
+// presentations and unsupported wallet errors leave it available for a valid response.
 // - presentation submission representation: definition-bound standard map |
 //   credential-bound Boruta wallet map with any non-empty nested identifier.
 //   Both are equivalent after validation.
@@ -1097,21 +1099,40 @@ fn rejects_presentation_holder_different_from_credential_subject() {
 }
 
 #[test]
-fn permits_replayed_presentation_response_without_server_side_state() {
+fn rejects_replayed_presentation_state_after_valid_presentation() {
     let fixture = presentation_fixture(PresentationOverrides::default());
 
-    assert_presentation_success(&submit(
+    let success = submit(
         &fixture.state,
         Some(&fixture.vp_token),
         None,
         FORM_CONTENT_TYPE,
-    ));
-    assert_presentation_success(&submit(
+    );
+    let replay = submit(
         &fixture.state,
         Some(&fixture.vp_token),
         None,
         FORM_CONTENT_TYPE,
-    ));
+    );
+
+    assert_presentation_success(&success);
+    assert_error(&replay, "presentation state has already been used");
+}
+
+#[test]
+fn malformed_presentation_does_not_consume_state() {
+    let fixture = presentation_fixture(PresentationOverrides::default());
+
+    let malformed = submit(&fixture.state, Some("invalid"), None, FORM_CONTENT_TYPE);
+    let valid = submit(
+        &fixture.state,
+        Some(&fixture.vp_token),
+        None,
+        FORM_CONTENT_TYPE,
+    );
+
+    assert_error(&malformed, "vp_token presentation must be a jwt");
+    assert_presentation_success(&valid);
 }
 
 #[test]
@@ -1125,6 +1146,18 @@ fn accepts_supported_wallet_error_response() {
     );
 
     assert_wallet_error_redirect(&response, "access_denied", None);
+}
+
+#[test]
+fn rejects_replayed_presentation_state_after_wallet_error() {
+    let request = presentation_request();
+    let state = request.state();
+
+    let first = submit(&state, None, Some("access_denied"), FORM_CONTENT_TYPE);
+    let replay = submit(&state, None, Some("access_denied"), FORM_CONTENT_TYPE);
+
+    assert_wallet_error_redirect(&first, "access_denied", None);
+    assert_error(&replay, "presentation state has already been used");
 }
 
 #[test]
@@ -1155,6 +1188,18 @@ fn rejects_unsupported_wallet_error_response() {
     );
 
     assert_error(&response, "wallet error is unsupported");
+}
+
+#[test]
+fn unsupported_wallet_error_does_not_consume_presentation_state() {
+    let request = presentation_request();
+    let state = request.state();
+
+    let unsupported = submit(&state, None, Some("unknown_error"), FORM_CONTENT_TYPE);
+    let valid = submit(&state, None, Some("access_denied"), FORM_CONTENT_TYPE);
+
+    assert_error(&unsupported, "wallet error is unsupported");
+    assert_wallet_error_redirect(&valid, "access_denied", None);
 }
 
 #[test]

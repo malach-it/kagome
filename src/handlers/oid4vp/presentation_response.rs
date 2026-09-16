@@ -31,9 +31,11 @@ pub fn handle_presentation_response(request: &KagomeRequest) -> String {
         .map(|(redirect_uri, state)| (redirect_uri.clone(), state.authorization_state.clone()));
     let result = if request.error.is_some() {
         presentation_submission::validate_wallet_error(request)
+            .and_then(presentation_state::consume)
     } else {
         presentation_submission::validate(request)
             .and_then(verifiable_presentation::validate)
+            .and_then(presentation_state::consume)
             .and_then(authorization_code::generate)
     }
     .and_then(logged_response);

@@ -40,7 +40,9 @@ fn handle_authorization_response(request: &KagomeRequest) -> String {
                 })
         });
 
-    match federated_server::validate_callback(callback)
+    match federated_server::validate_callback_shape(callback)
+        .and_then(federated_server::consume_callback_state)
+        .and_then(federated_server::validate_callback)
         .and_then(|callback| AuthorizeLoginRequest::from_state(callback, request))
         .and_then(authorize::continue_federated_authorize)
         .and_then(logged_response)

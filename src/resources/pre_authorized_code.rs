@@ -5,7 +5,11 @@ use serde_json::Value;
 
 use crate::{errors::OAuthError, resources::resource_owner::CredentialProfiles};
 
-use super::{authorization_code, crypto, crypto::EncryptedArtifact};
+use super::{
+    authorization_code, crypto,
+    crypto::EncryptedArtifact,
+    replay::{self, Artifact, ConsumeError},
+};
 
 const COSE_ENCRYPT0_ERRORS: crypto::CoseEncrypt0Errors = crypto::CoseEncrypt0Errors {
     invalid_cose: "pre-authorized_code must be a cose_encrypt0",
@@ -60,7 +64,16 @@ pub trait Generate {
 
 pub trait Validate {
     fn request_pre_authorized_code(&self) -> Option<&str>;
-    fn add_pre_authorized_code_claims(&mut self, claims: PreAuthorizedCodeClaims);
+    fn add_pre_authorized_code_claims(
+        &mut self,
+        pre_authorized_code: &str,
+        claims: PreAuthorizedCodeClaims,
+    );
+}
+
+pub trait Consume {
+    fn validated_pre_authorized_code(&self) -> Option<&str>;
+    fn pre_authorized_code_expiration(&self) -> Option<u64>;
 }
 
 /// Generates an encrypted credential grant bound to identity and optional wallet key.
@@ -134,9 +147,10 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let code = request
         .request_pre_authorized_code()
+        .map(str::to_owned)
         .ok_or_else(|| OAuthError::invalid_request("pre-authorized_code is required"))?;
     let claims_bytes = crypto::decode_cose_encrypt0(
-        code,
+        &code,
         EncryptedArtifact::PreAuthorizedCode,
         COSE_ENCRYPT0_ERRORS,
     )
@@ -160,7 +174,44 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         ));
     }
 
-    request.add_pre_authorized_code_claims(claims);
+    request.add_pre_authorized_code_claims(&code, claims);
+    Ok(request)
+}
+
+/// Atomically consumes a validated Pre-Authorized Code so it cannot be exchanged again.
+///
+/// A domain-separated digest is inserted into the process-local replay store after validation and
+/// before credential access-token generation.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when validated state or replay storage is unavailable, and
+/// `invalid_grant` when the code was already consumed.
+pub fn consume<T: Consume>(request: T) -> Result<T, OAuthError> {
+    let code = request.validated_pre_authorized_code().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "pre-authorized_code must be validated before consumption",
+        )
+    })?;
+    let expires_at = request.pre_authorized_code_expiration().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "pre-authorized_code expiration must be validated before consumption",
+        )
+    })?;
+
+    replay::consume(Artifact::PreAuthorizedCode, code, expires_at).map_err(
+        |error| match error {
+            ConsumeError::AlreadyConsumed => {
+                OAuthError::invalid_grant("pre-authorized_code has already been used")
+            }
+            ConsumeError::CapacityExceeded
+            | ConsumeError::StorageUnavailable
+            | ConsumeError::TimeUnavailable => {
+                OAuthError::invalid_token_response("pre-authorized code replay storage failed")
+            }
+        },
+    )?;
+
     Ok(request)
 }
 

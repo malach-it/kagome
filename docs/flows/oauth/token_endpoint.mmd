@@ -13,17 +13,19 @@ flowchart TD
     code_client -- ok --> code_scope["scope::validate"]
     code_scope -- ok --> code["authorization_code::validate"]
     code -- valid within depth limit --> pkce["pkce::verify"]
+    pkce -- ok --> consume_code["authorization_code::consume"]
     grant -- code_chain --> chain_client["client_credentials::validate"]
     chain_client -- ok --> chain_scope["scope::validate"]
     chain_scope -- ok --> previous["authorization_code::validate_optional"]
     previous -- absent or valid within depth limit --> id_token["id_token::validate"]
     id_token -- ok --> issue["authorization_code::generate"]
     grant -- pre-authorized_code --> pre_code["pre_authorized_code::validate"]
-    pre_code -- ok --> credential_access["credential_access_token::generate"]
+    pre_code -- ok --> consume_pre_code["pre_authorized_code::consume"]
+    consume_pre_code -- ok --> credential_access["credential_access_token::generate"]
     client -- ok --> client_scope["scope::validate"]
     client_scope -- ok --> access["access_token::generate"]
     owner -- ok --> access
-    pkce -- ok --> access
+    consume_code -- ok --> access
     issue -- code only --> code_success["`**HTTP 200** authorization code with CORS header`"]
     issue -- with authorization_code --> exchange[Run authorization-code pipeline]
     exchange --> access
@@ -38,11 +40,13 @@ flowchart TD
     code_scope -- error --> oauth_error
     code -- invalid, oversized, or excessive depth --> oauth_error
     pkce -- error --> oauth_error
+    consume_code -- replay or storage error --> oauth_error
     chain_client -- error --> oauth_error
     chain_scope -- error --> oauth_error
     previous -- invalid, oversized, or excessive depth --> oauth_error
     id_token -- error --> oauth_error
     issue -- excessive depth or generation error --> oauth_error
     pre_code -- error --> oauth_error
+    consume_pre_code -- replay or storage error --> oauth_error
     credential_access -- error --> oauth_error
     access -- error --> oauth_error

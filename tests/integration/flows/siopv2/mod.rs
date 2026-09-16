@@ -34,10 +34,13 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 //   clients then authenticate upstream with the wallet-bound code preserved
 // - authenticated continuation delivery: redirect even when the client enables QR
 //   pages; pre-authorized code returns through /authorize | OpenID4VP request
+// - authorization code redemption: absent | first successful authorization response
+//   generation | repeated generation rejected by the process-local replay store
 // - response media type: form (case-insensitive, parameters allowed) | missing |
 //   unsupported
 // - state source: callback query | form body; value valid | missing | invalid |
-//   expired; request response type: matches authorization parameters | mismatch
+//   expired | first accepted response | replayed; request response type: matches
+//   authorization parameters | mismatch
 // - response kind: id_token | supported wallet error with or without description |
 //   unsupported wallet error | neither | both (invalid)
 // - error destination: validated client redirect URI with optional client state |
@@ -48,8 +51,9 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 //   subject/key mismatch | kid mismatch
 // - claims: issuer equals subject | mismatch; audience and nonce match | mismatch;
 //   time claims valid | invalid/expired
-// Equivalent valid state sources converge before ID Token validation. Replay is
-// deliberately possible until the five-minute stateless state expires.
+// Equivalent valid state sources converge before ID Token validation. Malformed wallet
+// responses do not consume state; accepted ID-token and wallet-error responses do.
+// Any embedded authorization code is consumed after successful response generation.
 
 #[test]
 fn returns_signed_direct_post_siop_authorization_request() {
@@ -471,6 +475,48 @@ fn accepts_code_parameter_for_a_following_authorization_request() {
 }
 
 #[test]
+fn rejects_repeated_siopv2_authorization_response_generation_from_the_same_code() {
+    let first = authorization_request();
+    let did = did_key();
+    let first_token = id_token(&first, &did, &did, None, TokenOverrides::default());
+    let first_response = submit(&first, &first_token, None);
+    let location = response_header(&first_response, "location").unwrap();
+    let code = location.split_once("?code=").map(|(_, code)| code).unwrap();
+    let first_continuation = authorization_request_with("token", Some(code));
+    let second_continuation = authorization_request_with("token", Some(code));
+    let first_continuation_token = id_token(
+        &first_continuation,
+        &did,
+        &did,
+        None,
+        TokenOverrides::default(),
+    );
+    let second_continuation_token = id_token(
+        &second_continuation,
+        &did,
+        &did,
+        None,
+        TokenOverrides::default(),
+    );
+
+    let success = submit(&first_continuation, &first_continuation_token, None);
+    let replay = submit(&second_continuation, &second_continuation_token, None);
+
+    assert!(
+        success.starts_with(
+            "HTTP/1.1 302 Found\r\nlocation: https://configured.example.com/callback#access_token="
+        ),
+        "{success}"
+    );
+    assert!(replay.starts_with("HTTP/1.1 302 Found\r\n"), "{replay}");
+    assert!(replay.contains("error=invalid_grant"), "{replay}");
+    assert!(
+        replay.contains("authorization_code%20has%20already%20been%20used"),
+        "{replay}"
+    );
+}
+
+#[test]
 fn redirects_supported_wallet_error_to_client() {
     let fixture = authorization_request();
     let response = submit_error(
@@ -500,6 +546,64 @@ fn omits_missing_wallet_error_description_from_redirect() {
     assert_eq!(parameters["error"], "user_cancelled");
     assert!(parameters.get("error_description").is_none());
     assert_eq!(parameters["state"], "client-state");
+}
+
+#[test]
+fn rejects_replayed_siopv2_state_after_id_token_response() {
+    let fixture = authorization_request();
+    let did = did_key();
+    let token = id_token(&fixture, &did, &did, None, TokenOverrides::default());
+
+    let success = submit(&fixture, &token, None);
+    let replay = submit(&fixture, &token, None);
+
+    assert!(success.starts_with("HTTP/1.1 302 Found\r\n"), "{success}");
+    assert!(replay.starts_with("HTTP/1.1 302 Found\r\n"), "{replay}");
+    assert!(replay.contains("error=invalid_request"), "{replay}");
+    assert!(
+        replay.contains("error_description=state%20has%20already%20been%20used"),
+        "{replay}"
+    );
+}
+
+#[test]
+fn rejects_replayed_siopv2_state_after_wallet_error() {
+    let fixture = authorization_request();
+
+    let first = submit_error(&fixture, "access_denied", None);
+    let replay = submit_error(&fixture, "access_denied", None);
+
+    assert!(first.contains("error=access_denied"), "{first}");
+    assert!(replay.contains("error=invalid_request"), "{replay}");
+    assert!(
+        replay.contains("error_description=state%20has%20already%20been%20used"),
+        "{replay}"
+    );
+}
+
+#[test]
+fn malformed_siopv2_response_does_not_consume_state() {
+    let fixture = authorization_request();
+    let malformed = submit(&fixture, "not-a-jwt", None);
+    let did = did_key();
+    let token = id_token(&fixture, &did, &did, None, TokenOverrides::default());
+    let valid = submit(&fixture, &token, None);
+
+    assert_error(&malformed, "id_token must be a jwt");
+    assert!(valid.starts_with("HTTP/1.1 302 Found\r\n"), "{valid}");
+    assert!(!valid.contains("state%20has%20already%20been%20used"));
+}
+
+#[test]
+fn unsupported_wallet_error_does_not_consume_siopv2_state() {
+    let fixture = authorization_request();
+
+    let unsupported = submit_error(&fixture, "server_error", None);
+    let valid = submit_error(&fixture, "access_denied", None);
+
+    assert_error(&unsupported, "wallet error is unsupported");
+    assert!(valid.contains("error=access_denied"), "{valid}");
+    assert!(!valid.contains("state%20has%20already%20been%20used"));
 }
 
 #[test]

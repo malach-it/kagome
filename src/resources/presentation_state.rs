@@ -11,7 +11,12 @@ use crate::{
 };
 
 use super::{
-    authorization_code, crypto, crypto::EncryptedArtifact, pkce, pkce::CodeChallenge, verifier,
+    authorization_code, crypto,
+    crypto::EncryptedArtifact,
+    pkce,
+    pkce::CodeChallenge,
+    replay::{self, Artifact, ConsumeError},
+    verifier,
 };
 
 pub const TTL_SECONDS: u64 = 300;
@@ -58,7 +63,12 @@ pub trait Generate {
 
 pub trait Validate {
     fn request_state(&self) -> Option<&str>;
-    fn add_presentation_state_claims(&mut self, claims: PresentationStateClaims);
+    fn add_presentation_state_claims(&mut self, state: &str, claims: PresentationStateClaims);
+}
+
+pub trait Consume {
+    fn validated_presentation_state(&self) -> Option<&str>;
+    fn presentation_state_expiration(&self) -> Option<u64>;
 }
 
 /// Generates encrypted presentation state from validated policy, client, issuer, and verifier data.
@@ -148,9 +158,10 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let state = request
         .request_state()
+        .map(str::to_owned)
         .ok_or_else(|| OAuthError::invalid_request("state is required"))?;
     let plaintext = crypto::decode_cose_encrypt0(
-        state,
+        &state,
         EncryptedArtifact::PresentationState,
         crypto::CoseEncrypt0Errors {
             invalid_cose: "state is invalid",
@@ -198,7 +209,45 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         return Err(OAuthError::invalid_request("state is invalid or expired"));
     }
 
-    request.add_presentation_state_claims(claims);
+    request.add_presentation_state_claims(&state, claims);
+    Ok(request)
+}
+
+/// Atomically consumes validated presentation state after accepting a wallet response.
+///
+/// The encrypted state is recorded as a domain-separated digest until its validated expiration.
+/// Call this only after the presentation and submission, or the supported wallet error, have been
+/// validated so malformed responses cannot invalidate an outstanding presentation request.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when state was already consumed and `invalid_token_response` when
+/// validated state or replay storage is unavailable.
+pub fn consume<T: Consume>(request: T) -> Result<T, OAuthError> {
+    let state = request.validated_presentation_state().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "presentation state must be validated before consumption",
+        )
+    })?;
+    let expires_at = request.presentation_state_expiration().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "presentation state expiration must be validated before consumption",
+        )
+    })?;
+
+    replay::consume(Artifact::PresentationState, state, expires_at).map_err(
+        |error| match error {
+            ConsumeError::AlreadyConsumed => {
+                OAuthError::invalid_request("presentation state has already been used")
+            }
+            ConsumeError::CapacityExceeded
+            | ConsumeError::StorageUnavailable
+            | ConsumeError::TimeUnavailable => {
+                OAuthError::invalid_token_response("presentation state replay storage failed")
+            }
+        },
+    )?;
+
     Ok(request)
 }
 

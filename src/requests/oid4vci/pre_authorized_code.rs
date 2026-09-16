@@ -18,6 +18,8 @@ pub struct PreAuthorizedCodeRequest<'a> {
 
 #[derive(Debug, Default)]
 pub struct PreAuthorizedCodeResponse {
+    pub pre_authorized_code: Option<String>,
+    pub pre_authorized_code_expiration: Option<u64>,
     pub credential_configuration_ids: Vec<String>,
     pub subject: Option<String>,
     pub credential_profile: CredentialProfiles,
@@ -73,12 +75,28 @@ impl pre_authorized_code::Validate for PreAuthorizedCodeRequest<'_> {
         self.pre_authorized_code.as_deref()
     }
 
-    fn add_pre_authorized_code_claims(&mut self, claims: PreAuthorizedCodeClaims) {
+    fn add_pre_authorized_code_claims(
+        &mut self,
+        pre_authorized_code: &str,
+        claims: PreAuthorizedCodeClaims,
+    ) {
+        self.response.pre_authorized_code = Some(pre_authorized_code.to_owned());
+        self.response.pre_authorized_code_expiration = Some(claims.exp);
         self.response.credential_configuration_ids = claims.credential_configuration_ids;
         self.response.subject = Some(claims.subject);
         self.response.credential_profile = claims.credential_profile;
         self.response.id_token_public_jwk = claims.id_token_public_jwk;
         self.response.require_wallet_binding = claims.require_wallet_binding;
+    }
+}
+
+impl pre_authorized_code::Consume for PreAuthorizedCodeRequest<'_> {
+    fn validated_pre_authorized_code(&self) -> Option<&str> {
+        self.response.pre_authorized_code.as_deref()
+    }
+
+    fn pre_authorized_code_expiration(&self) -> Option<u64> {
+        self.response.pre_authorized_code_expiration
     }
 }
 

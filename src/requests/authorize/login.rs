@@ -697,6 +697,16 @@ impl<'a> authorization_code::Validate for AuthorizeLoginRequest<'a> {
     }
 }
 
+impl authorization_code::Consume for AuthorizeLoginRequest<'_> {
+    fn validated_authorization_code(&self) -> Option<&str> {
+        self.response.previous_authorization_code.as_deref()
+    }
+
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+}
+
 impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
     fn previous_authorization_code(&self) -> Option<&str> {
         self.response.previous_authorization_code.as_deref()

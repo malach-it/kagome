@@ -11,7 +11,9 @@ flowchart TD
     grant -- error --> token_error["`**HTTP 400** OAuth error`"]
     grant -- pre-authorized_code --> code["pre_authorized_code::validate"]
     code -- error --> token_error
-    code -- ok --> access["credential_access_token::generate"]
+    code -- ok --> consume["pre_authorized_code::consume"]
+    consume -- replay or storage error --> token_error
+    consume -- ok --> access["credential_access_token::generate"]
     access -- error --> token_error
     access -- ok --> token_success["`**HTTP 200** credential access token with authorization details`"]
     token_success --> credential_request[Request /credential]

@@ -27,7 +27,9 @@ flowchart TD
     owner -- error --> authorize_error
     owner -- ok --> issue["authorization_code::generate"]
     issue -- excessive depth or generation error --> authorize_error
-    issue -- ok --> redirect["`**HTTP 302** client redirect with code`"]
+    issue -- ok --> consume["authorization_code::consume_optional"]
+    consume -- replay or storage error --> authorize_error
+    consume -- absent or consumed --> redirect["`**HTTP 302** client redirect with code`"]
     redirect --> token[POST /token]
     token --> grant["grant_type::validate"]
     grant -- error --> token_error["`**HTTP 400** OAuth error`"]

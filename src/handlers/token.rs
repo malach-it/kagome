@@ -82,6 +82,7 @@ fn authorization_code(
         .and_then(scope::validate)
         .and_then(authorization_code::validate)
         .and_then(pkce::verify)
+        .and_then(authorization_code::consume)
         .and_then(access_token::generate)
 }
 
@@ -130,7 +131,9 @@ fn pre_authorized_code(
 ) -> Result<PreAuthorizedCodeRequest<'_>, OAuthError> {
     use crate::resources::{credential_access_token, pre_authorized_code};
 
-    pre_authorized_code::validate(token_request).and_then(credential_access_token::generate)
+    pre_authorized_code::validate(token_request)
+        .and_then(pre_authorized_code::consume)
+        .and_then(credential_access_token::generate)
 }
 
 fn log_token_failure(error: &OAuthError) {

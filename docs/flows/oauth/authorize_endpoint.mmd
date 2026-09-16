@@ -48,9 +48,16 @@ flowchart TD
     access -- error --> error
     id_token -- error --> error
     combined -- error --> error
-    pre_code -- ok --> offer["`**HTTP 302** credential offer or **HTTP 200** QR relay`"]
-    auth_code -- ok --> code_response["`**HTTP 302** code response or continuation`"]
-    access -- ok --> token_response["`**HTTP 302** access-token response`"]
-    id_token -- ok --> id_response["`**HTTP 302** ID-token response`"]
-    combined -- ok --> combined_response["`**HTTP 302** combined response`"]
+    pre_code -- ok --> consume["authorization_code::consume_optional"]
+    auth_code -- ok --> consume
+    access -- ok --> consume
+    id_token -- ok --> consume
+    combined -- ok --> consume
+    consume -- replay or storage error --> error
+    consume -- absent or consumed --> generated_response{Generated response kind?}
+    generated_response -- credential offer --> offer["`**HTTP 302** credential offer or **HTTP 200** QR relay`"]
+    generated_response -- code --> code_response["`**HTTP 302** code response or continuation`"]
+    generated_response -- access token --> token_response["`**HTTP 302** access-token response`"]
+    generated_response -- ID token --> id_response["`**HTTP 302** ID-token response`"]
+    generated_response -- combined --> combined_response["`**HTTP 302** combined response`"]
     error["`**HTTP 400** HTML authorization error`"]

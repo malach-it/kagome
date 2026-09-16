@@ -152,6 +152,16 @@ impl<'a> authorization_code::Validate for AuthorizationCodeRequest<'a> {
     }
 }
 
+impl authorization_code::Consume for AuthorizationCodeRequest<'_> {
+    fn validated_authorization_code(&self) -> Option<&str> {
+        self.response.authorization_code.as_deref()
+    }
+
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
+    }
+}
+
 impl pkce::Verify for AuthorizationCodeRequest<'_> {
     fn request_code_verifier(&self) -> Option<&str> {
         self.code_verifier.as_deref()

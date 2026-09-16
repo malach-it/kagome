@@ -168,7 +168,7 @@ fn generate_login_response(
 ) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
     let is_authenticated = authorize_request.response.authenticated;
 
-    match authorize_request.response.response_types.as_slice() {
+    let generated = match authorize_request.response.response_types.as_slice() {
         [ResponseType::PreAuthorizedCode] if is_authenticated => {
             pre_authorized_code::generate(authorize_request)
         }
@@ -209,7 +209,9 @@ fn generate_login_response(
         | [ResponseType::VpToken, ..] => Err(OAuthError::unsupported_response_type(
             &response_type::SUPPORTED_RESPONSE_TYPES,
         )),
-    }
+    };
+
+    generated.and_then(authorization_code::consume_optional)
 }
 
 fn generate_code_response(
@@ -217,7 +219,7 @@ fn generate_code_response(
 ) -> Result<AuthorizeCodeRequest<'_>, OAuthError> {
     let is_authenticated = authorize_request.response.authenticated;
 
-    match authorize_request.response.response_types.as_slice() {
+    let generated = match authorize_request.response.response_types.as_slice() {
         [ResponseType::PreAuthorizedCode] if is_authenticated => {
             pre_authorized_code::generate(authorize_request)
         }
@@ -253,7 +255,9 @@ fn generate_code_response(
         | [ResponseType::VpToken, ..] => Err(OAuthError::unsupported_response_type(
             &response_type::SUPPORTED_RESPONSE_TYPES,
         )),
-    }
+    };
+
+    generated.and_then(authorization_code::consume_optional)
 }
 
 fn log_authorize_failure(error: &OAuthError) {

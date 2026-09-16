@@ -16,6 +16,8 @@ use super::super::*;
 // - PKCE: absent | valid S256 | missing challenge | missing method | unsupported
 //   method | malformed challenge
 // - authorization-code chain depth: below maximum | exactly maximum | exceeding maximum
+// - authorization-code redemption: first generated response succeeds | repeated response
+//   generation is rejected by the process-local replay store
 // - generated artifacts: COSE_Encrypt0 code/access token | EdDSA ID token
 // - federation: configured redirect | local authentication not implemented
 //   Federated clients ignore local credentials until the upstream authenticates them.
@@ -661,6 +663,27 @@ fn redirects_to_client_redirect_uri_for_last_code_response_type() {
     assert!(second_response.contains("location: https://client.example.com/callback?code="));
     assert!(!previous_code.is_empty());
     assert!(!code.is_empty());
+}
+
+#[test]
+fn rejects_repeated_authorization_response_generation_from_the_same_code() {
+    let first_response = send_post_authorize_request(&format!(
+        "response_type=code+code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+    let next_query = authorize_redirect_query(&first_response)
+        .expect("first authorize redirect should include query");
+
+    let success = send_post_authorize_request(&next_query);
+    let replay = send_post_authorize_request(&next_query);
+
+    assert!(success.starts_with("HTTP/1.1 302 Found\r\n"), "{success}");
+    assert!(success.contains("location: https://client.example.com/callback?code="));
+    assert!(
+        replay.starts_with("HTTP/1.1 400 Bad Request\r\n"),
+        "{replay}"
+    );
+    assert!(replay.contains("authorization_code has already been used"));
 }
 
 #[test]

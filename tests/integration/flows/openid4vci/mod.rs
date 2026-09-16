@@ -31,8 +31,7 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - pre-authorized_code: valid | missing | invalid | expired
 // - authorization response delivery: redirect | QR-code HTML with matching deep link
 // - successful token authorization_details: credential configuration | format | type
-// - redemption count: first | repeated (equivalent because this stateless profile
-//   deliberately permits reuse until expiration)
+// - redemption count: first succeeds | repeated is rejected by the process-local replay store
 // - bearer token: valid | missing | malformed | invalid | expired
 // - credential request media type: application/json (case-insensitive, parameters
 //   allowed) | missing | unsupported
@@ -263,12 +262,16 @@ fn exchanges_pre_authorized_code_from_json_request() {
 }
 
 #[test]
-fn permits_repeated_exchange_of_encrypted_pre_authorized_code() {
+fn rejects_repeated_exchange_of_encrypted_pre_authorized_code() {
     let code = offered_code();
     let body = format!("grant_type={GRANT_TYPE}&pre-authorized_code={code}");
 
     assert_token_response(&token_request(&body));
-    assert_token_response(&token_request(&body));
+    assert_oauth_error(
+        &token_request(&body),
+        "invalid_grant",
+        "pre-authorized_code has already been used",
+    );
 }
 
 #[test]

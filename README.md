@@ -191,10 +191,16 @@ Issuance 1.0 Final specification:
   objects at `/jwks`
 
 The Pre-Authorized Code is a five-minute COSE_Encrypt0 artifact containing the
-authorized credential configuration and subject. The profile is stateless and
-does not use a second-channel user code, so possession of a Pre-Authorized Code
-is sufficient to exchange it. A code can be exchanged more than once until it
-expires; no redemption store is used.
+authorized credential configuration and subject. The profile does not use a
+second-channel user code, so possession of a Pre-Authorized Code is sufficient
+to exchange it. Authorization and Pre-Authorized Codes are consumed once in a
+bounded process-local replay store. This follows the wallet-authorization relay
+storage pattern and prevents reuse within one running server, but consumption
+state is not shared across replicas and is lost on restart. Validated SIOPv2
+state is consumed through the same replay store after an accepted ID-token or
+wallet-error response. Valid federation callback state is likewise consumed
+after accepting a non-empty upstream code or error callback. Presentation state
+is consumed after accepting a validated presentation or supported wallet error.
 
 OAuth access tokens and credential access tokens are opaque COSE_Encrypt0
 artifacts. Encryption is centralized and domain-separated by artifact-specific

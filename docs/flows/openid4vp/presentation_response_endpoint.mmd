@@ -12,8 +12,12 @@ flowchart TD
     kind -- wallet error --> wallet_error["presentation_submission::validate_wallet_error"]
     kind -- vp_token --> submission["presentation_submission::validate"]
     submission -- ok --> presentation["verifiable_presentation::validate"]
-    presentation -- ok --> code["authorization_code::generate"]
-    wallet_error -- ok --> wallet_success["`**HTTP 302** trusted wallet-error redirect`"]
+    presentation -- ok --> consume_presentation["presentation_state::consume"]
+    consume_presentation -- replay or storage error --> redirect_error
+    consume_presentation -- consumed --> code["authorization_code::generate"]
+    wallet_error -- ok --> consume_error["presentation_state::consume"]
+    consume_error -- replay or storage error --> redirect_error
+    consume_error -- consumed --> wallet_success["`**HTTP 302** trusted wallet-error redirect`"]
     code -- ok --> success["`**HTTP 302** trusted redirect URI with code and state`"]
     wallet_error -- error --> redirect_error["`**HTTP 302** trusted error redirect`"]
     submission -- error --> redirect_error

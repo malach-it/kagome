@@ -21,6 +21,7 @@ pub struct SiopResponseRequest<'a> {
 
 #[derive(Debug, Default)]
 pub struct SiopResponse {
+    pub state: Option<String>,
     pub state_claims: Option<SiopStateClaims>,
     pub id_token: Option<ValidatedSelfIssuedIdToken>,
     pub wallet_error: Option<ValidatedWalletError>,
@@ -70,8 +71,19 @@ impl siopv2_state::Validate for SiopResponseRequest<'_> {
         self.state.as_deref()
     }
 
-    fn add_siop_state_claims(&mut self, claims: SiopStateClaims) {
+    fn add_siop_state_claims(&mut self, state: &str, claims: SiopStateClaims) {
+        self.response.state = Some(state.to_owned());
         self.response.state_claims = Some(claims);
+    }
+}
+
+impl siopv2_state::Consume for SiopResponseRequest<'_> {
+    fn validated_state(&self) -> Option<&str> {
+        self.response.state.as_deref()
+    }
+
+    fn state_expiration(&self) -> Option<u64> {
+        self.response.state_claims.as_ref().map(|claims| claims.exp)
     }
 }
 

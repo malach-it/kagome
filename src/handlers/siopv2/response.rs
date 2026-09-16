@@ -18,9 +18,12 @@ pub fn handle_siop_response(request: &KagomeRequest) -> String {
             .and_then(siopv2_state::validate);
     let result = match validated {
         Ok(response) if response.error.is_some() => {
-            self_issued_id_token::validate_wallet_error(response).and_then(logged_response)
+            self_issued_id_token::validate_wallet_error(response)
+                .and_then(siopv2_state::consume)
+                .and_then(logged_response)
         }
         Ok(response) => self_issued_id_token::validate(response)
+            .and_then(siopv2_state::consume)
             .and_then(|response| AuthorizeLoginRequest::from_siop(response, request))
             .and_then(authorize::continue_siop_authorize)
             .and_then(logged_response),

@@ -9,10 +9,14 @@ flowchart TD
     state -- ok --> kind{Wallet error or id_token?}
     kind -- wallet error --> wallet_error["self_issued_id_token::validate_wallet_error"]
     wallet_error -- error --> failure
-    wallet_error -- ok --> wallet_redirect["`**HTTP 302** client wallet-error redirect`"]
+    wallet_error -- ok --> consume_error_state["siopv2_state::consume"]
+    consume_error_state -- replay or storage error --> failure
+    consume_error_state -- consumed --> wallet_redirect["`**HTTP 302** client wallet-error redirect`"]
     kind -- id_token --> id_token["self_issued_id_token::validate"]
     id_token -- error --> failure
-    id_token -- ok --> response_type["response_type::validate"]
+    id_token -- ok --> consume_id_state["siopv2_state::consume"]
+    consume_id_state -- replay or storage error --> failure
+    consume_id_state -- consumed --> response_type["response_type::validate"]
     response_type -- error --> failure
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> failure
@@ -36,7 +40,9 @@ flowchart TD
     continuation_code -- ok --> authorize_redirect["`**HTTP 302** /authorize continuation`"]
     response_type_branch -- no --> response[Generate selected authorize response]
     response -- error --> failure
-    response -- ok --> identity_success["`**HTTP 302** requested OAuth response`"]
+    response -- ok --> consume["authorization_code::consume_optional"]
+    consume -- replay or storage error --> failure
+    consume -- absent or consumed --> identity_success["`**HTTP 302** requested OAuth response`"]
     failure[Error response] --> destination{Trusted client redirect URI available?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
     destination -- no --> html_error["`**HTTP 400** HTML error page`"]

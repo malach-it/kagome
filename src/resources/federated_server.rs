@@ -9,6 +9,7 @@ use crate::{
 
 use super::{
     crypto::{self, CoseEncrypt0Errors, EncryptedArtifact},
+    replay::{self, Artifact, ConsumeError},
     resource_owner::{self, ResourceOwner, ResourceOwnerAttributes},
 };
 
@@ -86,7 +87,12 @@ pub trait ValidateCallback {
 
 pub trait ValidateCallbackState {
     fn request_state(&self) -> Option<&str>;
-    fn add_federation_state(&mut self, state: FederationState);
+    fn add_federation_state(&mut self, encoded_state: &str, state: FederationState);
+}
+
+pub trait ConsumeCallbackState {
+    fn validated_federation_state(&self) -> Option<&str>;
+    fn federation_state_expiration(&self) -> Option<u64>;
 }
 
 pub trait ExchangeToken {
@@ -202,6 +208,38 @@ pub fn validate_callback<T: ValidateCallback>(mut request: T) -> Result<T, OAuth
     }
 }
 
+/// Validates the mutually exclusive upstream callback code/error shape without consuming state.
+///
+/// This action permits state consumption only for a syntactically complete callback. A supported
+/// upstream error is considered a valid callback shape even though [`validate_callback`] later
+/// converts it into an OAuth grant failure.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for missing, empty, or conflicting callback fields.
+pub fn validate_callback_shape<T: ValidateCallback>(request: T) -> Result<T, OAuthError> {
+    match (
+        request.request_authorization_code(),
+        request.request_error(),
+    ) {
+        (Some(code), None) if !code.is_empty() => Ok(request),
+        (None, Some(error)) if !error.is_empty() => Ok(request),
+        (Some(_), Some(_)) => Err(OAuthError::invalid_request(
+            "federation callback must not include both code and error",
+        )),
+        (Some(""), None) => Err(OAuthError::invalid_request(
+            "federation callback code must not be empty",
+        )),
+        (None, Some("")) => Err(OAuthError::invalid_request(
+            "federation callback error must not be empty",
+        )),
+        (None, None) => Err(OAuthError::invalid_request(
+            "federation callback requires code or error",
+        )),
+        (Some(_), None) | (None, Some(_)) => unreachable!("empty values are handled above"),
+    }
+}
+
 /// Authenticates callback state and revalidates its client and redirect destination.
 ///
 /// Decrypts the state, requires its embedded client ID to agree with the preserved request, and
@@ -215,8 +253,9 @@ pub fn validate_callback<T: ValidateCallback>(mut request: T) -> Result<T, OAuth
 pub fn validate_callback_state<T: ValidateCallbackState>(mut request: T) -> Result<T, OAuthError> {
     let encoded_state = request
         .request_state()
+        .map(str::to_owned)
         .ok_or_else(|| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
-    let state = decrypt_state(encoded_state)?;
+    let state = decrypt_state(&encoded_state)?;
     let client = Config::global()
         .client(&state.client_id)
         .ok_or_else(|| OAuthError::invalid_request(INVALID_FEDERATION_STATE))?;
@@ -235,7 +274,43 @@ pub fn validate_callback_state<T: ValidateCallbackState>(mut request: T) -> Resu
         return Err(OAuthError::invalid_request(INVALID_FEDERATION_STATE));
     }
 
-    request.add_federation_state(state);
+    request.add_federation_state(&encoded_state, state);
+    Ok(request)
+}
+
+/// Atomically consumes validated federation callback state.
+///
+/// Call this after [`validate_callback_shape`] so malformed callbacks cannot invalidate an
+/// outstanding upstream authorization request. The encrypted state remains recorded as a
+/// domain-separated digest until its validated expiration.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when state was already consumed and `invalid_token_response` when
+/// validated state or replay storage is unavailable.
+pub fn consume_callback_state<T: ConsumeCallbackState>(request: T) -> Result<T, OAuthError> {
+    let state = request.validated_federation_state().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "federation callback state must be validated before consumption",
+        )
+    })?;
+    let expires_at = request.federation_state_expiration().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "federation callback state expiration must be validated before consumption",
+        )
+    })?;
+
+    replay::consume(Artifact::FederationState, state, expires_at).map_err(|error| match error {
+        ConsumeError::AlreadyConsumed => {
+            OAuthError::invalid_request("federation callback state has already been used")
+        }
+        ConsumeError::CapacityExceeded
+        | ConsumeError::StorageUnavailable
+        | ConsumeError::TimeUnavailable => {
+            OAuthError::invalid_token_response("federation state replay storage failed")
+        }
+    })?;
+
     Ok(request)
 }
 

@@ -2,7 +2,7 @@ use super::*;
 
 // Branch matrix:
 // - method: GET | unsupported
-// - authenticated state: valid | missing | invalid
+// - authenticated state: valid | missing | invalid | first accepted callback | replayed
 // - restored scope: omitted | authorized (unauthorized values cannot enter authenticated state)
 // - presentation continuation: authenticated owner proceeds without a second
 //   upstream federation redirect
@@ -20,6 +20,7 @@ use super::*;
 //   client state | local JSON error when callback state is missing or invalid
 // The upstream-error cases cover both explicit and fallback descriptions.
 // Missing and non-string identity claims intentionally share a validation path and response.
+// Malformed callbacks do not consume state; accepted non-empty code and error callbacks do.
 
 #[test]
 fn populates_resource_owner_from_federated_identity() {
@@ -33,6 +34,65 @@ fn populates_resource_owner_from_federated_identity() {
     )
     .expect("downstream authorization code should decode");
     assert_eq!(payload.username.as_deref(), Some("federated-user"));
+}
+
+#[test]
+fn rejects_replayed_federation_callback_state() {
+    let state = federation_state();
+    let request = format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    );
+
+    let success = send_request(&request);
+    let replay = send_request(&request);
+
+    assert!(success.starts_with("HTTP/1.1 302 Found\r\n"), "{success}");
+    assert_callback_error(
+        &replay,
+        "invalid_request",
+        "federation callback state has already been used",
+    );
+}
+
+#[test]
+fn malformed_federation_callback_does_not_consume_state() {
+    let state = federation_state();
+    let malformed = send_request(&format!(
+        "GET /federation_callback?code=federated-code&error=access_denied&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+    let valid = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+
+    assert_callback_error(
+        &malformed,
+        "invalid_request",
+        "federation callback must not include both code and error",
+    );
+    assert!(valid.starts_with("HTTP/1.1 302 Found\r\n"), "{valid}");
+    assert!(!valid.contains("federation%20callback%20state%20has%20already%20been%20used"));
+}
+
+#[test]
+fn accepted_federation_error_consumes_state() {
+    let state = federation_state();
+    let request = format!(
+        "GET /federation_callback?error=access_denied&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    );
+
+    let first = send_request(&request);
+    let replay = send_request(&request);
+
+    assert_callback_error(
+        &first,
+        "invalid_grant",
+        "federated server returned an error: access_denied",
+    );
+    assert_callback_error(
+        &replay,
+        "invalid_request",
+        "federation callback state has already been used",
+    );
 }
 
 #[test]

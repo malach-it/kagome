@@ -4,7 +4,11 @@ flowchart TD
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> state["federated_server::validate_callback_state"]
     state -- error --> invalid_state["`**HTTP 400** local invalid_request`"]
-    state -- ok --> callback["federated_server::validate_callback"]
+    state -- ok --> shape["federated_server::validate_callback_shape"]
+    shape -- malformed --> redirect_error["`**HTTP 302** client error redirect`"]
+    shape -- valid code or error --> consume["federated_server::consume_callback_state"]
+    consume -- replay or storage error --> redirect_error
+    consume -- consumed --> callback["federated_server::validate_callback"]
     callback -- error --> redirect_error["`**HTTP 302** client error redirect`"]
     callback -- ok --> response_type["response_type::validate"]
     response_type -- error --> redirect_error

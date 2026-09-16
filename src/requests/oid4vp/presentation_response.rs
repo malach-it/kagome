@@ -28,6 +28,7 @@ pub struct PresentationResponseRequest<'a> {
 
 #[derive(Debug, Default)]
 pub struct PresentationResponse {
+    pub state: Option<String>,
     pub state_claims: Option<PresentationStateClaims>,
     pub presentation: Option<ValidatedPresentation>,
     pub presentation_submission_validated: bool,
@@ -158,8 +159,19 @@ impl presentation_state::Validate for PresentationResponseRequest<'_> {
         self.state.as_deref()
     }
 
-    fn add_presentation_state_claims(&mut self, claims: PresentationStateClaims) {
+    fn add_presentation_state_claims(&mut self, state: &str, claims: PresentationStateClaims) {
+        self.response.state = Some(state.to_owned());
         self.response.state_claims = Some(claims);
+    }
+}
+
+impl presentation_state::Consume for PresentationResponseRequest<'_> {
+    fn validated_presentation_state(&self) -> Option<&str> {
+        self.response.state.as_deref()
+    }
+
+    fn presentation_state_expiration(&self) -> Option<u64> {
+        self.response.state_claims.as_ref().map(|claims| claims.exp)
     }
 }
 

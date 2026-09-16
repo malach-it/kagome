@@ -5,7 +5,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{
     config::{Config, DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS},
     errors::OAuthError,
-    resources::{crypto, crypto::EncryptedArtifact, pkce::CodeChallenge},
+    resources::{
+        crypto,
+        crypto::EncryptedArtifact,
+        pkce::CodeChallenge,
+        replay::{self, Artifact, ConsumeError},
+    },
 };
 
 pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS;
@@ -78,6 +83,11 @@ pub trait Validate {
     fn add_authorization_code(&mut self, authorization_code: &str);
 }
 
+pub trait Consume {
+    fn validated_authorization_code(&self) -> Option<&str>;
+    fn validated_client_id(&self) -> Option<&str>;
+}
+
 /// Requires a valid authorization code chain and records the code as validated state.
 ///
 /// Validation authenticates every nested code and enforces encoded/plaintext size, lifetime,
@@ -126,6 +136,59 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
 
     request.add_authorization_code(&authorization_code);
     Ok(request)
+}
+
+/// Atomically consumes a validated authorization code so it cannot be exchanged again.
+///
+/// The code and client binding are revalidated before a domain-separated digest is inserted into
+/// the process-local replay store. Call this only after all exchange checks, including PKCE, have
+/// succeeded so invalid requests cannot burn a valid code.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when prerequisite state or replay storage is unavailable, and
+/// `invalid_grant` when the code is invalid, expired, client-mismatched, or already consumed.
+pub fn consume<T: Consume>(request: T) -> Result<T, OAuthError> {
+    let authorization_code = request.validated_authorization_code().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "authorization_code must be validated before consumption",
+        )
+    })?;
+    let client_id = request.validated_client_id().ok_or_else(|| {
+        OAuthError::invalid_token_response("client_id must be validated before code consumption")
+    })?;
+    let claims = validate_request_authorization_code(authorization_code, Some(client_id))?;
+
+    replay::consume(Artifact::AuthorizationCode, authorization_code, claims.exp).map_err(
+        |error| match error {
+            ConsumeError::AlreadyConsumed => {
+                invalid_authorization_code("authorization_code has already been used")
+            }
+            ConsumeError::CapacityExceeded
+            | ConsumeError::StorageUnavailable
+            | ConsumeError::TimeUnavailable => {
+                OAuthError::invalid_token_response("authorization code replay storage failed")
+            }
+        },
+    )?;
+
+    Ok(request)
+}
+
+/// Atomically consumes a validated authorization code when one was supplied.
+///
+/// Requests without an authorization code pass through unchanged. Present codes must first have
+/// been validated with [`validate_optional`].
+///
+/// # Errors
+///
+/// Returns the same errors as [`consume`] when a validated authorization code is present.
+pub fn consume_optional<T: Consume>(request: T) -> Result<T, OAuthError> {
+    if request.validated_authorization_code().is_none() {
+        return Ok(request);
+    }
+
+    consume(request)
 }
 
 /// Generates an expiring encrypted code carrying identity, PKCE, wallet, and continuation state.
