@@ -13,7 +13,7 @@ import {
 
 export { options };
 
-export default function () {
+export default async function () {
   const codeCount = randomCodeCount();
   let authorizationCode;
 
@@ -25,7 +25,7 @@ export default function () {
   for (let index = 0; index < codeCount; index += 1) {
     const response = http.post(
       tokenTarget,
-      codeChainRequestBody(authorizationCode),
+      await codeChainRequestBody(authorizationCode),
       formHeaders(),
     );
     const { payload, wrappedChecks } = runChecks(
@@ -42,12 +42,12 @@ function randomCodeCount() {
   return Math.floor(Math.random() * 11);
 }
 
-function codeChainRequestBody(authorizationCode) {
+async function codeChainRequestBody(authorizationCode) {
   const body = {
     client_id: clientId,
     client_secret: clientSecret,
     grant_type: "code_chain",
-    id_token: validIdToken(),
+    id_token: await validIdToken(),
   };
 
   if (authorizationCode !== undefined) {

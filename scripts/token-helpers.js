@@ -1,5 +1,4 @@
-import crypto from "k6/crypto";
-import encoding from "k6/encoding";
+import { signEs256 } from "./flow-helpers.js";
 
 export const options = {
   vus: Number(__ENV.K6_VUS || "4"),
@@ -62,25 +61,33 @@ export function runChecks(response, checks) {
   return { payload, wrappedChecks };
 }
 
-export function validIdToken() {
+const idTokenPublicJwk = {
+  kty: "EC",
+  crv: "P-256",
+  x: "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI",
+  y: "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8",
+};
+const idTokenPrivateJwk = {
+  ...idTokenPublicJwk,
+  d: "9SWS4Y9IULSULCeaXPaFWOCkkYV_k1RW1NCRhdqo8NE",
+  key_ops: ["sign"],
+  ext: true,
+};
+
+export async function validIdToken() {
   const now = currentTimestamp();
-  return signJwt(
+  return signEs256(
     {
-      alg: "HS256",
+      alg: "ES256",
       typ: "JWT",
-      jwk: {
-        kty: "oct",
-        k: "c2VjcmV0",
-        alg: "HS256",
-      },
+      jwk: idTokenPublicJwk,
     },
     {
       iat: now,
       exp: now + 3600,
       message: randomMessage(10, 200),
     },
-    "secret",
-    "sha256",
+    idTokenPrivateJwk,
   );
 }
 
@@ -93,24 +100,6 @@ function randomMessage(minLength, maxLength) {
   return Array.from({ length }, () =>
     alphabet.charAt(Math.floor(Math.random() * alphabet.length)),
   ).join("");
-}
-
-function signJwt(header, payload, secret, algorithm) {
-  const encodedHeader = base64UrlJson(header);
-  const encodedPayload = base64UrlJson(payload);
-  const signingInput = `${encodedHeader}.${encodedPayload}`;
-  const signature = crypto.hmac(
-    algorithm,
-    secret,
-    signingInput,
-    "base64rawurl",
-  );
-
-  return `${signingInput}.${signature}`;
-}
-
-function base64UrlJson(value) {
-  return encoding.b64encode(JSON.stringify(value), "rawurl");
 }
 
 function currentTimestamp() {

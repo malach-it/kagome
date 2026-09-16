@@ -202,6 +202,25 @@ KAGOME_CLIENT_SECRET=client_secret
 KAGOME_TOKEN_TIMEOUT=5
 ```
 
+## Load testing
+
+The k6 scripts cover every documented identity flow. Run one through its
+Compose service, for example:
+
+```bash
+docker compose --profile loadtest run --rm k6-openid4vp
+```
+
+Available services are `k6-authorization-code`, `k6-client-credentials`,
+`k6-code-chain`, `k6-resource-owner-password`, `k6-implicit`,
+`k6-pre-authorized-code`, `k6-siopv2`, and `k6-openid4vp`. Set `K6_VUS` and
+`K6_DURATION` to change the default four-user, 30-second run. The scripts also
+accept `KAGOME_SERVER_TARGET`, `KAGOME_TOKEN_TARGET`, `KAGOME_CLIENT_ID`,
+`KAGOME_CLIENT_SECRET`, `KAGOME_REDIRECT_URI`, `KAGOME_USERNAME`,
+`KAGOME_PASSWORD`, `KAGOME_TX_CODE`, `KAGOME_ISSUER`,
+`KAGOME_AUTHORIZE_CLIENT_ID`, `KAGOME_AUTHORIZE_METHOD`, and
+`KAGOME_PUBLIC_HOST` where applicable.
+
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).

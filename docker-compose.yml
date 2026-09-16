@@ -87,3 +87,82 @@ services:
     command: run /scripts/authorization-code.k6.js
     profiles:
       - loadtest
+
+  k6-resource-owner-password:
+    image: grafana/k6:latest
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_SERVER_TARGET: ${KAGOME_SERVER_TARGET:-http://kagome:4000}
+      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
+      KAGOME_CLIENT_SECRET: ${KAGOME_CLIENT_SECRET:-client_secret}
+      K6_VUS: ${K6_VUS:-4}
+      K6_DURATION: ${K6_DURATION:-30s}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: run /scripts/resource-owner-password.k6.js
+    profiles:
+      - loadtest
+
+  k6-implicit:
+    image: grafana/k6:latest
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_SERVER_TARGET: ${KAGOME_SERVER_TARGET:-http://kagome:4000}
+      K6_VUS: ${K6_VUS:-4}
+      K6_DURATION: ${K6_DURATION:-30s}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: run /scripts/implicit.k6.js
+    profiles:
+      - loadtest
+
+  k6-pre-authorized-code:
+    image: grafana/k6:latest
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_SERVER_TARGET: ${KAGOME_SERVER_TARGET:-http://kagome:4000}
+      K6_VUS: ${K6_VUS:-4}
+      K6_DURATION: ${K6_DURATION:-30s}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: run /scripts/pre-authorized-code.k6.js
+    profiles:
+      - loadtest
+
+  k6-siopv2:
+    image: grafana/k6:latest
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_SERVER_TARGET: ${KAGOME_SERVER_TARGET:-http://kagome:4000}
+      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
+      K6_VUS: ${K6_VUS:-4}
+      K6_DURATION: ${K6_DURATION:-30s}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: run /scripts/siopv2.k6.js
+    profiles:
+      - loadtest
+
+  k6-openid4vp:
+    image: grafana/k6:latest
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_SERVER_TARGET: ${KAGOME_SERVER_TARGET:-http://kagome:4000}
+      KAGOME_CLIENT_ID: ${KAGOME_CLIENT_ID:-client_id}
+      K6_VUS: ${K6_VUS:-4}
+      K6_DURATION: ${K6_DURATION:-30s}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: run /scripts/openid4vp.k6.js
+    profiles:
+      - loadtest

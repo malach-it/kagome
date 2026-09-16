@@ -13,14 +13,14 @@ import {
 
 export { options };
 
-export default function () {
+export default async function () {
   const codeChainResponse = http.post(
     tokenTarget,
     {
       client_id: clientId,
       client_secret: clientSecret,
       grant_type: "code_chain",
-      id_token: validIdToken(),
+      id_token: await validIdToken(),
     },
     formHeaders(),
   );
@@ -31,7 +31,7 @@ export default function () {
       client_id: clientId,
       client_secret: clientSecret,
       grant_type: "authorization_code",
-      authorization_code: authorizationCode,
+      code: authorizationCode,
     },
     formHeaders(),
   );
