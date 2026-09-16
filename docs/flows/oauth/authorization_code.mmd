@@ -1,6 +1,6 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[GET or POST /authorize] --> response_type["response_type::validate"]
+    start[GET /authorize] --> response_type["response_type::validate"]
     response_type -- error --> authorize_error{Trusted redirect URI and state?}
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
@@ -12,8 +12,7 @@ flowchart TD
     previous -- invalid, oversized, or excessive depth --> authorize_error
     previous -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> authorize_error
-    policy -- ok --> method{GET or POST?}
-    method -- GET --> local_auth{Local resource-owner validation needed?}
+    policy -- ok --> local_auth{Local resource-owner validation needed?}
     local_auth -- unauthenticated local --> owner_optional["resource_owner::validate_optional"]
     owner_optional -- error --> authorize_error
     owner_optional -- absent or present --> authentication{Authenticated or federated?}
@@ -23,9 +22,7 @@ flowchart TD
     federate -- ok --> federated_redirect["`**HTTP 302** federated authorize endpoint`"]
     authentication -- unauthenticated local --> not_implemented["`**HTTP 501** local authentication not implemented`"]
     authentication -- authenticated --> issue
-    method -- POST --> owner["resource_owner::validate"]
-    owner -- error --> authorize_error
-    owner -- ok --> issue["authorization_code::generate"]
+    authentication -- authenticated --> issue["authorization_code::generate"]
     issue -- excessive depth or generation error --> authorize_error
     issue -- ok --> consume["authorization_code::consume_optional"]
     consume -- replay or storage error --> authorize_error

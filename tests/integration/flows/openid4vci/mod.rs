@@ -17,7 +17,6 @@ const PROOF_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqG
 const OTHER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt\nbha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt\nWvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7\n-----END PRIVATE KEY-----\n";
 const C_NONCE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 const WALLET_BOUND_CLIENT_ID: &str = "wallet_bound_client";
-const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callback";
 
 // Branch matrix:
 // - discovery endpoint: issuer metadata | authorization-server metadata | JWKS
@@ -31,8 +30,6 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - credential access-token artifact: opaque COSE_Encrypt0 carrying the same fresh c_nonce
 //   returned by the token response
 // - pre-authorized_code: valid | missing | invalid | expired
-// - authorization response delivery: redirect | QR-code HTML with matching deep link
-// - client state: absent | exact value returned with the redirected credential offer
 // - successful token authorization_details: credential configuration | format | type
 // - redemption count: first succeeds | repeated is rejected by the process-local replay store
 // - bearer token: valid | missing | malformed | invalid | expired; each token's c_nonce permits
@@ -48,7 +45,7 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 //   matching/mismatching the ID-token public key. A wallet-binding client also
 //   rejects a missing code key. A valid proof binds the issued subject
 //   and cnf.jwk to its wallet DID and public key.
-// - authorize response type: authenticated | unauthenticated | combined with another type
+// - authorize response type: authenticated public client | unauthenticated local client
 // - credential configuration: each configured identifier is advertised and authorized;
 //   selected identifiers drive the issued type, VCT, and subject container.
 
@@ -148,97 +145,6 @@ fn returns_not_found_for_removed_credential_offer_endpoint() {
 }
 
 #[test]
-fn redirects_authenticated_authorize_request_with_credential_offer() {
-    let response = authorize_preauthorized_code("", "username=username&password=password");
-    let offer = redirected_credential_offer(&response);
-    let grant = &offer["grants"][GRANT_TYPE];
-    let code = grant["pre-authorized_code"].as_str().unwrap();
-
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert_eq!(offer["credential_issuer"], "http://localhost:4000");
-    assert_eq!(offer["credential_configuration_ids"][0], CONFIGURATION_ID);
-    assert_eq!(
-        offer["credential_configuration_ids"][1],
-        SECOND_CONFIGURATION_ID
-    );
-    let token_response = token_request(&format!(
-        "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
-    ));
-    let token_body = json_body(&token_response);
-    let authorization = CredentialAuthorization {
-        access_token: token_body["access_token"].as_str().unwrap().to_owned(),
-        c_nonce: token_body["c_nonce"].as_str().unwrap().to_owned(),
-    };
-    let credential_response =
-        credential_request_with_proof(&authorization, "application/json", CONFIGURATION_ID);
-    let credential = json_body(&credential_response)["credential"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.validate_aud = false;
-    let claims = jsonwebtoken::decode::<Value>(
-        &credential,
-        &kagome::resources::crypto::SigningArtifact::Credential
-            .decoding_key()
-            .unwrap(),
-        &validation,
-    )
-    .unwrap()
-    .claims;
-
-    assert_eq!(claims["sub"], "username");
-}
-
-#[test]
-fn returns_exact_state_with_redirected_credential_offer() {
-    let body = "username=username&password=password";
-    let response = send_request(&format!(
-        "POST /authorize?response_type={RESPONSE_TYPE}&client_id=client_id&redirect_uri=https://client.example.com/callback&state=opaque%2Bstate%20%26%3D%2F%25 HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
-        body.len()
-    ));
-    let location = response
-        .lines()
-        .find_map(|line| line.strip_prefix("location: "))
-        .unwrap();
-    let state = location
-        .split_once('?')
-        .unwrap()
-        .1
-        .split('&')
-        .find_map(|parameter| parameter.strip_prefix("state="))
-        .map(decode_form_value);
-
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert_eq!(state.as_deref(), Some("opaque+state &=/%"));
-}
-
-#[test]
-fn renders_pre_authorized_credential_offer_as_qr_code_with_deep_link() {
-    let response = authorize_preauthorized_code_for_client(
-        "",
-        "qr_client",
-        "https://qr.example.com/callback",
-        None,
-        "username=username&password=password",
-    );
-    let deep_link = super::common::qr_page_deep_link(&response);
-    let encoded_offer = deep_link
-        .split_once('?')
-        .and_then(|(_, query)| {
-            query
-                .split('&')
-                .find_map(|value| value.strip_prefix("credential_offer="))
-        })
-        .expect("QR deep link should contain a credential offer");
-    let offer: Value = serde_json::from_str(&decode_form_value(encoded_offer)).unwrap();
-
-    assert!(deep_link.starts_with("https://qr.example.com/callback?credential_offer="));
-    assert_eq!(offer["credential_issuer"], "http://localhost:4000");
-    assert!(offer["grants"][GRANT_TYPE]["pre-authorized_code"].is_string());
-}
-
-#[test]
 fn returns_not_implemented_for_unauthenticated_preauthorized_code_request() {
     let response = send_request(&format!(
         "GET /authorize?response_type={RESPONSE_TYPE}&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback HTTP/1.1\r\nhost: example.com\r\n\r\n"
@@ -258,14 +164,6 @@ fn authenticates_public_username_host_client_for_preauthorized_code_request() {
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://client.example.com/callback?credential_offer="));
-}
-
-#[test]
-fn rejects_preauthorized_code_combined_with_another_response_type() {
-    let response = authorize_preauthorized_code("code+", "username=username&password=password");
-
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("invalid final response type"));
 }
 
 #[test]
@@ -472,20 +370,6 @@ fn requires_credential_proof_for_every_credential_request() {
     );
 
     assert_credential_error(&response, "invalid_or_missing_proof", "proof is required");
-}
-
-#[test]
-fn rejects_wallet_bound_authorize_request_without_code_id_token_key() {
-    let response = authorize_preauthorized_code_for_client(
-        "",
-        WALLET_BOUND_CLIENT_ID,
-        WALLET_BOUND_REDIRECT_URI,
-        None,
-        "username=username&password=password",
-    );
-
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("wallet binding requires a code containing an id_token public key"));
 }
 
 #[test]
@@ -843,76 +727,11 @@ fn returns_jwks_without_deriving_identity_from_request_host() {
     }
 }
 
-fn authorize_preauthorized_code(prefix: &str, body: &str) -> String {
-    authorize_preauthorized_code_for_client(
-        prefix,
-        "client_id",
-        "https://client.example.com/callback",
-        None,
-        body,
-    )
-}
-
-fn authorize_preauthorized_code_for_client(
-    prefix: &str,
-    client_id: &str,
-    redirect_uri: &str,
-    code: Option<&str>,
-    body: &str,
-) -> String {
-    let code = code.map(|code| format!("&code={code}")).unwrap_or_default();
-    send_request(&format!(
-        "POST /authorize?response_type={prefix}{RESPONSE_TYPE}&client_id={client_id}&redirect_uri={redirect_uri}{code} HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
-        body.len()
-    ))
-}
-
-fn redirected_credential_offer(response: &str) -> Value {
-    let location = response
-        .lines()
-        .find_map(|line| line.strip_prefix("location: "))
-        .expect("authorize response should contain a location");
-    let encoded_offer = location
-        .split_once('?')
-        .and_then(|(_, query)| {
-            query
-                .split('&')
-                .find_map(|value| value.strip_prefix("credential_offer="))
-        })
-        .expect("authorize response should contain a credential offer");
-
-    serde_json::from_str(&decode_form_value(encoded_offer)).unwrap()
-}
-
-fn decode_form_value(value: &str) -> String {
-    let mut decoded = Vec::with_capacity(value.len());
-    let bytes = value.as_bytes();
-    let mut index = 0;
-
-    while index < bytes.len() {
-        match bytes[index] {
-            b'+' => decoded.push(b' '),
-            b'%' if index + 2 < bytes.len() => {
-                let byte = u8::from_str_radix(&value[index + 1..index + 3], 16).unwrap();
-                decoded.push(byte);
-                index += 2;
-            }
-            byte => decoded.push(byte),
-        }
-        index += 1;
-    }
-
-    String::from_utf8(decoded).unwrap()
-}
-
 fn offered_code() -> String {
-    redirected_credential_offer(&authorize_preauthorized_code(
-        "",
-        "username=username&password=password",
-    ))["grants"][GRANT_TYPE]["pre-authorized_code"]
-        .as_str()
+    kagome::resources::pre_authorized_code::generate(PreAuthorizedCodeFixture::default())
         .unwrap()
-        .to_owned()
+        .code
+        .unwrap()
 }
 
 fn expired_code() -> String {
@@ -1027,17 +846,15 @@ fn credential_authorization() -> CredentialAuthorization {
 
 fn wallet_bound_credential_authorization(id_token: &str) -> CredentialAuthorization {
     let authorization_code = authorization_code_with_id_token(id_token);
-    let response = authorize_preauthorized_code_for_client(
-        "",
-        WALLET_BOUND_CLIENT_ID,
-        WALLET_BOUND_REDIRECT_URI,
-        Some(&authorization_code),
-        "username=username&password=password",
-    );
-    let code = redirected_credential_offer(&response)["grants"][GRANT_TYPE]["pre-authorized_code"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let code = kagome::resources::pre_authorized_code::generate(PreAuthorizedCodeFixture {
+        authorization_code: Some(authorization_code),
+        client_id: Some(WALLET_BOUND_CLIENT_ID),
+        require_wallet_binding: true,
+        ..Default::default()
+    })
+    .unwrap()
+    .code
+    .unwrap();
     let response = token_request(&format!(
         "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
@@ -1045,6 +862,36 @@ fn wallet_bound_credential_authorization(id_token: &str) -> CredentialAuthorizat
     CredentialAuthorization {
         access_token: body["access_token"].as_str().unwrap().to_owned(),
         c_nonce: body["c_nonce"].as_str().unwrap().to_owned(),
+    }
+}
+
+#[derive(Default)]
+struct PreAuthorizedCodeFixture {
+    code: Option<String>,
+    authorization_code: Option<String>,
+    client_id: Option<&'static str>,
+    require_wallet_binding: bool,
+}
+
+impl kagome::resources::pre_authorized_code::Generate for PreAuthorizedCodeFixture {
+    fn add_pre_authorized_code(&mut self, pre_authorized_code: String) {
+        self.code = Some(pre_authorized_code);
+    }
+
+    fn client_id(&self) -> Option<&str> {
+        self.client_id
+    }
+
+    fn authorization_code(&self) -> Option<&str> {
+        self.authorization_code.as_deref()
+    }
+
+    fn require_wallet_binding(&self) -> bool {
+        self.require_wallet_binding
+    }
+
+    fn subject(&self) -> Option<&str> {
+        Some("username")
     }
 }
 

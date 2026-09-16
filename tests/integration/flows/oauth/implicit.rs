@@ -1,11 +1,10 @@
 use super::*;
 
 // Branch matrix:
-// - method: GET without credentials | GET with client_id credentials | POST
+// - method: GET without credentials | GET with client_id credentials
 // - client_id: valid | public username@host | missing | invalid
 // - redirect_uri: valid | missing | invalid
-// - resource owner: first configured owner | second configured owner | missing username |
-//   invalid username | missing password | invalid password | invalid embedded credentials
+// - resource owner: first configured owner | second configured owner | invalid embedded credentials
 // - state: absent | present
 // - scope: omitted | authorized | unauthorized
 // - access-token artifact: opaque COSE_Encrypt0
@@ -44,38 +43,6 @@ fn returns_not_implemented_for_implicit_get_without_resource_owner() {
 }
 
 #[test]
-fn redirects_implicit_access_token_and_state_for_valid_post_request() {
-    let response = send_implicit_post(
-        "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&state=opaque%20state",
-        "username=username&password=password",
-    );
-
-    assert_implicit_token_response(&response, "client_id", "username");
-    assert!(response.contains("&state=opaque%20state\r\n"));
-}
-
-#[test]
-fn accepts_authorized_implicit_scope() {
-    let response = send_implicit_post(
-        "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&scope=profile",
-        "username=username&password=password",
-    );
-
-    assert_implicit_token_response(&response, "client_id", "username");
-}
-
-#[test]
-fn rejects_unauthorized_implicit_scope() {
-    let response = send_implicit_post(
-        "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&scope=admin",
-        "username=username&password=password",
-    );
-
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("<p role=\"alert\">scope is not authorized for client: admin</p>"));
-}
-
-#[test]
 fn redirects_implicit_access_token_for_valid_client_id_credentials() {
     let response = send_implicit_get(
         "response_type=token&client_id=other_username%3Aother_password%40example.com&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
@@ -92,74 +59,6 @@ fn authenticates_public_username_host_client_id_for_implicit_get() {
     );
 
     assert_implicit_token_response(&response, "username@example.com", "username");
-}
-
-#[test]
-fn returns_oauth_error_for_missing_implicit_client_id() {
-    let response = send_implicit_post(
-        "response_type=token&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
-        "username=username&password=password",
-    );
-
-    assert_html_error(&response, "client_id is required");
-}
-
-#[test]
-fn returns_oauth_error_for_invalid_implicit_client_id() {
-    let response = send_implicit_post(
-        "response_type=token&client_id=app&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
-        "username=username&password=password",
-    );
-
-    assert_html_error(&response, "client_id is invalid");
-}
-
-#[test]
-fn returns_oauth_error_for_missing_implicit_redirect_uri() {
-    let response = send_implicit_post(
-        "response_type=token&client_id=client_id",
-        "username=username&password=password",
-    );
-
-    assert_html_error(&response, "redirect_uri is required");
-}
-
-#[test]
-fn returns_oauth_error_for_invalid_implicit_redirect_uri() {
-    let response = send_implicit_post(
-        "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback",
-        "username=username&password=password",
-    );
-
-    assert_html_error(&response, "redirect_uri is invalid");
-}
-
-#[test]
-fn returns_uniform_error_for_missing_implicit_username() {
-    let response = send_implicit_post(valid_implicit_query(), "password=password");
-
-    assert_html_error(&response, "username or password is invalid");
-}
-
-#[test]
-fn returns_oauth_error_for_invalid_implicit_username() {
-    let response = send_implicit_post(valid_implicit_query(), "username=app&password=password");
-
-    assert_html_error(&response, "username or password is invalid");
-}
-
-#[test]
-fn returns_oauth_error_for_missing_implicit_password() {
-    let response = send_implicit_post(valid_implicit_query(), "username=username");
-
-    assert_html_error(&response, "username or password is invalid");
-}
-
-#[test]
-fn returns_oauth_error_for_invalid_implicit_password() {
-    let response = send_implicit_post(valid_implicit_query(), "username=username&password=app");
-
-    assert_html_error(&response, "username or password is invalid");
 }
 
 #[test]
@@ -180,18 +79,6 @@ fn send_implicit_get(query: &str) -> String {
     ))
 }
 
-fn send_implicit_post(query: &str, body: &str) -> String {
-    send_request(&format!(
-        "POST /authorize?{query} HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    ))
-}
-
-fn valid_implicit_query() -> &'static str {
-    "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback"
-}
-
 fn assert_implicit_token_response(response: &str, client_id: &str, username: &str) {
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://client.example.com/callback#access_token="));
@@ -207,15 +94,6 @@ fn assert_implicit_token_response(response: &str, client_id: &str, username: &st
 
     assert_eq!(payload.client_id, client_id);
     assert_eq!(payload.username.as_deref(), Some(username));
-}
-
-fn assert_html_error(response: &str, description: &str) {
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<title>authorization error</title>"));
-    assert!(response.contains(&format!("<p role=\"alert\">{description}</p>")));
-    assert!(!response.contains("<form"));
-    assert!(!response.contains("access_token="));
 }
 
 fn fragment_parameter<'a>(response: &'a str, name: &str) -> Option<&'a str> {

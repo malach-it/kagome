@@ -1,8 +1,8 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     start[Request /authorize] --> method{GET, POST, or unsupported?}
-    method -- unsupported or non-GET vp_token --> not_found["`**HTTP 404** not found`"]
-    method -- GET or POST --> response_type["response_type::validate"]
+    method -- POST or unsupported --> not_found["`**HTTP 404** not found`"]
+    method -- GET --> response_type["response_type::validate"]
     response_type -- error --> error
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> error
@@ -14,8 +14,7 @@ flowchart TD
     code -- invalid, oversized, or excessive depth --> error
     code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> error
-    policy -- ok --> request_flow{GET or POST pipeline?}
-    request_flow -- GET --> local_auth{Local resource-owner validation needed?}
+    policy -- ok --> local_auth{Local resource-owner validation needed?}
     local_auth -- yes --> owner_optional["resource_owner::validate_optional"]
     owner_optional -- error --> error
     owner_optional -- ok --> flow{Authentication and response pipeline?}
@@ -35,9 +34,6 @@ flowchart TD
     request_object -- ok --> vp_success["`**HTTP 302** wallet redirect or **HTTP 200** QR relay with nonce and state only in signed request`"]
     flow -- unauthenticated local OAuth GET --> not_implemented["`**HTTP 501** local authentication not implemented`"]
     flow -- authenticated OAuth GET --> generate{Selected response type?}
-    request_flow -- POST --> owner["resource_owner::validate"]
-    owner -- error --> error
-    owner -- ok --> generate
     generate -- pre-authorized_code --> pre_code["pre_authorized_code::generate"]
     generate -- code --> auth_code["authorization_code::generate"]
     generate -- token --> access["access_token::generate"]

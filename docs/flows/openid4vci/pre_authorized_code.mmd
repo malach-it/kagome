@@ -1,6 +1,6 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    authorize[GET or POST /authorize with pre-authorized_code] --> authorize_pipeline[Run common authorize resource pipeline]
+    authorize[GET /authorize with pre-authorized_code] --> authorize_pipeline[Run common authorize resource pipeline]
     authorize_pipeline -- error --> authorize_error["`**HTTP 400** HTML authorization error`"]
     authorize_pipeline -- unauthenticated --> authentication["`**HTTP 501** local authentication or **HTTP 302** federation redirect`"]
     authorize_pipeline -- authenticated --> generate
