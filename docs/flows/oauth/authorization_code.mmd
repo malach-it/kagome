@@ -1,7 +1,7 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     start[GET or POST /authorize] --> response_type["response_type::validate"]
-    response_type -- error --> authorize_error["`**HTTP 400** HTML authorization error`"]
+    response_type -- error --> authorize_error{Trusted redirect URI and state?}
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
     client -- ok --> authorize_scope["scope::validate"]
@@ -29,7 +29,9 @@ flowchart TD
     issue -- excessive depth or generation error --> authorize_error
     issue -- ok --> consume["authorization_code::consume_optional"]
     consume -- replay or storage error --> authorize_error
-    consume -- absent or consumed --> redirect["`**HTTP 302** client redirect with code`"]
+    consume -- absent or consumed --> redirect["`**HTTP 302** client redirect with code and exact state`"]
+    authorize_error -- yes --> redirect_error["`**HTTP 302** authorization error with exact state`"]
+    authorize_error -- no --> html_error["`**HTTP 400** HTML authorization error`"]
     redirect --> token[POST /token]
     token --> grant["grant_type::validate"]
     grant -- error --> token_error["`**HTTP 400** OAuth error`"]

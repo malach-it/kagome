@@ -23,6 +23,7 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - endpoint method: supported | unsupported
 // - common authorize validation: valid client and redirect URI | missing/invalid;
 //   optional authorization code and metadata policy absent/valid | invalid
+//   Errors carrying client state redirect to the trusted client with that exact state.
 // - client authentication: local presentation proceeds directly | unauthenticated
 //   federated client redirects through its upstream server
 // - PKCE: absent | valid S256 challenge carried in presentation state | unsupported method
@@ -1919,6 +1920,15 @@ fn assert_error(response: &str, description: &str) {
 }
 
 fn assert_authorize_error(response: &str, description: &str) {
+    if response.starts_with("HTTP/1.1 302 Found\r\n") {
+        assert_eq!(
+            redirect_query_parameter(response, "error_description"),
+            description
+        );
+        assert_eq!(redirect_query_parameter(response, "state"), "client-state");
+        return;
+    }
+
     assert!(
         response.starts_with("HTTP/1.1 400 Bad Request\r\n"),
         "{response}"

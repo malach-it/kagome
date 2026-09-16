@@ -4,6 +4,12 @@ This directory documents the branching behavior of Kagome's OAuth flows and
 endpoints. Mermaid (`.mmd`) files are the canonical sources; matching `.svg`
 files are generated artifacts for viewing in documentation and code reviews.
 
+When an authorization request contains `state`, every successful client
+authorization response returns that exact value. An authorization error also
+returns the exact state by redirect when the client and redirect URI are
+independently trusted; otherwise Kagome renders a local HTML error and does not
+disclose state to the untrusted URI.
+
 Flow graphs describe the end-to-end business rules for a grant or authorization
 flow. Endpoint graphs describe request dispatch and how flow results become HTTP
 responses.

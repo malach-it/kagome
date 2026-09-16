@@ -473,7 +473,10 @@ fn accepts_code_parameter_for_a_following_authorization_request() {
     let first_token = id_token(&first, &did, &did, None, TokenOverrides::default());
     let first_response = submit(&first, &first_token, None);
     let location = response_header(&first_response, "location").unwrap();
-    let code = location.split_once("?code=").map(|(_, code)| code).unwrap();
+    let code = location
+        .split_once("?code=")
+        .and_then(|(_, parameters)| parameters.split('&').next())
+        .unwrap();
     let second = authorization_request_with("token", Some(code));
     let second_token = id_token(&second, &did, &did, None, TokenOverrides::default());
     let second_response = submit(&second, &second_token, None);
@@ -493,7 +496,10 @@ fn rejects_repeated_siopv2_authorization_response_generation_from_the_same_code(
     let first_token = id_token(&first, &did, &did, None, TokenOverrides::default());
     let first_response = submit(&first, &first_token, None);
     let location = response_header(&first_response, "location").unwrap();
-    let code = location.split_once("?code=").map(|(_, code)| code).unwrap();
+    let code = location
+        .split_once("?code=")
+        .and_then(|(_, parameters)| parameters.split('&').next())
+        .unwrap();
     let first_continuation = authorization_request_with("token", Some(code));
     let second_continuation = authorization_request_with("token", Some(code));
     let first_continuation_token = id_token(

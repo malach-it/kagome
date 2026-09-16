@@ -1,4 +1,5 @@
 use crate::{
+    config::Config,
     errors::OAuthError,
     resources::{
         access_token, authorization_code, client_credentials, credential_issuer, federated_server,
@@ -10,7 +11,10 @@ use crate::{
     unit::{KagomeRequest, parse_query_parameter, parse_request_parameter},
 };
 
-use super::responses::{log_timestamp, logged_response, oauth_error_html_response};
+use super::responses::{
+    authorization_error_redirect_response, log_timestamp, logged_response,
+    oauth_error_html_response,
+};
 
 pub use crate::requests::{AuthorizeCodeRequest, AuthorizeLoginRequest};
 
@@ -272,6 +276,29 @@ fn log_authorize_failure(error: &OAuthError) {
 fn authorize_error_response(request: &KagomeRequest, error: OAuthError) -> String {
     let client_id = parse_query_parameter(request, "client_id")
         .or_else(|| parse_request_parameter(request, "client_id"));
+    let redirect_uri = parse_query_parameter(request, "redirect_uri")
+        .or_else(|| parse_request_parameter(request, "redirect_uri"));
+    let state = parse_query_parameter(request, "state")
+        .or_else(|| parse_request_parameter(request, "state"));
+
+    if state.is_some()
+        && let (Some(client_id), Some(redirect_uri)) =
+            (client_id.as_deref(), redirect_uri.as_deref())
+        && Config::global().client(client_id).is_some_and(|client| {
+            client
+                .redirect_uris
+                .iter()
+                .any(|configured| configured == redirect_uri)
+        })
+    {
+        return authorization_error_redirect_response(
+            redirect_uri,
+            &error.error,
+            Some(&error.error_description),
+            state.as_deref(),
+        );
+    }
+
     oauth_error_html_response(
         client_id.as_deref(),
         &error.error,

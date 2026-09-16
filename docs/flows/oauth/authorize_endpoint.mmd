@@ -55,9 +55,11 @@ flowchart TD
     combined -- ok --> consume
     consume -- replay or storage error --> error
     consume -- absent or consumed --> generated_response{Generated response kind?}
-    generated_response -- credential offer --> offer["`**HTTP 302** credential offer or **HTTP 200** QR relay`"]
-    generated_response -- code --> code_response["`**HTTP 302** code response or continuation`"]
-    generated_response -- access token --> token_response["`**HTTP 302** access-token response`"]
-    generated_response -- ID token --> id_response["`**HTTP 302** ID-token response`"]
-    generated_response -- combined --> combined_response["`**HTTP 302** combined response`"]
-    error["`**HTTP 400** HTML authorization error`"]
+    generated_response -- credential offer --> offer["`**HTTP 302** credential offer with exact state or **HTTP 200** QR relay`"]
+    generated_response -- code --> code_response["`**HTTP 302** code response or continuation with exact state`"]
+    generated_response -- access token --> token_response["`**HTTP 302** access-token response with exact state`"]
+    generated_response -- ID token --> id_response["`**HTTP 302** ID-token response with exact state`"]
+    generated_response -- combined --> combined_response["`**HTTP 302** combined response with exact state`"]
+    error{Trusted redirect URI and state?}
+    error -- yes --> redirect_error["`**HTTP 302** authorization error with exact state`"]
+    error -- no --> html_error["`**HTTP 400** HTML authorization error`"]

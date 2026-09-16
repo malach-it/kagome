@@ -246,12 +246,14 @@ pub fn oauth_error_html_response(
 pub fn code_redirect_response(
     redirect_uri: &str,
     authorization_code: &AuthorizationCode,
+    state: Option<&str>,
 ) -> String {
     let location = append_query_parameter(
         redirect_uri,
         "code",
         &percent_encode_query_value(&authorization_code.value),
     );
+    let location = append_optional_query_parameter(&location, "state", state);
 
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
@@ -263,6 +265,7 @@ pub fn credential_offer_uri(
     redirect_uri: &str,
     credential_issuer: &str,
     pre_authorized_code: &str,
+    state: Option<&str>,
 ) -> String {
     let credential_offer = serde_json::json!({
         "credential_issuer": credential_issuer,
@@ -278,11 +281,12 @@ pub fn credential_offer_uri(
         }
     })
     .to_string();
-    append_query_parameter(
+    let location = append_query_parameter(
         redirect_uri,
         "credential_offer",
         &percent_encode_query_value(&credential_offer),
-    )
+    );
+    append_optional_query_parameter(&location, "state", state)
 }
 
 pub fn federated_authorize_redirect_response(
@@ -336,7 +340,11 @@ pub fn access_token_redirect_response(
     )
 }
 
-pub fn id_token_redirect_response(redirect_uri: &str, id_token: &IdToken) -> String {
+pub fn id_token_redirect_response(
+    redirect_uri: &str,
+    id_token: &IdToken,
+    state: Option<&str>,
+) -> String {
     let location = append_fragment_parameter(
         &append_fragment_parameter(
             redirect_uri,
@@ -346,6 +354,7 @@ pub fn id_token_redirect_response(redirect_uri: &str, id_token: &IdToken) -> Str
         "expires_in",
         &id_token.expires_in.to_string(),
     );
+    let location = append_optional_fragment_parameter(&location, "state", state);
 
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
@@ -357,6 +366,7 @@ pub fn id_token_access_token_redirect_response(
     redirect_uri: &str,
     id_token: &IdToken,
     access_token: &AccessToken,
+    state: Option<&str>,
 ) -> String {
     let location = append_fragment_parameter(
         &append_fragment_parameter(
@@ -371,6 +381,7 @@ pub fn id_token_access_token_redirect_response(
         "expires_in",
         &access_token.expires_in.to_string(),
     );
+    let location = append_optional_fragment_parameter(&location, "state", state);
 
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
@@ -382,6 +393,7 @@ pub fn code_access_token_redirect_response(
     redirect_uri: &str,
     authorization_code: &AuthorizationCode,
     access_token: &AccessToken,
+    state: Option<&str>,
 ) -> String {
     let location = append_fragment_parameter(
         &append_fragment_parameter(
@@ -396,6 +408,7 @@ pub fn code_access_token_redirect_response(
         "expires_in",
         &access_token.expires_in.to_string(),
     );
+    let location = append_optional_fragment_parameter(&location, "state", state);
 
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
@@ -407,6 +420,7 @@ pub fn code_id_token_redirect_response(
     redirect_uri: &str,
     authorization_code: &AuthorizationCode,
     id_token: &IdToken,
+    state: Option<&str>,
 ) -> String {
     let location = append_fragment_parameter(
         &append_fragment_parameter(
@@ -421,6 +435,7 @@ pub fn code_id_token_redirect_response(
         "expires_in",
         &id_token.expires_in.to_string(),
     );
+    let location = append_optional_fragment_parameter(&location, "state", state);
 
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
@@ -433,6 +448,7 @@ pub fn code_id_token_access_token_redirect_response(
     authorization_code: &AuthorizationCode,
     id_token: &IdToken,
     access_token: &AccessToken,
+    state: Option<&str>,
 ) -> String {
     let location = append_fragment_parameter(
         &append_fragment_parameter(
@@ -451,6 +467,7 @@ pub fn code_id_token_access_token_redirect_response(
         "expires_in",
         &access_token.expires_in.to_string(),
     );
+    let location = append_optional_fragment_parameter(&location, "state", state);
 
     format!(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",

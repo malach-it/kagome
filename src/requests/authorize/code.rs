@@ -95,6 +95,7 @@ impl<'a> AuthorizeCodeRequest<'a> {
                 redirect_uri,
                 &Config::global().server.issuer,
                 pre_authorized_code,
+                self.state.as_deref(),
             );
 
             return wallet_authorization_response(client_id, &authorization_uri);
@@ -114,6 +115,7 @@ impl<'a> AuthorizeCodeRequest<'a> {
                 authorization_code,
                 id_token,
                 access_token,
+                self.state.as_deref(),
             ));
         }
 
@@ -129,6 +131,7 @@ impl<'a> AuthorizeCodeRequest<'a> {
                 redirect_uri,
                 authorization_code,
                 id_token,
+                self.state.as_deref(),
             ));
         }
 
@@ -144,6 +147,7 @@ impl<'a> AuthorizeCodeRequest<'a> {
                 redirect_uri,
                 authorization_code,
                 access_token,
+                self.state.as_deref(),
             ));
         }
 
@@ -159,6 +163,7 @@ impl<'a> AuthorizeCodeRequest<'a> {
                 redirect_uri,
                 id_token,
                 access_token,
+                self.state.as_deref(),
             ));
         }
 
@@ -179,7 +184,11 @@ impl<'a> AuthorizeCodeRequest<'a> {
                 OAuthError::invalid_token_response("authorize response requires redirect_uri")
             })?;
 
-            return Ok(id_token_redirect_response(redirect_uri, id_token));
+            return Ok(id_token_redirect_response(
+                redirect_uri,
+                id_token,
+                self.state.as_deref(),
+            ));
         }
 
         let authorization_code = self.response.authorization_code.as_ref().ok_or_else(|| {
@@ -198,7 +207,11 @@ impl<'a> AuthorizeCodeRequest<'a> {
             OAuthError::invalid_token_response("authorize response requires redirect_uri")
         })?;
 
-        Ok(code_redirect_response(redirect_uri, authorization_code))
+        Ok(code_redirect_response(
+            redirect_uri,
+            authorization_code,
+            self.state.as_deref(),
+        ))
     }
 
     fn validated_authorization_code_client_id(&self) -> Option<&str> {

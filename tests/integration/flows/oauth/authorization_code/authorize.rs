@@ -18,11 +18,14 @@ use super::super::*;
 // - authorization-code chain depth: below maximum | exactly maximum | exceeding maximum
 // - authorization-code redemption: first generated response succeeds | repeated response
 //   generation is rejected by the process-local replay store
+// - client state: absent | exact value returned in query for code and error responses |
+//   exact value returned in the fragment for implicit and hybrid responses. A state supplied
+//   with an untrusted redirect URI is intentionally not returned.
 // - generated artifacts: COSE_Encrypt0 code/access token | EdDSA ID token
 // - federation: configured redirect | local authentication not implemented
 //   Federated clients ignore local credentials until the upstream authenticates them.
-// Authorization errors always render as HTML, including when the request asks for query
-// formatting or contains a trusted redirect URI. Public client response representations
+// Authorization errors without state render as HTML. Errors with state redirect only when the
+// client and redirect URI can be independently trusted. Public client response representations
 // are covered here for code, by implicit tests for token, and by OID4VCI tests for
 // pre-authorized_code.
 
@@ -125,6 +128,63 @@ fn redirects_to_client_redirect_uri_for_post_authorize_code_response_type() {
     assert!(response.contains("location: https://client.example.com/callback?code="));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));
+}
+
+#[test]
+fn returns_exact_state_for_every_successful_authorization_response_type() {
+    const STATE: &str = "opaque+state &=/%";
+    const ENCODED_STATE: &str = "opaque%2Bstate%20%26%3D%2F%25";
+
+    for response_type in [
+        "code",
+        "token",
+        "id_token",
+        "code+token",
+        "code+id_token",
+        "id_token+token",
+        "code+id_token+token",
+    ] {
+        let response = send_post_authorize_request(&format!(
+            "response_type={response_type}&client_id=client_id&redirect_uri={}&state={ENCODED_STATE}",
+            valid_redirect_uri()
+        ));
+        let returned_state = if response_type == "code" {
+            redirect_query_parameter(&response, "state")
+        } else {
+            redirect_fragment_parameter(&response, "state")
+        };
+
+        assert!(response.starts_with("HTTP/1.1 302 Found\r\n"), "{response}");
+        assert_eq!(returned_state.as_deref(), Some(STATE), "{response_type}");
+    }
+}
+
+#[test]
+fn returns_exact_state_in_trusted_authorization_error_response() {
+    let response = send_authorize_request(&format!(
+        "response_type=unsupported&client_id=client_id&redirect_uri={}&state=opaque%2Bstate%20%26%3D%2F%25",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert_eq!(
+        redirect_query_parameter(&response, "state").as_deref(),
+        Some("opaque+state &=/%")
+    );
+    assert_eq!(
+        redirect_query_parameter(&response, "error").as_deref(),
+        Some("unsupported_response_type")
+    );
+}
+
+#[test]
+fn does_not_return_state_to_untrusted_authorization_error_redirect_uri() {
+    let response = send_authorize_request(
+        "response_type=unsupported&client_id=client_id&redirect_uri=https%3A%2F%2Fattacker.example%2Fcallback&state=opaque%2Bstate",
+    );
+
+    assert_authorize_html_error(&response, "response_type must be one of:");
+    assert!(!response.contains("opaque+state"));
 }
 
 #[test]
@@ -1158,6 +1218,15 @@ fn redirect_code(response: &str) -> Option<String> {
         .find_map(|parameter| parameter.strip_prefix("code="))?;
 
     Some(decode_form_value(encoded_code))
+}
+
+fn redirect_query_parameter(response: &str, name: &str) -> Option<String> {
+    let location = response
+        .lines()
+        .find_map(|line| line.strip_prefix("location: "))?;
+    let (_, query) = location.split_once('?')?;
+
+    query_parameter(query.split('#').next()?, name)
 }
 
 fn redirect_fragment_parameter(response: &str, name: &str) -> Option<String> {

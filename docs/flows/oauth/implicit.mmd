@@ -1,7 +1,7 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     start[GET or POST /authorize with response_type token] --> response_type["response_type::validate"]
-    response_type -- error --> authorize_error["`**HTTP 400** HTML authorization error`"]
+    response_type -- error --> authorize_error{Trusted redirect URI and state?}
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
     client -- ok --> scope["scope::validate"]
@@ -20,4 +20,6 @@ flowchart TD
     owner -- error --> authorize_error
     owner -- ok --> generate["access_token::generate"]
     generate -- error --> authorize_error
-    generate -- ok --> redirect["`**HTTP 302** client fragment with access_token`"]
+    generate -- ok --> redirect["`**HTTP 302** client fragment with access_token and exact state`"]
+    authorize_error -- yes --> redirect_error["`**HTTP 302** authorization error with exact state`"]
+    authorize_error -- no --> html_error["`**HTTP 400** HTML authorization error`"]

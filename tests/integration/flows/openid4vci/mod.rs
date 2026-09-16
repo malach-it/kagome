@@ -32,6 +32,7 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 //   returned by the token response
 // - pre-authorized_code: valid | missing | invalid | expired
 // - authorization response delivery: redirect | QR-code HTML with matching deep link
+// - client state: absent | exact value returned with the redirected credential offer
 // - successful token authorization_details: credential configuration | format | type
 // - redemption count: first succeeds | repeated is rejected by the process-local replay store
 // - bearer token: valid | missing | malformed | invalid | expired
@@ -185,6 +186,29 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
     .claims;
 
     assert_eq!(claims["sub"], "username");
+}
+
+#[test]
+fn returns_exact_state_with_redirected_credential_offer() {
+    let body = "username=username&password=password";
+    let response = send_request(&format!(
+        "POST /authorize?response_type={RESPONSE_TYPE}&client_id=client_id&redirect_uri=https://client.example.com/callback&state=opaque%2Bstate%20%26%3D%2F%25 HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    ));
+    let location = response
+        .lines()
+        .find_map(|line| line.strip_prefix("location: "))
+        .unwrap();
+    let state = location
+        .split_once('?')
+        .unwrap()
+        .1
+        .split('&')
+        .find_map(|parameter| parameter.strip_prefix("state="))
+        .map(decode_form_value);
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert_eq!(state.as_deref(), Some("opaque+state &=/%"));
 }
 
 #[test]

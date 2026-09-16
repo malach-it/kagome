@@ -5,7 +5,7 @@ flowchart TD
     authorize_pipeline -- unauthenticated --> authentication["`**HTTP 501** local authentication or **HTTP 302** federation redirect`"]
     authorize_pipeline -- authenticated --> generate
     generate -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
-    generate -- authorize --> authorize_offer["`**HTTP 302** credential offer or **HTTP 200** QR relay`"]
+    generate -- authorize --> authorize_offer["`**HTTP 302** credential offer with exact state or **HTTP 200** QR relay`"]
     authorize_offer --> token[POST /token with pre-authorized-code grant]
     token --> grant["grant_type::validate"]
     grant -- error --> token_error["`**HTTP 400** OAuth error`"]
