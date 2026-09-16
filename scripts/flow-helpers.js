@@ -98,7 +98,6 @@ export function issueCredential(proof) {
     {
       grant_type: preAuthorizedCodeGrant,
       "pre-authorized_code": code,
-      tx_code: __ENV.KAGOME_TX_CODE || "493536",
     },
     formOptions("POST /token"),
   );

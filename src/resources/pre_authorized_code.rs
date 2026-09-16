@@ -14,7 +14,6 @@ const COSE_ENCRYPT0_ERRORS: crypto::CoseEncrypt0Errors = crypto::CoseEncrypt0Err
     decryption_failed: "pre-authorized_code decryption failed",
 };
 pub const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
-pub const TX_CODE: &str = "493536";
 pub const TTL_SECONDS: u64 = 300;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,7 +60,6 @@ pub trait Generate {
 
 pub trait Validate {
     fn request_pre_authorized_code(&self) -> Option<&str>;
-    fn request_tx_code(&self) -> Option<&str>;
     fn add_pre_authorized_code_claims(&mut self, claims: PreAuthorizedCodeClaims);
 }
 
@@ -125,24 +123,18 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
-/// Validates a pre-authorized code, optional transaction code, lifetime, and binding claims.
+/// Validates a pre-authorized code, lifetime, and binding claims.
 ///
 /// Successful validation stores [`PreAuthorizedCodeClaims`] for token issuance.
 ///
 /// # Errors
 ///
-/// Returns `invalid_request` for a missing code and `invalid_grant` for a bad transaction code or
-/// an invalid, expired, or internally inconsistent encrypted grant.
+/// Returns `invalid_request` for a missing code and `invalid_grant` for an invalid, expired, or
+/// internally inconsistent encrypted grant.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let code = request
         .request_pre_authorized_code()
         .ok_or_else(|| OAuthError::invalid_request("pre-authorized_code is required"))?;
-    if let Some(tx_code) = request.request_tx_code()
-        && tx_code != TX_CODE
-    {
-        return Err(OAuthError::invalid_grant("tx_code is invalid"));
-    }
-
     let claims_bytes = crypto::decode_cose_encrypt0(
         code,
         EncryptedArtifact::PreAuthorizedCode,

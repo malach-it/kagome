@@ -1501,7 +1501,7 @@ fn issued_credential_with_proof(proof: Option<&str>) -> String {
             .code
             .unwrap();
     let token_body = format!(
-        "grant_type={}&pre-authorized_code={}&tx_code=493536",
+        "grant_type={}&pre-authorized_code={}",
         form_encode(grant_type),
         form_encode(&code)
     );

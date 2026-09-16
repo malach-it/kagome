@@ -120,8 +120,7 @@ fn includes_selected_federated_attributes_in_credential_subject() {
     let pre_authorized_code = offer["grants"][GRANT_TYPE]["pre-authorized_code"]
         .as_str()
         .unwrap();
-    let token_body =
-        format!("grant_type={GRANT_TYPE}&pre-authorized_code={pre_authorized_code}&tx_code=493536");
+    let token_body = format!("grant_type={GRANT_TYPE}&pre-authorized_code={pre_authorized_code}");
     let token_response = send_request(&format!(
         "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{token_body}",
         token_body.len()

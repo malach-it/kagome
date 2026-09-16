@@ -191,9 +191,10 @@ Issuance 1.0 Final specification:
   objects at `/jwks`
 
 The Pre-Authorized Code is a five-minute COSE_Encrypt0 artifact containing the
-authorized credential configuration and subject. Its transaction code is
-`493536`. The profile is stateless, so a Pre-Authorized Code can be exchanged
-more than once until it expires; no redemption store is used.
+authorized credential configuration and subject. The profile is stateless and
+does not use a second-channel user code, so possession of a Pre-Authorized Code
+is sufficient to exchange it. A code can be exchanged more than once until it
+expires; no redemption store is used.
 
 OAuth access tokens and credential access tokens are opaque COSE_Encrypt0
 artifacts. Encryption is centralized and domain-separated by artifact-specific
@@ -209,8 +210,8 @@ The issued JWT VC is signed with Ed25519 and bound through its `cnf` claim to
 the demonstration holder key used by the presentation profile. This proof of
 concept does not require a proof in the Credential Request and does not support
 a nonce endpoint, deferred issuance, request or response encryption, batch
-issuance, or notifications. The embedded keys and fixed transaction code are
-development fixtures and must be replaced for deployment.
+issuance, or notifications. The embedded keys are development fixtures and
+must be replaced for deployment.
 
 ## Agent chat code-chain example
 
@@ -272,7 +273,7 @@ Available services are `k6-authorization-code`, `k6-client-credentials`,
 `K6_DURATION` to change the default four-user, 30-second run. The scripts also
 accept `KAGOME_SERVER_TARGET`, `KAGOME_TOKEN_TARGET`, `KAGOME_CLIENT_ID`,
 `KAGOME_CLIENT_SECRET`, `KAGOME_REDIRECT_URI`, `KAGOME_USERNAME`,
-`KAGOME_PASSWORD`, `KAGOME_TX_CODE`, `KAGOME_ISSUER`,
+`KAGOME_PASSWORD`, `KAGOME_ISSUER`,
 `KAGOME_AUTHORIZE_CLIENT_ID`, `KAGOME_AUTHORIZE_METHOD`, and
 `KAGOME_PUBLIC_HOST` where applicable.
 

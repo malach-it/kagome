@@ -30,7 +30,6 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - credential access-token artifact: opaque COSE_Encrypt0
 // - pre-authorized_code: valid | missing | invalid | expired
 // - authorization response delivery: redirect | QR-code HTML with matching deep link
-// - tx_code: valid | omitted | invalid
 // - successful token authorization_details: credential configuration | format | type
 // - redemption count: first | repeated (equivalent because this stateless profile
 //   deliberately permits reuse until expiration)
@@ -157,10 +156,8 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
         offer["credential_configuration_ids"][1],
         SECOND_CONFIGURATION_ID
     );
-    assert!(grant.get("tx_code").is_none());
-
     let token_response = token_request(&format!(
-        "grant_type={GRANT_TYPE}&pre-authorized_code={code}&tx_code=493536"
+        "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
     let access_token = json_body(&token_response)["access_token"]
         .as_str()
@@ -246,7 +243,7 @@ fn rejects_preauthorized_code_combined_with_another_response_type() {
 fn exchanges_pre_authorized_code_from_form_request() {
     let code = offered_code();
     let response = token_request(&format!(
-        "grant_type={GRANT_TYPE}&pre-authorized_code={code}&tx_code=493536"
+        "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
 
     assert_token_response(&response);
@@ -257,8 +254,7 @@ fn exchanges_pre_authorized_code_from_json_request() {
     let code = offered_code();
     let body = serde_json::json!({
         "grant_type": GRANT_TYPE,
-        "pre-authorized_code": code,
-        "tx_code": "493536"
+        "pre-authorized_code": code
     })
     .to_string();
     let response = post_json("/token", None, &body);
@@ -269,7 +265,7 @@ fn exchanges_pre_authorized_code_from_json_request() {
 #[test]
 fn permits_repeated_exchange_of_encrypted_pre_authorized_code() {
     let code = offered_code();
-    let body = format!("grant_type={GRANT_TYPE}&pre-authorized_code={code}&tx_code=493536");
+    let body = format!("grant_type={GRANT_TYPE}&pre-authorized_code={code}");
 
     assert_token_response(&token_request(&body));
     assert_token_response(&token_request(&body));
@@ -277,7 +273,7 @@ fn permits_repeated_exchange_of_encrypted_pre_authorized_code() {
 
 #[test]
 fn rejects_missing_pre_authorized_code() {
-    let response = token_request(&format!("grant_type={GRANT_TYPE}&tx_code=493536"));
+    let response = token_request(&format!("grant_type={GRANT_TYPE}"));
 
     assert_oauth_error(
         &response,
@@ -289,7 +285,7 @@ fn rejects_missing_pre_authorized_code() {
 #[test]
 fn rejects_invalid_pre_authorized_code() {
     let response = token_request(&format!(
-        "grant_type={GRANT_TYPE}&pre-authorized_code=invalid&tx_code=493536"
+        "grant_type={GRANT_TYPE}&pre-authorized_code=invalid"
     ));
 
     assert_oauth_error(
@@ -303,7 +299,7 @@ fn rejects_invalid_pre_authorized_code() {
 fn rejects_expired_pre_authorized_code() {
     let code = expired_code();
     let response = token_request(&format!(
-        "grant_type={GRANT_TYPE}&pre-authorized_code={code}&tx_code=493536"
+        "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
 
     assert_oauth_error(
@@ -311,53 +307,6 @@ fn rejects_expired_pre_authorized_code() {
         "invalid_grant",
         "pre-authorized_code is invalid or expired",
     );
-}
-
-#[test]
-fn exchanges_pre_authorized_code_without_transaction_code() {
-    let code = offered_code();
-    let response = token_request(&format!(
-        "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
-    ));
-
-    assert_token_response(&response);
-}
-
-#[test]
-fn exchanges_json_pre_authorized_code_without_transaction_code() {
-    let code = offered_code();
-    let body = serde_json::json!({
-        "grant_type": GRANT_TYPE,
-        "pre-authorized_code": code
-    })
-    .to_string();
-    let response = post_json("/token", None, &body);
-
-    assert_token_response(&response);
-}
-
-#[test]
-fn rejects_invalid_transaction_code() {
-    let code = offered_code();
-    let response = token_request(&format!(
-        "grant_type={GRANT_TYPE}&pre-authorized_code={code}&tx_code=000000"
-    ));
-
-    assert_oauth_error(&response, "invalid_grant", "tx_code is invalid");
-}
-
-#[test]
-fn rejects_invalid_json_transaction_code() {
-    let code = offered_code();
-    let body = serde_json::json!({
-        "grant_type": GRANT_TYPE,
-        "pre-authorized_code": code,
-        "tx_code": "000000"
-    })
-    .to_string();
-    let response = post_json("/token", None, &body);
-
-    assert_oauth_error(&response, "invalid_grant", "tx_code is invalid");
 }
 
 #[test]
@@ -892,7 +841,7 @@ fn credential_access_token_for(configuration_ids: &[&str]) -> String {
 fn access_token() -> String {
     let code = offered_code();
     let response = token_request(&format!(
-        "grant_type={GRANT_TYPE}&pre-authorized_code={code}&tx_code=493536"
+        "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
     json_body(&response)["access_token"]
         .as_str()

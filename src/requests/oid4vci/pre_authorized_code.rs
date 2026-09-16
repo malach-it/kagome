@@ -13,7 +13,6 @@ use crate::{
 pub struct PreAuthorizedCodeRequest<'a> {
     pub request: &'a KagomeRequest,
     pub pre_authorized_code: Option<String>,
-    pub tx_code: Option<String>,
     pub response: PreAuthorizedCodeResponse,
 }
 
@@ -32,7 +31,6 @@ impl<'a> PreAuthorizedCodeRequest<'a> {
         Self {
             request,
             pre_authorized_code: parse_request_parameter(request, "pre-authorized_code"),
-            tx_code: parse_request_parameter(request, "tx_code"),
             response: PreAuthorizedCodeResponse::default(),
         }
     }
@@ -73,10 +71,6 @@ impl<'a> PreAuthorizedCodeRequest<'a> {
 impl pre_authorized_code::Validate for PreAuthorizedCodeRequest<'_> {
     fn request_pre_authorized_code(&self) -> Option<&str> {
         self.pre_authorized_code.as_deref()
-    }
-
-    fn request_tx_code(&self) -> Option<&str> {
-        self.tx_code.as_deref()
     }
 
     fn add_pre_authorized_code_claims(&mut self, claims: PreAuthorizedCodeClaims) {
