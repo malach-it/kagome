@@ -128,6 +128,12 @@ IDs to include the attribute only in those credentials' subjects. `id_token`
 defaults to `false`, and `credential` defaults to an empty array. Clients without
 this block
 continue to use local authentication.
+Federated token and identity endpoints must return an `application/json` or
+`application/*+json` body no larger than 64 KiB. Kagome exposes only stable
+local OAuth errors when an upstream callback, request, status, content type, or
+body is invalid; upstream error descriptions and response fields are not copied
+into downstream errors or logs. Only configured identity claim paths are
+retained.
 Each client must explicitly opt into protocol capabilities through
 `supported_grant_types`, `supported_response_types`, and `scopes`; omitted or
 empty lists deny every corresponding grant type, response type, or requested

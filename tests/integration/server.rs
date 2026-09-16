@@ -427,6 +427,11 @@ fn respond_to_federated_request(mut stream: TcpStream) {
                 r#"{"sub":"ignored-user","profile":{"username":"federated-user"}}"#,
             ),
             Some("Bearer identity-malformed-token") => ("200 OK", "not-json"),
+            Some("Bearer identity-oversized-token") => ("200 OK", "oversized"),
+            Some("Bearer identity-wrong-content-type-token") => (
+                "200 OK",
+                r#"{"sub":"ignored-user","profile":{"username":"federated-user"}}"#,
+            ),
             Some("Bearer identity-missing-claim-token") => ("200 OK", "{}"),
             Some("Bearer identity-missing-second-claim-token") => {
                 ("200 OK", r#"{"sub":"federated-user"}"#)
@@ -447,6 +452,10 @@ fn respond_to_federated_request(mut stream: TcpStream) {
                 r#"{"error":"invalid_token","error_description":"federated access token expired"}"#,
             ),
         }
+    } else if parameters.contains("code=oversized-token") {
+        ("200 OK", "oversized")
+    } else if parameters.contains("code=token-wrong-content-type") {
+        ("200 OK", r#"{"access_token":"upstream-access-token"}"#)
     } else if parameters.contains("code=malformed-token") {
         ("200 OK", "not-json")
     } else if parameters.contains("code=empty-token") {
@@ -455,6 +464,13 @@ fn respond_to_federated_request(mut stream: TcpStream) {
         ("200 OK", r#"{"access_token":"identity-rejected-token"}"#)
     } else if parameters.contains("code=identity-malformed") {
         ("200 OK", r#"{"access_token":"identity-malformed-token"}"#)
+    } else if parameters.contains("code=identity-oversized") {
+        ("200 OK", r#"{"access_token":"identity-oversized-token"}"#)
+    } else if parameters.contains("code=identity-wrong-content-type") {
+        (
+            "200 OK",
+            r#"{"access_token":"identity-wrong-content-type-token"}"#,
+        )
     } else if parameters.contains("code=identity-missing-claim") {
         (
             "200 OK",
@@ -486,8 +502,20 @@ fn respond_to_federated_request(mut stream: TcpStream) {
     } else {
         ("400 Bad Request", r#"{"error":"invalid_grant"}"#)
     };
+    let response_body = if response_body == "oversized" {
+        format!(r#"{{"access_token":"{}"}}"#, "x".repeat(70 * 1024))
+    } else {
+        response_body.to_owned()
+    };
+    let content_type = if parameters.contains("code=token-wrong-content-type")
+        || authorization.as_deref() == Some("Bearer identity-wrong-content-type-token")
+    {
+        "text/plain"
+    } else {
+        "application/json"
+    };
     let response = format!(
-        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response_body}",
+        "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response_body}",
         response_body.len()
     );
     stream

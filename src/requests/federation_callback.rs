@@ -8,7 +8,6 @@ pub struct FederationCallbackRequest {
     pub response: FederationCallbackResponse,
     pub code: Option<String>,
     pub error: Option<String>,
-    pub error_description: Option<String>,
     pub state: Option<String>,
 }
 
@@ -29,7 +28,6 @@ impl FederationCallbackRequest {
             },
             code: parse_query_parameter(request, "code"),
             error: parse_query_parameter(request, "error"),
-            error_description: parse_query_parameter(request, "error_description"),
             state: parse_query_parameter(request, "state"),
         }
     }
@@ -70,10 +68,6 @@ impl federated_server::ValidateCallback for FederationCallbackRequest {
 
     fn request_error(&self) -> Option<&str> {
         self.error.as_deref()
-    }
-
-    fn request_error_description(&self) -> Option<&str> {
-        self.error_description.as_deref()
     }
 
     fn add_authorization_code(&mut self, authorization_code: String) {

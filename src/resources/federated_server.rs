@@ -15,6 +15,7 @@ use super::{
 
 const FEDERATION_STATE_TTL_SECONDS: u64 = 300;
 const TOKEN_REQUEST_TIMEOUT_SECONDS: u64 = 10;
+const MAX_FEDERATED_RESPONSE_BYTES: u64 = 64 * 1024;
 const INVALID_FEDERATION_STATE: &str = "federation callback state is invalid or expired";
 
 #[derive(Debug)]
@@ -56,22 +57,6 @@ struct AccessTokenResponse {
     access_token: String,
 }
 
-#[derive(Deserialize)]
-struct FederatedEndpointErrorResponse {
-    error: Option<String>,
-    error_description: Option<String>,
-    message: Option<String>,
-}
-
-impl FederatedEndpointErrorResponse {
-    fn message(self) -> Option<String> {
-        [self.error_description, self.message, self.error]
-            .into_iter()
-            .flatten()
-            .find(|message| !message.trim().is_empty())
-    }
-}
-
 pub trait Authorize {
     fn validated_client_id(&self) -> Option<&str>;
     fn request_parameters(&self) -> FederationRequestParameters;
@@ -81,7 +66,6 @@ pub trait Authorize {
 pub trait ValidateCallback {
     fn request_authorization_code(&self) -> Option<&str>;
     fn request_error(&self) -> Option<&str>;
-    fn request_error_description(&self) -> Option<&str>;
     fn add_authorization_code(&mut self, authorization_code: String);
 }
 
@@ -171,7 +155,7 @@ pub fn configuration<T: Authorize>(request: &T) -> Option<&'static FederatedServ
 /// Requires exactly one valid upstream authorization code or error response.
 ///
 /// A non-empty code is copied into validated callback state. An upstream error is converted into
-/// an OAuth grant failure and never stored.
+/// a stable OAuth grant failure without exposing its untrusted code or description.
 ///
 /// # Errors
 ///
@@ -196,12 +180,9 @@ pub fn validate_callback<T: ValidateCallback>(mut request: T) -> Result<T, OAuth
         (None, Some("")) => Err(OAuthError::invalid_request(
             "federation callback error must not be empty",
         )),
-        (None, Some(error)) => {
-            let description = request.request_error_description().unwrap_or(error);
-            Err(OAuthError::invalid_grant(format!(
-                "federated server returned an error: {description}"
-            )))
-        }
+        (None, Some(_)) => Err(OAuthError::invalid_grant(
+            "federated server denied authorization",
+        )),
         (None, None) => Err(OAuthError::invalid_request(
             "federation callback requires code or error",
         )),
@@ -354,7 +335,8 @@ pub fn request_access_token<T: ExchangeToken>(request: T) -> Result<T, OAuthErro
 /// Exchanges the upstream code against an explicit token-endpoint configuration.
 ///
 /// Sends the validated authorization code, configured client credentials, and this server's
-/// callback URI to the upstream token endpoint, then stores its non-empty access token.
+/// callback URI to the upstream token endpoint, requires a JSON response no larger than 64 KiB,
+/// then stores its non-empty access token.
 ///
 /// # Errors
 ///
@@ -383,9 +365,7 @@ pub fn request_access_token_with_server<T: ExchangeToken>(
             ("client_secret", server.client_secret.as_str()),
         ])
         .map_err(|_| OAuthError::invalid_grant("federated token request failed"))?;
-    let token: AccessTokenResponse = response
-        .body_mut()
-        .read_json()
+    let token: AccessTokenResponse = read_federated_json(&mut response)
         .map_err(|_| OAuthError::invalid_grant("federated token response is invalid"))?;
 
     if token.access_token.trim().is_empty() {
@@ -420,9 +400,10 @@ pub fn fetch_identity<T: FetchIdentity>(request: T) -> Result<T, OAuthError> {
 
 /// Fetches configured upstream claims and populates an authenticated resource owner.
 ///
-/// Requires a federated access token. Every configured endpoint and claim mapping must succeed;
-/// mapped attributes retain their ID-token and credential exposure policies. The resulting
-/// resource owner is marked authenticated and added to the request.
+/// Requires a federated access token. Every configured endpoint must return JSON no larger than
+/// 64 KiB, and every claim mapping must succeed. Mapped attributes retain their ID-token and
+/// credential exposure policies. The resulting resource owner is marked authenticated and added
+/// to the request. Upstream transport, status, and body details are not exposed downstream.
 ///
 /// # Errors
 ///
@@ -448,25 +429,13 @@ pub fn fetch_identity_with_server<T: FetchIdentity>(
             .get(&identity_endpoint.endpoint)
             .header("authorization", format!("Bearer {access_token}"))
             .call()
-            .map_err(|error| {
-                OAuthError::invalid_grant(format!("federated identity request failed: {error}"))
-            })?;
+            .map_err(|_| OAuthError::invalid_grant("federated identity request failed"))?;
         if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .body_mut()
-                .read_json::<FederatedEndpointErrorResponse>()
-                .ok()
-                .and_then(FederatedEndpointErrorResponse::message)
-                .unwrap_or_else(|| format!("HTTP {status}"));
-
-            return Err(OAuthError::invalid_grant(format!(
-                "federated identity request failed: {message}"
-            )));
+            return Err(OAuthError::invalid_grant(
+                "federated identity request failed",
+            ));
         }
-        let identity: serde_json::Value = response
-            .body_mut()
-            .read_json()
+        let identity: serde_json::Value = read_federated_json(&mut response)
             .map_err(|_| OAuthError::invalid_grant("federated identity response is invalid"))?;
         for identity_claim_config in &identity_endpoint.claims {
             let value = identity_claim(&identity, &identity_claim_config.claim)
@@ -491,6 +460,33 @@ pub fn fetch_identity_with_server<T: FetchIdentity>(
     request.add_resource_owner(resource_owner);
 
     Ok(request)
+}
+
+fn read_federated_json<T: serde::de::DeserializeOwned>(
+    response: &mut axum::http::Response<ureq::Body>,
+) -> Result<T, ()> {
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .unwrap_or_default();
+    let is_json = content_type.eq_ignore_ascii_case("application/json")
+        || content_type
+            .to_ascii_lowercase()
+            .strip_prefix("application/")
+            .is_some_and(|subtype| subtype.ends_with("+json"));
+    if !is_json {
+        return Err(());
+    }
+
+    response
+        .body_mut()
+        .with_config()
+        .limit(MAX_FEDERATED_RESPONSE_BYTES)
+        .read_json()
+        .map_err(|_| ())
 }
 
 fn identity_claim<'a>(identity: &'a serde_json::Value, claim: &str) -> Option<&'a str> {

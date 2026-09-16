@@ -10,17 +10,21 @@ const CREDENTIAL_PROOF_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHA
 //   upstream federation redirect
 // - authorization response: code | upstream error | code and error | neither
 // - values: non-empty | empty
-// - token endpoint: valid token | rejected request | malformed response
+// - token endpoint: valid token | rejected request | malformed response |
+//   oversized response | non-JSON content type
 // - identity endpoint: multiple valid string claims | rejected request |
-//   malformed response | missing or non-string claim
+//   malformed response | oversized response | non-JSON content type |
+//   missing or non-string claim
 // - resource owner identifier: username | sub fallback | missing
 // - artifact inclusion: claim selected for ID token only | credential only | both
 // - wallet delivery: QR client with a valid ID-token code redirects directly |
 //   missing ID-token code fails wallet binding
-// - identity error response: error_description | message | error | HTTP status fallback
+// - identity error response: error_description | message | error | HTTP status fallback,
+//   all intentionally normalized to the same public failure
 // - error destination: validated redirect URI with error, description, and optional
 //   client state | local JSON error when callback state is missing or invalid
-// The upstream-error cases cover both explicit and fallback descriptions.
+// The upstream callback-error cases cover descriptions present and absent; both intentionally
+// return the same stable public failure.
 // Missing and non-string identity claims intentionally share a validation path and response.
 // Malformed callbacks do not consume state; accepted non-empty code and error callbacks do.
 
@@ -88,7 +92,7 @@ fn accepted_federation_error_consumes_state() {
     assert_callback_error(
         &first,
         "invalid_grant",
-        "federated server returned an error: access_denied",
+        "federated server denied authorization",
     );
     assert_callback_error(
         &replay,
@@ -380,52 +384,96 @@ fn rejects_empty_federated_access_token() {
 }
 
 #[test]
+fn rejects_oversized_federated_token_response() {
+    let response = send_callback_request("code=oversized-token");
+
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated token response is invalid",
+    );
+}
+
+#[test]
+fn rejects_non_json_federated_token_response() {
+    let response = send_callback_request("code=token-wrong-content-type");
+
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated token response is invalid",
+    );
+}
+
+#[test]
 fn rejects_failed_federated_identity_request() {
     let response = send_callback_request("code=identity-rejected");
 
     assert_callback_error(
         &response,
         "invalid_grant",
-        "federated identity request failed: federated access token expired",
+        "federated identity request failed",
     );
 }
 
 #[test]
-fn returns_federated_identity_error_code() {
+fn normalizes_federated_identity_error_code() {
     let response = send_callback_request("code=identity-error-code");
 
     assert_callback_error(
         &response,
         "invalid_grant",
-        "federated identity request failed: insufficient_scope",
+        "federated identity request failed",
     );
 }
 
 #[test]
-fn returns_federated_identity_message() {
+fn normalizes_federated_identity_message() {
     let response = send_callback_request("code=identity-message");
 
     assert_callback_error(
         &response,
         "invalid_grant",
-        "federated identity request failed: profile unavailable",
+        "federated identity request failed",
     );
 }
 
 #[test]
-fn returns_federated_identity_http_status_without_message() {
+fn normalizes_federated_identity_http_status_without_message() {
     let response = send_callback_request("code=identity-no-message");
 
     assert_callback_error(
         &response,
         "invalid_grant",
-        "federated identity request failed: HTTP 502",
+        "federated identity request failed",
     );
 }
 
 #[test]
 fn rejects_invalid_federated_identity_response() {
     let response = send_callback_request("code=identity-malformed");
+
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity response is invalid",
+    );
+}
+
+#[test]
+fn rejects_oversized_federated_identity_response() {
+    let response = send_callback_request("code=identity-oversized");
+
+    assert_callback_error(
+        &response,
+        "invalid_grant",
+        "federated identity response is invalid",
+    );
+}
+
+#[test]
+fn rejects_non_json_federated_identity_response() {
+    let response = send_callback_request("code=identity-wrong-content-type");
 
     assert_callback_error(
         &response,
@@ -476,18 +524,18 @@ fn returns_oauth_error_for_federation_callback_error() {
     assert_callback_error(
         &response,
         "invalid_grant",
-        "federated server returned an error: resource owner denied access",
+        "federated server denied authorization",
     );
 }
 
 #[test]
-fn uses_error_code_when_federation_callback_description_is_missing() {
+fn normalizes_federation_callback_error_without_description() {
     let response = send_callback_request("error=access_denied");
 
     assert_callback_error(
         &response,
         "invalid_grant",
-        "federated server returned an error: access_denied",
+        "federated server denied authorization",
     );
 }
 
