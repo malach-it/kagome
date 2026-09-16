@@ -32,6 +32,7 @@ pub struct CredentialResponse {
     pub id_token_public_jwk: Option<serde_json::Value>,
     pub require_wallet_binding: bool,
     pub c_nonce: Option<String>,
+    pub c_nonce_expiration: Option<u64>,
     pub credential: Option<VerifiableCredential>,
 }
 
@@ -79,6 +80,17 @@ impl credential_access_token::Validate for CredentialRequest<'_> {
         self.response.id_token_public_jwk = claims.id_token_public_jwk;
         self.response.require_wallet_binding = claims.require_wallet_binding;
         self.response.c_nonce = Some(claims.c_nonce);
+        self.response.c_nonce_expiration = Some(claims.exp);
+    }
+}
+
+impl credential_access_token::ConsumeNonce for CredentialRequest<'_> {
+    fn credential_nonce(&self) -> Option<&str> {
+        self.response.c_nonce.as_deref()
+    }
+
+    fn credential_nonce_expiration(&self) -> Option<u64> {
+        self.response.c_nonce_expiration
     }
 }
 

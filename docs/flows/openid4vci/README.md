@@ -29,7 +29,11 @@ the issued credential subject and `cnf.jwk` to the wallet's DID and public key;
 the proof audience must be the credential issuer, its `iat` must be recent, and
 its `nonce` must equal the draft-11 `c_nonce` returned with and carried by the
 credential access token. Requests without a proof are rejected with
-`invalid_or_missing_proof`.
+`invalid_or_missing_proof`. A matching `c_nonce` is atomically consumed after
+the proof validates and cannot authorize a second credential request; invalid
+proofs leave it available for a corrected request. A token authorizing multiple
+credential configurations still permits only one issuance because consumption
+applies to the nonce itself rather than a credential identifier.
 For an authorize client configured with `require_wallet_binding: true`, the
 incoming authorization code must carry a validated asymmetric public JWK,
 either directly from a SIOPv2 continuation or from a valid ID token. Kagome

@@ -13,6 +13,7 @@ static CONSUMED_ARTIFACTS: OnceLock<Mutex<HashMap<[u8; 32], u64>>> = OnceLock::n
 #[derive(Clone, Copy, Debug)]
 pub enum Artifact {
     AuthorizationCode,
+    CredentialNonce,
     FederationState,
     PresentationState,
     PreAuthorizedCode,
@@ -63,6 +64,7 @@ pub fn consume(artifact: Artifact, value: &str, expires_at: u64) -> Result<(), C
 fn identifier(artifact: Artifact, value: &str) -> [u8; 32] {
     let domain = match artifact {
         Artifact::AuthorizationCode => b"authorization_code".as_slice(),
+        Artifact::CredentialNonce => b"credential_nonce".as_slice(),
         Artifact::FederationState => b"federation_state".as_slice(),
         Artifact::PresentationState => b"presentation_state".as_slice(),
         Artifact::PreAuthorizedCode => b"pre-authorized_code".as_slice(),
@@ -109,6 +111,7 @@ mod tests {
             consume(Artifact::AuthorizationCode, value, u64::MAX),
             Ok(())
         );
+        assert_eq!(consume(Artifact::CredentialNonce, value, u64::MAX), Ok(()));
         assert_eq!(consume(Artifact::FederationState, value, u64::MAX), Ok(()));
         assert_eq!(
             consume(Artifact::PresentationState, value, u64::MAX),

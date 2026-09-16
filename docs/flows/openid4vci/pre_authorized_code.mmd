@@ -24,6 +24,8 @@ flowchart TD
     configuration -- error --> credential_error
     configuration -- ok --> proof["credential_proof::validate"]
     proof -- error --> credential_error
-    proof -- valid with matching c_nonce --> issue["verifiable_credential::generate"]
+    proof -- valid with matching c_nonce --> consume_nonce["credential_access_token::consume_nonce"]
+    consume_nonce -- replay or storage error --> credential_error
+    consume_nonce -- first use --> issue["verifiable_credential::generate"]
     issue -- error --> credential_error
     issue -- ok --> success["`**HTTP 200** jwt_vc credential with CORS header`"]

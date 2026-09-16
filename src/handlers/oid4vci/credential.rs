@@ -13,6 +13,7 @@ pub fn handle_credential(request: &KagomeRequest) -> String {
         .and_then(credential_access_token::validate)
         .and_then(credential_issuer::validate_configuration)
         .and_then(credential_proof::validate)
+        .and_then(credential_access_token::consume_nonce)
         .and_then(verifiable_credential::generate)
         .and_then(logged_response)
     {

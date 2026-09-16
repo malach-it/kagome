@@ -35,13 +35,15 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - client state: absent | exact value returned with the redirected credential offer
 // - successful token authorization_details: credential configuration | format | type
 // - redemption count: first succeeds | repeated is rejected by the process-local replay store
-// - bearer token: valid | missing | malformed | invalid | expired
+// - bearer token: valid | missing | malformed | invalid | expired; each token's c_nonce permits
+//   exactly one successful issuance even when the token authorizes multiple configurations
 // - credential request media type: application/json (case-insensitive, parameters
 //   allowed) | missing | unsupported
 // - credential_identifier: supported | missing | legacy credential_configuration_id | unknown
 // - credential proof: required and absent | valid JWT proof with configured issuer audience and
 //   access-token c_nonce | missing or mismatched nonce | malformed |
 //   invalid signature | Host-derived or unrelated audience |
+//   first nonce use | replayed nonce | invalid proof followed by valid nonce use |
 //   wallet-bound signature
 //   matching/mismatching the ID-token public key. A wallet-binding client also
 //   rejects a missing code key. A valid proof binds the issued subject
@@ -577,6 +579,65 @@ fn rejects_credential_proof_with_another_access_tokens_c_nonce() {
         "invalid_or_missing_proof",
         "proof jwt nonce is invalid",
     );
+}
+
+#[test]
+fn rejects_replayed_credential_c_nonce() {
+    let authorization = credential_authorization();
+
+    let first_response =
+        credential_request_with_proof(&authorization, "application/json", CONFIGURATION_ID);
+    let replayed_response =
+        credential_request_with_proof(&authorization, "application/json", CONFIGURATION_ID);
+
+    assert_ok_json(&first_response);
+    assert_credential_error(
+        &replayed_response,
+        "invalid_or_missing_proof",
+        "credential nonce has already been used",
+    );
+}
+
+#[test]
+fn rejects_consumed_c_nonce_for_another_credential_configuration() {
+    let authorization = credential_authorization();
+
+    let first_response =
+        credential_request_with_proof(&authorization, "application/json", CONFIGURATION_ID);
+    let second_configuration_response =
+        credential_request_with_proof(&authorization, "application/json", SECOND_CONFIGURATION_ID);
+
+    assert_ok_json(&first_response);
+    assert_credential_error(
+        &second_configuration_response,
+        "invalid_or_missing_proof",
+        "credential nonce has already been used",
+    );
+}
+
+#[test]
+fn invalid_proof_does_not_consume_credential_c_nonce() {
+    let authorization = credential_authorization();
+    let invalid_proof = credential_proof(
+        "username",
+        "https://attacker.example.com",
+        &authorization.c_nonce,
+    );
+    let invalid_response = post_json(
+        "/credential",
+        Some(&format!("Bearer {}", authorization.access_token)),
+        &credential_body_with_proof(CONFIGURATION_ID, &invalid_proof),
+    );
+
+    let valid_response =
+        credential_request_with_proof(&authorization, "application/json", CONFIGURATION_ID);
+
+    assert_credential_error(
+        &invalid_response,
+        "invalid_or_missing_proof",
+        "proof jwt audience is invalid",
+    );
+    assert_ok_json(&valid_response);
 }
 
 #[test]

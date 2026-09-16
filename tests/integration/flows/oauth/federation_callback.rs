@@ -172,29 +172,10 @@ fn signs_federated_resource_owner_profile_in_id_token() {
 
 #[test]
 fn includes_selected_federated_attributes_in_credential_subject() {
-    const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
     const CONFIGURATION_ID: &str = "UniversityDegreeCredential";
     const SECOND_CONFIGURATION_ID: &str = "EmployeeCredential";
-    let state = federation_state_for(
-        "response_type=urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
-    );
-    let callback = send_request(&format!(
-        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
-    ));
-    let offer = redirect_parameter(&callback, "credential_offer");
-    let offer: serde_json::Value = serde_json::from_str(&offer).unwrap();
-    let pre_authorized_code = offer["grants"][GRANT_TYPE]["pre-authorized_code"]
-        .as_str()
-        .unwrap();
-    let token_body = format!("grant_type={GRANT_TYPE}&pre-authorized_code={pre_authorized_code}");
-    let token_response = send_request(&format!(
-        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{token_body}",
-        token_body.len()
-    ));
-    let token_response = json_response_body(&token_response);
-    let access_token = token_response["access_token"].as_str().unwrap().to_owned();
-    let c_nonce = token_response["c_nonce"].as_str().unwrap();
-    let credential_body = credential_body_with_proof(CONFIGURATION_ID, c_nonce);
+    let (access_token, c_nonce) = federated_credential_authorization();
+    let credential_body = credential_body_with_proof(CONFIGURATION_ID, &c_nonce);
     let credential_response = send_request(&format!(
         "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\nauthorization: Bearer {access_token}\r\ncontent-length: {}\r\n\r\n{credential_body}",
         credential_body.len()
@@ -224,9 +205,11 @@ fn includes_selected_federated_attributes_in_credential_subject() {
         assert!(subject.get("display_name").is_none());
     }
 
-    let credential_body = credential_body_with_proof(SECOND_CONFIGURATION_ID, c_nonce);
+    let (employee_access_token, employee_c_nonce) = federated_credential_authorization();
+    assert_ne!(c_nonce, employee_c_nonce);
+    let credential_body = credential_body_with_proof(SECOND_CONFIGURATION_ID, &employee_c_nonce);
     let credential_response = send_request(&format!(
-        "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\nauthorization: Bearer {access_token}\r\ncontent-length: {}\r\n\r\n{credential_body}",
+        "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\nauthorization: Bearer {employee_access_token}\r\ncontent-length: {}\r\n\r\n{credential_body}",
         credential_body.len()
     ));
     let employee_credential = json_response_body(&credential_response)["credential"]
@@ -251,6 +234,32 @@ fn includes_selected_federated_attributes_in_credential_subject() {
         assert_eq!(subject["username"], "federated-user");
         assert!(subject.get("sub").is_none());
     }
+}
+
+fn federated_credential_authorization() -> (String, String) {
+    const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
+    let state = federation_state_for(
+        "response_type=urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
+    );
+    let callback = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+    let offer = redirect_parameter(&callback, "credential_offer");
+    let offer: serde_json::Value = serde_json::from_str(&offer).unwrap();
+    let pre_authorized_code = offer["grants"][GRANT_TYPE]["pre-authorized_code"]
+        .as_str()
+        .unwrap();
+    let token_body = format!("grant_type={GRANT_TYPE}&pre-authorized_code={pre_authorized_code}");
+    let token_response = send_request(&format!(
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{token_body}",
+        token_body.len()
+    ));
+    let token_response = json_response_body(&token_response);
+
+    (
+        token_response["access_token"].as_str().unwrap().to_owned(),
+        token_response["c_nonce"].as_str().unwrap().to_owned(),
+    )
 }
 
 fn credential_body_with_proof(credential_identifier: &str, c_nonce: &str) -> String {

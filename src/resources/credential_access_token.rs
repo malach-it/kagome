@@ -9,6 +9,7 @@ use crate::{
     errors::OAuthError,
     resources::{
         crypto::{self, CoseEncrypt0Errors, EncryptedArtifact},
+        replay::{self, Artifact, ConsumeError},
         resource_owner::CredentialProfiles,
     },
 };
@@ -60,6 +61,11 @@ pub trait Generate {
 pub trait Validate {
     fn request_access_token(&self) -> Option<&str>;
     fn add_credential_access_token_claims(&mut self, claims: CredentialAccessTokenClaims);
+}
+
+pub trait ConsumeNonce {
+    fn credential_nonce(&self) -> Option<&str>;
+    fn credential_nonce_expiration(&self) -> Option<u64>;
 }
 
 /// Issues an encrypted bearer token authorizing configured credentials for one subject.
@@ -158,6 +164,42 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     }
 
     request.add_credential_access_token_claims(claims);
+    Ok(request)
+}
+
+/// Atomically consumes a validated credential nonce after its issuance proof succeeds.
+///
+/// The nonce is recorded as a domain-separated digest until the credential access token expires.
+/// Calling this after proof validation prevents invalid requests from burning an outstanding nonce
+/// while ensuring only one credential can be issued for it, including under concurrent requests.
+///
+/// # Errors
+///
+/// Returns `invalid_or_missing_proof` when the nonce was already consumed and
+/// `invalid_token_response` when validated nonce state or replay storage is unavailable.
+pub fn consume_nonce<T: ConsumeNonce>(request: T) -> Result<T, OAuthError> {
+    let c_nonce = request.credential_nonce().ok_or_else(|| {
+        OAuthError::invalid_token_response("credential nonce must be validated before consumption")
+    })?;
+    let expires_at = request.credential_nonce_expiration().ok_or_else(|| {
+        OAuthError::invalid_token_response(
+            "credential nonce expiration must be validated before consumption",
+        )
+    })?;
+
+    replay::consume(Artifact::CredentialNonce, c_nonce, expires_at).map_err(
+        |error| match error {
+            ConsumeError::AlreadyConsumed => {
+                OAuthError::invalid_or_missing_proof("credential nonce has already been used")
+            }
+            ConsumeError::CapacityExceeded
+            | ConsumeError::StorageUnavailable
+            | ConsumeError::TimeUnavailable => {
+                OAuthError::invalid_token_response("credential nonce replay storage failed")
+            }
+        },
+    )?;
+
     Ok(request)
 }
 
