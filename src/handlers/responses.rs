@@ -520,7 +520,6 @@ impl ResponseLog for AuthorizeCodeRequest<'_> {
     }
 
     fn log_success(&self) {
-        let authorization_code = self.response.authorization_code.as_ref();
         let flow = if self.response.pre_authorized_code.is_some() {
             "pre_authorized_code"
         } else {
@@ -537,10 +536,7 @@ impl ResponseLog for AuthorizeCodeRequest<'_> {
                 ("request.client_id", optional_str(self.client_id.as_deref())),
                 (
                     "response.code",
-                    optional_str(
-                        authorization_code
-                            .map(|authorization_code| authorization_code.value.as_str()),
-                    ),
+                    artifact_status(self.response.authorization_code.as_ref()),
                 ),
             ],
         );
@@ -553,8 +549,6 @@ impl ResponseLog for AuthorizationCodeRequest<'_> {
     }
 
     fn log_success(&self) {
-        let access_token = self.response.access_token.as_ref();
-
         log_token_success(
             "authorization_code",
             &[
@@ -570,7 +564,7 @@ impl ResponseLog for AuthorizationCodeRequest<'_> {
                 ("request.code", redacted_optional(self.code.as_deref())),
                 (
                     "response.access_token",
-                    optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                    artifact_status(self.response.access_token.as_ref()),
                 ),
             ],
         );
@@ -583,8 +577,6 @@ impl ResponseLog for ClientCredentialsRequest<'_> {
     }
 
     fn log_success(&self) {
-        let access_token = self.response.access_token.as_ref();
-
         log_token_success(
             "client_credentials",
             &[
@@ -599,7 +591,7 @@ impl ResponseLog for ClientCredentialsRequest<'_> {
                 ),
                 (
                     "response.access_token",
-                    optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                    artifact_status(self.response.access_token.as_ref()),
                 ),
             ],
         );
@@ -612,8 +604,6 @@ impl ResponseLog for ResourceOwnerPasswordCredentialsRequest {
     }
 
     fn log_success(&self) {
-        let access_token = self.response.access_token.as_ref();
-
         log_token_success(
             "password",
             &[
@@ -633,7 +623,7 @@ impl ResponseLog for ResourceOwnerPasswordCredentialsRequest {
                 ),
                 (
                     "response.access_token",
-                    optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                    artifact_status(self.response.access_token.as_ref()),
                 ),
             ],
         );
@@ -646,8 +636,6 @@ impl ResponseLog for CodeChainRequest<'_> {
     }
 
     fn log_success(&self) {
-        let authorization_code = self.response.authorization_code.as_ref();
-
         log_token_success(
             "code_chain",
             &[
@@ -670,10 +658,7 @@ impl ResponseLog for CodeChainRequest<'_> {
                 ),
                 (
                     "response.authorization_code",
-                    optional_str(
-                        authorization_code
-                            .map(|authorization_code| authorization_code.value.as_str()),
-                    ),
+                    artifact_status(self.response.authorization_code.as_ref()),
                 ),
             ],
         );
@@ -686,9 +671,6 @@ impl ResponseLog for CodeChainAuthorizationCodeRequest<'_> {
     }
 
     fn log_success(&self) {
-        let access_token = self.response.access_token.as_ref();
-        let authorization_code = self.response.authorization_code.as_ref();
-
         log_token_success(
             "code_chain_authorization_code",
             &[
@@ -707,14 +689,11 @@ impl ResponseLog for CodeChainAuthorizationCodeRequest<'_> {
                 ),
                 (
                     "response.authorization_code",
-                    optional_str(
-                        authorization_code
-                            .map(|authorization_code| authorization_code.value.as_str()),
-                    ),
+                    artifact_status(self.response.authorization_code.as_ref()),
                 ),
                 (
                     "response.access_token",
-                    optional_str(access_token.map(|access_token| access_token.value.as_str())),
+                    artifact_status(self.response.access_token.as_ref()),
                 ),
             ],
         );
@@ -798,29 +777,37 @@ impl ResponseLog for SiopResponseRequest<'_> {
 }
 
 fn log_token_success(response_type: &str, attributes: &[(&str, String)]) {
-    eprintln!(
-        "[{}] token_handler success type={} {}",
-        log_timestamp(),
-        response_type,
-        attributes
-            .iter()
-            .map(|(name, value)| format!("{name}={value}"))
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    eprintln!("{}", token_success_log(response_type, attributes));
 }
 
 fn log_authorize_success(response_type: &str, attributes: &[(&str, String)]) {
-    eprintln!(
+    eprintln!("{}", authorize_success_log(response_type, attributes));
+}
+
+fn token_success_log(response_type: &str, attributes: &[(&str, String)]) -> String {
+    format!(
+        "[{}] token_handler success type={} {}",
+        log_timestamp(),
+        response_type,
+        log_attributes(attributes)
+    )
+}
+
+fn authorize_success_log(response_type: &str, attributes: &[(&str, String)]) -> String {
+    format!(
         "[{}] authorize_handler success type={} {}",
         log_timestamp(),
         response_type,
-        attributes
-            .iter()
-            .map(|(name, value)| format!("{name}={value}"))
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+        log_attributes(attributes)
+    )
+}
+
+fn log_attributes(attributes: &[(&str, String)]) -> String {
+    attributes
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn grant_type_value(grant_type: Option<GrantType>) -> String {
@@ -832,6 +819,14 @@ fn grant_type_value(grant_type: Option<GrantType>) -> String {
 
 fn optional_str(value: Option<&str>) -> String {
     value.unwrap_or("<none>").to_owned()
+}
+
+fn artifact_status<T: ?Sized>(artifact: Option<&T>) -> String {
+    if artifact.is_some() {
+        "issued".to_owned()
+    } else {
+        "<none>".to_owned()
+    }
 }
 
 fn redacted_optional(value: Option<&str>) -> String {
@@ -935,4 +930,38 @@ fn escape_json(value: &str) -> String {
 
         escaped
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{artifact_status, authorize_success_log, token_success_log};
+
+    #[test]
+    fn successful_log_lines_exclude_bearer_artifacts() {
+        let authorization_code = "g0OhAQOhBUx-recognizable-authorization-code";
+        let access_token = "g0OhAQOhBUx-recognizable-access-token";
+        let authorize_log = authorize_success_log(
+            "code",
+            &[("response.code", artifact_status(Some(authorization_code)))],
+        );
+        let token_log = token_success_log(
+            "authorization_code",
+            &[("response.access_token", artifact_status(Some(access_token)))],
+        );
+
+        assert!(!authorize_log.contains(authorization_code));
+        assert!(!token_log.contains(access_token));
+        assert!(authorize_log.contains("response.code=issued"));
+        assert!(token_log.contains("response.access_token=issued"));
+    }
+
+    #[test]
+    fn successful_log_lines_preserve_missing_artifact_status() {
+        let log = authorize_success_log(
+            "pre_authorized_code",
+            &[("response.code", artifact_status::<str>(None))],
+        );
+
+        assert!(log.contains("response.code=<none>"));
+    }
 }
