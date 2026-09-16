@@ -647,7 +647,7 @@ fn returns_oauth_error_for_authorize_get_client_id_resource_owner_credentials() 
         valid_redirect_uri()
     ));
 
-    assert_authorize_html_error(&response, "password is invalid");
+    assert_authorize_html_error(&response, "username or password is invalid");
 }
 
 #[test]
@@ -701,10 +701,7 @@ fn renders_html_error_for_authorize_get_client_id_resource_owner_username() {
         valid_redirect_uri()
     ));
 
-    assert_authorize_html_error(
-        &response,
-        "username must be one of: username, other_username",
-    );
+    assert_authorize_html_error(&response, "username or password is invalid");
 }
 
 #[test]
@@ -1083,7 +1080,7 @@ fn returns_oauth_error_for_redirect_uri_registered_to_another_client() {
 }
 
 #[test]
-fn returns_oauth_error_for_missing_authorize_username() {
+fn returns_uniform_error_for_missing_authorize_username() {
     let response = send_post_authorize_request_with_body(
         &format!(
             "response_type=code&client_id=client_id&redirect_uri={}",
@@ -1094,11 +1091,11 @@ fn returns_oauth_error_for_missing_authorize_username() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">resource owner is unauthenticated</p>"));
+    assert!(response.contains("<p role=\"alert\">username or password is invalid</p>"));
 }
 
 #[test]
-fn returns_oauth_error_for_invalid_authorize_username() {
+fn returns_uniform_error_for_invalid_authorize_username() {
     let response = send_post_authorize_request_with_body(
         &format!(
             "response_type=code&client_id=client_id&redirect_uri={}",
@@ -1109,14 +1106,11 @@ fn returns_oauth_error_for_invalid_authorize_username() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(
-        response
-            .contains("<p role=\"alert\">username must be one of: username, other_username</p>")
-    );
+    assert!(response.contains("<p role=\"alert\">username or password is invalid</p>"));
 }
 
 #[test]
-fn returns_oauth_error_for_missing_authorize_password() {
+fn returns_uniform_error_for_missing_authorize_password() {
     let response = send_post_authorize_request_with_body(
         &format!(
             "response_type=code&client_id=client_id&redirect_uri={}",
@@ -1127,11 +1121,11 @@ fn returns_oauth_error_for_missing_authorize_password() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">password is required</p>"));
+    assert!(response.contains("<p role=\"alert\">username or password is invalid</p>"));
 }
 
 #[test]
-fn returns_oauth_error_for_invalid_authorize_password() {
+fn returns_uniform_error_for_invalid_authorize_password() {
     let response = send_post_authorize_request_with_body(
         &format!(
             "response_type=code&client_id=client_id&redirect_uri={}",
@@ -1142,7 +1136,7 @@ fn returns_oauth_error_for_invalid_authorize_password() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">password is invalid</p>"));
+    assert!(response.contains("<p role=\"alert\">username or password is invalid</p>"));
 }
 
 fn send_authorize_request(query: &str) -> String {

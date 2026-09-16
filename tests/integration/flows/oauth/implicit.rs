@@ -135,34 +135,31 @@ fn returns_oauth_error_for_invalid_implicit_redirect_uri() {
 }
 
 #[test]
-fn returns_oauth_error_for_missing_implicit_username() {
+fn returns_uniform_error_for_missing_implicit_username() {
     let response = send_implicit_post(valid_implicit_query(), "password=password");
 
-    assert_html_error(&response, "resource owner is unauthenticated");
+    assert_html_error(&response, "username or password is invalid");
 }
 
 #[test]
 fn returns_oauth_error_for_invalid_implicit_username() {
     let response = send_implicit_post(valid_implicit_query(), "username=app&password=password");
 
-    assert_html_error(
-        &response,
-        "username must be one of: username, other_username",
-    );
+    assert_html_error(&response, "username or password is invalid");
 }
 
 #[test]
 fn returns_oauth_error_for_missing_implicit_password() {
     let response = send_implicit_post(valid_implicit_query(), "username=username");
 
-    assert_html_error(&response, "password is required");
+    assert_html_error(&response, "username or password is invalid");
 }
 
 #[test]
 fn returns_oauth_error_for_invalid_implicit_password() {
     let response = send_implicit_post(valid_implicit_query(), "username=username&password=app");
 
-    assert_html_error(&response, "password is invalid");
+    assert_html_error(&response, "username or password is invalid");
 }
 
 #[test]
@@ -173,7 +170,7 @@ fn redirects_invalid_implicit_client_id_credentials_with_exact_state() {
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("error=invalid_grant"));
-    assert!(response.contains("error_description=password%20is%20invalid"));
+    assert!(response.contains("error_description=username%20or%20password%20is%20invalid"));
     assert!(response.contains("state=opaque%20state"));
 }
 

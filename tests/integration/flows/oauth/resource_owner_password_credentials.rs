@@ -15,6 +15,8 @@ use super::*;
 // exercised once with form input. Client credentials are validated before resource
 // owner credentials; combinations containing failures in both stages intentionally
 // collapse to the client-credential error produced by Result short-circuiting.
+// Missing or invalid usernames and passwords, plus clients without password files,
+// intentionally return the same public credential error after one bcrypt verification.
 // Additional grant-type suffixes select the same password pipeline and have the same
 // observable result as `password` alone.
 // Access-token generation failure requires an invalid system clock or signing
@@ -99,16 +101,16 @@ fn returns_oauth_error_when_client_has_no_password_file() {
         "client_id=federated_client&client_secret=federated_secret&grant_type=password&username=username&password=password",
     );
 
-    assert_invalid_grant_response(&response, "username must be one of: ");
+    assert_invalid_grant_response(&response, "username or password is invalid");
 }
 
 #[test]
-fn returns_oauth_error_for_missing_password_grant_username() {
+fn returns_uniform_error_for_missing_password_grant_username() {
     let response = send_form_token_request(
         "client_id=client_id&client_secret=client_secret&grant_type=password&password=password",
     );
 
-    assert_invalid_grant_response(&response, "resource owner is unauthenticated");
+    assert_invalid_grant_response(&response, "username or password is invalid");
 }
 
 #[test]
@@ -121,33 +123,30 @@ fn returns_oauth_error_when_password_grant_omits_resource_owner_credentials() {
 }
 
 #[test]
-fn returns_oauth_error_for_invalid_password_grant_username() {
+fn returns_uniform_error_for_invalid_password_grant_username() {
     let response = send_form_token_request(
         "client_id=client_id&client_secret=client_secret&grant_type=password&username=app&password=password",
     );
 
-    assert_invalid_grant_response(
-        &response,
-        "username must be one of: username, other_username",
-    );
+    assert_invalid_grant_response(&response, "username or password is invalid");
 }
 
 #[test]
-fn returns_oauth_error_for_missing_password_grant_password() {
+fn returns_uniform_error_for_missing_password_grant_password() {
     let response = send_form_token_request(
         "client_id=client_id&client_secret=client_secret&grant_type=password&username=username",
     );
 
-    assert_invalid_grant_response(&response, "password is required");
+    assert_invalid_grant_response(&response, "username or password is invalid");
 }
 
 #[test]
-fn returns_oauth_error_for_invalid_password_grant_password() {
+fn returns_uniform_error_for_invalid_password_grant_password() {
     let response = send_form_token_request(
         "client_id=client_id&client_secret=client_secret&grant_type=password&username=username&password=app",
     );
 
-    assert_invalid_grant_response(&response, "password is invalid");
+    assert_invalid_grant_response(&response, "username or password is invalid");
 }
 
 fn assert_access_token_response(response: &str, client_id: &str, username: &str) {

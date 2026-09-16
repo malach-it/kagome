@@ -105,6 +105,11 @@ loaded once at startup. A client without `password_file`
 cannot authenticate local resource owners. The committed
 `kagome.htpasswd.example` contains the example users; create the ignored local
 file with `htpasswd -B kagome.htpasswd username`. The
+server returns the same `username or password is invalid` description for
+unknown usernames, missing passwords, wrong passwords, and clients without a
+password file. Each attempted credential pair performs one bcrypt verification,
+using a configured or dummy hash, so username validity does not select a cheap
+failure path.
 optional per-client `require_wallet_binding` flag requires wallet presentation
 and credential-proof signatures to verify with the holder public key explicitly
 bound into the incoming authorization `code` during wallet authentication.

@@ -10,6 +10,8 @@ use crate::{
 pub type ResourceOwnerProfile = BTreeMap<String, String>;
 pub type CredentialProfiles = BTreeMap<String, ResourceOwnerProfile>;
 
+const DUMMY_PASSWORD_HASH: &str = "$2y$05$4MDXTHOjtx8aCJ0k.Y/5leTGaeV.ffFF8jCeeA69BeQ.BvcTZZy06";
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ResourceOwner {
     pub username: String,
@@ -103,8 +105,9 @@ pub trait Validate: Populate {
 ///
 /// # Errors
 ///
-/// Returns `unauthenticated` when no usable identity is supplied, or the applicable client,
-/// username, password-presence, or password-verification OAuth error.
+/// Returns `unauthenticated` when no credentials are supplied, or the applicable client or
+/// uniform username-or-password OAuth error. Invalid and incomplete credential attempts perform
+/// one bcrypt verification and do not expose configured usernames.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let Some(resource_owner) = validate_resource_owner(&request)? else {
         return Err(OAuthError::unauthenticated());
@@ -147,41 +150,54 @@ fn validate_resource_owner<T: Validate>(request: &T) -> Result<Option<ResourceOw
         return Ok(None);
     }
 
-    let username = request
-        .client_id_username()
-        .or_else(|| request.request_username())
-        .ok_or_else(OAuthError::unauthenticated)?;
-
     let client_id = request
         .client_id()
         .ok_or_else(OAuthError::invalid_client_id)?;
-    let Some((passwords, usernames)) = Config::global().client_password_file(client_id) else {
-        return Err(OAuthError::invalid_username(&[]));
+    let username = request
+        .client_id_username()
+        .or_else(|| request.request_username());
+    let password = request.request_password();
+    let passwords = Config::global()
+        .client_password_file(client_id)
+        .map(|(passwords, _)| passwords);
+    let configured_hash = passwords
+        .and_then(|passwords| username.and_then(|username| password_hash(passwords, username)));
+    let comparison_hash = configured_hash
+        .or_else(|| passwords.and_then(first_password_hash))
+        .unwrap_or(DUMMY_PASSWORD_HASH);
+    let password_matches =
+        bcrypt::verify(password.unwrap_or_default(), comparison_hash).unwrap_or(false);
+
+    let Some(username) = username else {
+        return Err(OAuthError::invalid_username());
     };
-    if !usernames.iter().any(|configured| configured == username) {
-        let expected_usernames = usernames.iter().map(String::as_str).collect::<Vec<_>>();
-        return Err(OAuthError::invalid_username(&expected_usernames));
+    if password.is_none() {
+        return Err(OAuthError::missing_password());
     }
-
-    let password = request
-        .request_password()
-        .ok_or_else(OAuthError::missing_password)?;
-
-    if !verify_password(passwords, username, password) {
+    if configured_hash.is_none() || !password_matches {
         return Err(OAuthError::invalid_password());
     }
 
     Ok(Some(ResourceOwner::from_username(username.to_owned())))
 }
 
+#[cfg(test)]
 fn verify_password(passwords: &str, username: &str, password: &str) -> bool {
-    passwords.lines().any(|line| {
-        let Some((configured_username, password_hash)) = line.split_once(':') else {
-            return false;
-        };
+    password_hash(passwords, username)
+        .is_some_and(|password_hash| bcrypt::verify(password, password_hash).unwrap_or(false))
+}
 
-        configured_username == username && bcrypt::verify(password, password_hash).unwrap_or(false)
+fn password_hash<'a>(passwords: &'a str, username: &str) -> Option<&'a str> {
+    passwords.lines().find_map(|line| {
+        let (configured_username, password_hash) = line.split_once(':')?;
+        (configured_username == username).then_some(password_hash)
     })
+}
+
+fn first_password_hash(passwords: &str) -> Option<&str> {
+    passwords
+        .lines()
+        .find_map(|line| line.split_once(':').map(|(_, password_hash)| password_hash))
 }
 
 /// Reports whether a username appears in the client's configured password file.

@@ -169,11 +169,11 @@ impl OAuthError {
         )
     }
 
-    pub fn invalid_username(expected_usernames: &[&str]) -> Self {
+    pub fn invalid_username() -> Self {
         Self::new(
             OAuthErrorCode::InvalidUsername,
             "invalid_grant",
-            format!("username must be one of: {}", expected_usernames.join(", ")),
+            "username or password is invalid",
         )
     }
 
@@ -189,7 +189,7 @@ impl OAuthError {
         Self::new(
             OAuthErrorCode::InvalidPassword,
             "invalid_grant",
-            "password is invalid",
+            "username or password is invalid",
         )
     }
 
@@ -197,7 +197,7 @@ impl OAuthError {
         Self::new(
             OAuthErrorCode::MissingPassword,
             "invalid_grant",
-            "password is required",
+            "username or password is invalid",
         )
     }
 
