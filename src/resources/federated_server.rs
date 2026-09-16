@@ -315,7 +315,7 @@ pub fn fetch_identity_with_server<T: FetchIdentity>(
                 &identity_claim_config.target,
                 value.to_owned(),
                 identity_claim_config.id_token,
-                identity_claim_config.credential,
+                &identity_claim_config.credential,
             );
         }
     }

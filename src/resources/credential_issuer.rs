@@ -1,9 +1,9 @@
-use crate::{config::Config, errors::OAuthError};
+use crate::{
+    config::{Config, CredentialConfig},
+    errors::OAuthError,
+};
 
-pub const CREDENTIAL_CONFIGURATION_ID: &str = "UniversityDegreeCredential";
-pub const CREDENTIAL_SCOPE: &str = "UniversityDegree";
 pub const CREDENTIAL_FORMAT: &str = "jwt_vc";
-pub const CREDENTIAL_TYPE: &str = "UniversityDegreeCredential";
 
 pub trait Validate {
     fn add_credential_issuer(&mut self, credential_issuer: String);
@@ -18,8 +18,8 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
 pub trait ValidateConfiguration {
     fn request_content_type(&self) -> Option<&str>;
     fn request_credential_identifier(&self) -> Option<&str>;
-    fn authorized_credential_configuration_id(&self) -> Option<&str>;
-    fn add_credential_configuration(&mut self, credential_configuration_id: String);
+    fn authorized_credential_configuration_ids(&self) -> &[String];
+    fn add_credential_configuration(&mut self, credential: CredentialConfig);
 }
 
 pub fn validate_configuration<T: ValidateConfiguration>(mut request: T) -> Result<T, OAuthError> {
@@ -39,16 +39,23 @@ pub fn validate_configuration<T: ValidateConfiguration>(mut request: T) -> Resul
                 "credential_identifier is required",
             ));
         }
-        Some(CREDENTIAL_CONFIGURATION_ID) => CREDENTIAL_CONFIGURATION_ID,
-        Some(_) => return Err(OAuthError::unknown_credential_configuration()),
+        Some(credential_configuration_id) => credential_configuration_id,
     };
+    let credential = Config::global()
+        .credential(credential_configuration_id)
+        .cloned()
+        .ok_or_else(OAuthError::unknown_credential_configuration)?;
 
-    if request.authorized_credential_configuration_id() != Some(credential_configuration_id) {
+    if !request
+        .authorized_credential_configuration_ids()
+        .iter()
+        .any(|authorized| authorized == credential_configuration_id)
+    {
         return Err(OAuthError::invalid_access_token(
             "access token does not authorize the requested credential",
         ));
     }
 
-    request.add_credential_configuration(credential_configuration_id.to_owned());
+    request.add_credential_configuration(credential);
     Ok(request)
 }

@@ -1,8 +1,7 @@
 use serde::Deserialize;
 
 use crate::{
-    errors::OAuthError,
-    resources::{credential_issuer::CREDENTIAL_TYPE, presentation_state::PresentationStateClaims},
+    config::Config, errors::OAuthError, resources::presentation_state::PresentationStateClaims,
 };
 
 const VP_FORMAT: &str = "jwt_vp";
@@ -111,6 +110,12 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let state = request.presentation_state_claims().ok_or_else(|| {
         OAuthError::invalid_request("state must be validated before presentation_submission")
     })?;
+    let configured_descriptor = |id: &str| {
+        Config::global()
+            .credentials
+            .iter()
+            .any(|credential| credential.credential_type == id)
+    };
 
     if submission.id.is_empty() {
         return Err(OAuthError::invalid_request(
@@ -139,7 +144,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         && descriptor.path_nested.format == VC_FORMAT
         && descriptor.path_nested.path == VC_PATH;
     let credential_bound_descriptor = submission.definition_id.is_none()
-        && descriptor.id == CREDENTIAL_TYPE
+        && configured_descriptor(&descriptor.id)
         && descriptor
             .path_nested
             .id
@@ -153,7 +158,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     if !standard_descriptor && !credential_bound_descriptor {
         let descriptor_id_is_valid = descriptor.id == state.input_descriptor_id
             && descriptor.path_nested.id.as_deref() == Some(&state.input_descriptor_id);
-        let credential_bound_id_is_valid = descriptor.id == CREDENTIAL_TYPE
+        let credential_bound_id_is_valid = configured_descriptor(&descriptor.id)
             && descriptor
                 .path_nested
                 .id

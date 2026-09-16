@@ -4,7 +4,7 @@ use crate::{
     resources::{
         credential_access_token::{self, CredentialAccessToken},
         pre_authorized_code::{self, PreAuthorizedCodeClaims},
-        resource_owner::ResourceOwnerProfile,
+        resource_owner::CredentialProfiles,
     },
     unit::{KagomeRequest, parse_request_parameter},
 };
@@ -19,9 +19,9 @@ pub struct PreAuthorizedCodeRequest<'a> {
 
 #[derive(Debug, Default)]
 pub struct PreAuthorizedCodeResponse {
-    pub credential_configuration_id: Option<String>,
+    pub credential_configuration_ids: Vec<String>,
     pub subject: Option<String>,
-    pub credential_profile: ResourceOwnerProfile,
+    pub credential_profile: CredentialProfiles,
     pub id_token_public_jwk: Option<serde_json::Value>,
     pub require_wallet_binding: bool,
     pub access_token: Option<CredentialAccessToken>,
@@ -41,24 +41,28 @@ impl<'a> PreAuthorizedCodeRequest<'a> {
         let access_token = self.response.access_token.as_ref().ok_or_else(|| {
             OAuthError::invalid_token_response("token response requires access_token")
         })?;
-        let credential_configuration_id = self
+        if self.response.credential_configuration_ids.is_empty() {
+            return Err(OAuthError::invalid_token_response(
+                "token response requires credential configuration",
+            ));
+        }
+        let authorization_details: Vec<_> = self
             .response
-            .credential_configuration_id
-            .as_deref()
-            .ok_or_else(|| {
-                OAuthError::invalid_token_response(
-                    "token response requires credential configuration",
-                )
-            })?;
+            .credential_configuration_ids
+            .iter()
+            .map(|credential_configuration_id| {
+                serde_json::json!({
+                    "type": "openid_credential",
+                    "format": crate::resources::credential_issuer::CREDENTIAL_FORMAT,
+                    "credential_configuration_id": credential_configuration_id,
+                })
+            })
+            .collect();
         let response_body = serde_json::json!({
             "access_token": access_token.value,
             "token_type": "Bearer",
             "expires_in": access_token.expires_in,
-            "authorization_details": [{
-                "type": "openid_credential",
-                "format": crate::resources::credential_issuer::CREDENTIAL_FORMAT,
-                "credential_configuration_id": credential_configuration_id,
-            }],
+            "authorization_details": authorization_details,
         })
         .to_string();
 
@@ -76,7 +80,7 @@ impl pre_authorized_code::Validate for PreAuthorizedCodeRequest<'_> {
     }
 
     fn add_pre_authorized_code_claims(&mut self, claims: PreAuthorizedCodeClaims) {
-        self.response.credential_configuration_id = Some(claims.credential_configuration_id);
+        self.response.credential_configuration_ids = claims.credential_configuration_ids;
         self.response.subject = Some(claims.subject);
         self.response.credential_profile = claims.credential_profile;
         self.response.id_token_public_jwk = claims.id_token_public_jwk;
@@ -85,15 +89,15 @@ impl pre_authorized_code::Validate for PreAuthorizedCodeRequest<'_> {
 }
 
 impl credential_access_token::Generate for PreAuthorizedCodeRequest<'_> {
-    fn credential_configuration_id(&self) -> Option<&str> {
-        self.response.credential_configuration_id.as_deref()
+    fn credential_configuration_ids(&self) -> &[String] {
+        &self.response.credential_configuration_ids
     }
 
     fn subject(&self) -> Option<&str> {
         self.response.subject.as_deref()
     }
 
-    fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
+    fn credential_profile(&self) -> Option<&CredentialProfiles> {
         Some(&self.response.credential_profile)
     }
 

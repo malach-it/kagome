@@ -10,8 +10,8 @@ const CLIENT_ID: &str = "redirect_uri:http://localhost:4000/presentation-respons
 const PRESENTATION_REDIRECT_URI: &str = "http://localhost:4000/presentation-response";
 const AUTHORIZE_CLIENT_ID: &str = "configured_client";
 const AUTHORIZE_REDIRECT_URI: &str = "https://configured.example.com/callback";
-const PRESENTATION_DEFINITION_ID: &str = "degree_presentation";
-const INPUT_DESCRIPTOR_ID: &str = "degree_credential";
+const PRESENTATION_DEFINITION_ID: &str = "credential_presentation";
+const INPUT_DESCRIPTOR_ID: &str = "credential";
 const HOLDER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINJfaccWsYDZbi2f7pKdaHSEmgf8842Rvoli2GJ94YSk\n-----END PRIVATE KEY-----\n";
 const EC_HOLDER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt\nbha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt\nWvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7\n-----END PRIVATE KEY-----\n";
 const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIDt2IW+OSTJfZcs+QLnyHa+IoZthF8Pbf7sBWYsElCKk\n-----END PRIVATE KEY-----\n";
@@ -131,8 +131,16 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
     );
     assert_eq!(
         request.body["presentation_definition"]["input_descriptors"][0]["constraints"]["fields"][0]
-            ["filter"]["contains"]["const"],
-        "UniversityDegreeCredential"
+            ["filter"]["contains"]["enum"],
+        json!(["UniversityDegreeCredential", "EmployeeCredential"])
+    );
+    assert_eq!(
+        request.body["presentation_definition"]["input_descriptors"][0]["constraints"]["fields"][2]
+            ["filter"]["enum"],
+        json!([
+            "UniversityDegreeCredential",
+            "https://credentials.example.com/employee"
+        ])
     );
     assert_eq!(
         request.body["client_metadata"]["vp_formats_supported"]["jwt_vp"]["alg_values"],

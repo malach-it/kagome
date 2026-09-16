@@ -1,16 +1,19 @@
-use crate::{resources::credential_issuer, unit::KagomeRequest};
+use serde_json::{Map, json};
+
+use crate::{config::Config, resources::credential_issuer, unit::KagomeRequest};
 
 use super::metadata::issuer_response;
 
 pub fn handle_credential_issuer_metadata(request: &KagomeRequest) -> String {
     issuer_response(request, |issuer| {
-        serde_json::json!({
-            "credential_issuer": issuer,
-            "credential_endpoint": format!("{issuer}/credential"),
-            "credential_configurations_supported": {
-                credential_issuer::CREDENTIAL_CONFIGURATION_ID: {
+        let configurations: Map<String, serde_json::Value> = Config::global()
+            .credentials
+            .iter()
+            .map(|credential| {
+                (credential.credential_configuration_id.clone(), json!({
                     "format": credential_issuer::CREDENTIAL_FORMAT,
-                    "scope": credential_issuer::CREDENTIAL_SCOPE,
+                    "scope": credential.credential_configuration_id,
+                    "vct": credential.vct,
                     "credential_signing_alg_values_supported": [
                         crate::resources::crypto::SigningArtifact::Credential.algorithm_name()
                     ],
@@ -21,23 +24,22 @@ pub fn handle_credential_issuer_metadata(request: &KagomeRequest) -> String {
                         }
                     },
                     "credential_definition": {
-                        "type": [
-                            "VerifiableCredential",
-                            credential_issuer::CREDENTIAL_TYPE
-                        ]
+                        "type": ["VerifiableCredential", credential.credential_type]
                     },
+                    "display": [{"name": credential.name, "locale": "en"}],
                     "credential_metadata": {
-                        "display": [{
-                            "name": "University Degree Credential",
-                            "locale": "en"
-                        }],
+                        "display": [{"name": credential.name, "locale": "en"}],
                         "claims": [
-                            {"path": ["credentialSubject", "id"], "mandatory": true},
-                            {"path": ["credentialSubject", "degree"], "mandatory": true}
+                            {"path": ["credentialSubject", "id"], "mandatory": true}
                         ]
                     }
-                }
-            }
+                }))
+            })
+            .collect();
+        json!({
+            "credential_issuer": issuer,
+            "credential_endpoint": format!("{issuer}/credential"),
+            "credential_configurations_supported": configurations
         })
     })
 }

@@ -53,7 +53,7 @@ pub struct AuthorizeCodeResponse {
     pub redirect_uri: Option<String>,
     pub username: Option<String>,
     pub resource_owner_profile: Option<resource_owner::ResourceOwnerProfile>,
-    pub credential_profile: Option<resource_owner::ResourceOwnerProfile>,
+    pub credential_profile: Option<resource_owner::CredentialProfiles>,
     pub authenticated: bool,
     pub metadata_policy: Option<MetadataPolicy>,
     pub code_challenge: Option<CodeChallenge>,
@@ -451,7 +451,7 @@ impl pre_authorized_code::Generate for AuthorizeCodeRequest<'_> {
         true
     }
 
-    fn credential_profile(&self) -> Option<&resource_owner::ResourceOwnerProfile> {
+    fn credential_profile(&self) -> Option<&resource_owner::CredentialProfiles> {
         self.response.credential_profile.as_ref()
     }
 

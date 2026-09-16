@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::Serialize;
@@ -6,14 +9,13 @@ use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
+    config::CredentialConfig,
     errors::OAuthError,
     resources::{
         crypto::{self, SigningArtifact},
         resource_owner::ResourceOwnerProfile,
     },
 };
-
-use super::credential_issuer::CREDENTIAL_TYPE;
 
 pub const HOLDER_PUBLIC_KEY_X: &str = "nwivBoQHlj3Z7OlrsnliD0Sm-_mSSFmg1umcwdeV1e4";
 pub const TTL_SECONDS: u64 = 31_536_000;
@@ -36,7 +38,8 @@ struct JwtVcClaims<'a> {
     context: [&'static str; 1],
     id: String,
     #[serde(rename = "type")]
-    credential_types: [&'static str; 2],
+    credential_types: [&'a str; 2],
+    vct: &'a str,
     issuer: &'a str,
     #[serde(rename = "issuanceDate")]
     issuance_date: String,
@@ -54,7 +57,8 @@ struct Confirmation {
 struct VerifiableCredentialClaims<'a> {
     id: String,
     #[serde(rename = "type")]
-    credential_types: [&'static str; 2],
+    credential_types: [&'a str; 2],
+    vct: &'a str,
     issuer: &'a str,
     #[serde(rename = "issuanceDate")]
     issuance_date: String,
@@ -65,26 +69,19 @@ struct VerifiableCredentialClaims<'a> {
 #[derive(Clone, Debug, Serialize)]
 struct CredentialSubject<'a> {
     id: &'a str,
-    degree: Degree,
     #[serde(flatten)]
     profile: &'a ResourceOwnerProfile,
 }
 
 #[derive(Debug, Serialize)]
 struct CredentialSubjects<'a> {
-    #[serde(rename = "UniversityDegreeCredential")]
-    university_degree_credential: CredentialSubject<'a>,
+    #[serde(flatten)]
+    configured: BTreeMap<&'a str, CredentialSubject<'a>>,
     id: &'a str,
 }
 
-#[derive(Clone, Debug, Serialize)]
-struct Degree {
-    #[serde(rename = "type")]
-    degree_type: &'static str,
-    name: &'static str,
-}
-
 pub trait Generate {
+    fn credential_configuration(&self) -> Option<&CredentialConfig>;
     fn credential_issuer(&self) -> Option<&str>;
     fn subject(&self) -> Option<&str>;
     fn holder_jwk(&self) -> Option<&Value> {
@@ -97,6 +94,9 @@ pub trait Generate {
 }
 
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
+    let credential_configuration = request.credential_configuration().ok_or_else(|| {
+        OAuthError::invalid_token_response("credential configuration is required")
+    })?;
     let issuer = request
         .credential_issuer()
         .ok_or_else(|| OAuthError::invalid_token_response("credential issuer is required"))?;
@@ -116,12 +116,15 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let credential_profile = request.credential_profile().unwrap_or(&empty_profile);
     let credential_subject = CredentialSubject {
         id: subject,
-        degree: Degree {
-            degree_type: "BachelorDegree",
-            name: "Bachelor of Science and Arts",
-        },
         profile: credential_profile,
     };
+    let mut configured_subject = BTreeMap::new();
+    configured_subject.insert(
+        credential_configuration
+            .credential_configuration_id
+            .as_str(),
+        credential_subject.clone(),
+    );
     let claims = JwtVcClaims {
         iss: issuer,
         sub: subject,
@@ -136,16 +139,24 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         },
         context: ["https://www.w3.org/ns/credentials/v2"],
         id: credential_id.clone(),
-        credential_types: ["VerifiableCredential", CREDENTIAL_TYPE],
+        credential_types: [
+            "VerifiableCredential",
+            &credential_configuration.credential_type,
+        ],
+        vct: &credential_configuration.vct,
         issuer,
         issuance_date: issuance_date.clone(),
         credential_subject: CredentialSubjects {
-            university_degree_credential: credential_subject.clone(),
+            configured: configured_subject,
             id: subject,
         },
         vc: VerifiableCredentialClaims {
             id: credential_id,
-            credential_types: ["VerifiableCredential", CREDENTIAL_TYPE],
+            credential_types: [
+                "VerifiableCredential",
+                &credential_configuration.credential_type,
+            ],
+            vct: &credential_configuration.vct,
             issuer,
             issuance_date,
             credential_subject,

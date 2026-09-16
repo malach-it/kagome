@@ -12,8 +12,8 @@ use super::{
 };
 
 pub const TTL_SECONDS: u64 = 300;
-pub const PRESENTATION_DEFINITION_ID: &str = "degree_presentation";
-pub const INPUT_DESCRIPTOR_ID: &str = "degree_credential";
+pub const PRESENTATION_DEFINITION_ID: &str = "credential_presentation";
+pub const INPUT_DESCRIPTOR_ID: &str = "credential";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PresentationStateClaims {

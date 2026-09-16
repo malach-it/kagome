@@ -74,6 +74,7 @@ fn signs_federated_resource_owner_profile_in_id_token() {
 fn includes_selected_federated_attributes_in_credential_subject() {
     const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
     const CONFIGURATION_ID: &str = "UniversityDegreeCredential";
+    const SECOND_CONFIGURATION_ID: &str = "EmployeeCredential";
     let state = federation_state_for(
         "response_type=urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
     );
@@ -122,7 +123,36 @@ fn includes_selected_federated_attributes_in_credential_subject() {
         &claims["vc"]["credentialSubject"],
     ] {
         assert_eq!(subject["username"], "federated-user");
+        assert_eq!(subject["sub"], "ignored-user");
+        assert!(subject.get("display_name").is_none());
+    }
+
+    let credential_body =
+        serde_json::json!({"credential_identifier": SECOND_CONFIGURATION_ID}).to_string();
+    let credential_response = send_request(&format!(
+        "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\nauthorization: Bearer {access_token}\r\ncontent-length: {}\r\n\r\n{credential_body}",
+        credential_body.len()
+    ));
+    let employee_credential = json_response_body(&credential_response)["credential"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let employee_claims = jsonwebtoken::decode::<serde_json::Value>(
+        &employee_credential,
+        &kagome::resources::crypto::SigningArtifact::Credential
+            .decoding_key()
+            .unwrap(),
+        &validation,
+    )
+    .unwrap()
+    .claims;
+
+    for subject in [
+        &employee_claims["credentialSubject"][SECOND_CONFIGURATION_ID],
+        &employee_claims["vc"]["credentialSubject"],
+    ] {
         assert_eq!(subject["display_name"], "federated-user");
+        assert_eq!(subject["username"], "federated-user");
         assert!(subject.get("sub").is_none());
     }
 }

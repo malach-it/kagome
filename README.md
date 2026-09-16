@@ -25,6 +25,11 @@ tokens:
   access_token_ttl: 3600
   authorization_code_ttl: 600
   id_token_ttl: 3600
+credentials:
+  - credential_configuration_id: UniversityDegreeCredential
+    name: University Degree Credential
+    vct: UniversityDegreeCredential
+    type: UniversityDegreeCredential
 clients:
   - client_id: client_id
     client_secret: client_secret
@@ -43,8 +48,13 @@ clients:
             - claim: sub
               target: sub
               id_token: false
-              credential: false
+              credential: [UniversityDegreeCredential]
 ```
+
+Each `credentials` entry is advertised under its
+`credential_configuration_id`. Its `name` is used for display metadata, while
+`type` and `vct` are carried by issued credentials and used by presentation
+requests and validation.
 
 Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
 error when the file cannot be read, contains invalid YAML or unknown fields, or
@@ -88,8 +98,10 @@ identity endpoint is called once with the upstream bearer token. Its non-empty
 `claims` list maps dot-separated JSON claim paths to arbitrary resource-owner
 profile attributes. A `username` or `sub` target identifies the resource owner.
 Set a claim's `id_token` flag to include the mapped attribute in the signed
-ID-token `profile`, and set `credential` to include it in issued verifiable
-credential subjects. Both flags default to `false`. Clients without this block
+ID-token `profile`. Set `credential` to an array of credential configuration
+IDs to include the attribute only in those credentials' subjects. `id_token`
+defaults to `false`, and `credential` defaults to an empty array. Clients without
+this block
 continue to use local authentication.
 Each client must explicitly opt into protocol capabilities through
 `supported_grant_types` and `supported_response_types`; omitted or empty lists
@@ -135,8 +147,7 @@ Issuance 1.0 Final specification:
   `/.well-known/oauth-authorization-server`
 - A pre-authorized-code `/authorize` response that redirects with a Credential Offer
 - The Pre-Authorized Code grant at `/token`
-- Immediate issuance of one `jwt_vc_json` University Degree Credential at
-  `/credential`
+- Immediate issuance of configured `jwt_vc` credentials at `/credential`
 - Centralized public signing keys for credentials, ID tokens, and request
   objects at `/jwks`
 
@@ -167,7 +178,7 @@ Presentations 1.0 Final:
 
 - `GET /presentation-request` creates authorization request parameters using
   `response_type=vp_token`, `response_mode=direct_post`, and a DCQL query for
-  one `jwt_vc_json` University Degree Credential.
+  one configured `jwt_vc` credential.
 - `POST /presentation-response` accepts the form-encoded direct-post response.
 - Presentation JWTs and embedded Credential JWTs use Ed25519. The verifier
   validates their signatures, validity periods, requested type and claims,

@@ -249,7 +249,7 @@ mod resources {
                         claim: "sub".to_owned(),
                         target: "username".to_owned(),
                         id_token: false,
-                        credential: false,
+                        credential: Vec::new(),
                     }],
                 }],
             };

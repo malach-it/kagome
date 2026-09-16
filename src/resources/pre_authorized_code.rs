@@ -3,12 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{errors::OAuthError, resources::resource_owner::ResourceOwnerProfile};
+use crate::{errors::OAuthError, resources::resource_owner::CredentialProfiles};
 
-use super::{
-    authorization_code, credential_issuer::CREDENTIAL_CONFIGURATION_ID, crypto,
-    crypto::EncryptedArtifact,
-};
+use super::{authorization_code, crypto, crypto::EncryptedArtifact};
 
 const COSE_ENCRYPT0_ERRORS: crypto::CoseEncrypt0Errors = crypto::CoseEncrypt0Errors {
     invalid_cose: "pre-authorized_code must be a cose_encrypt0",
@@ -22,10 +19,10 @@ pub const TTL_SECONDS: u64 = 300;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PreAuthorizedCodeClaims {
-    pub credential_configuration_id: String,
+    pub credential_configuration_ids: Vec<String>,
     pub subject: String,
     #[serde(default)]
-    pub credential_profile: ResourceOwnerProfile,
+    pub credential_profile: CredentialProfiles,
     pub id_token_public_jwk: Option<Value>,
     pub require_wallet_binding: bool,
     pub iat: u64,
@@ -53,7 +50,7 @@ pub trait Generate {
         None
     }
 
-    fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
+    fn credential_profile(&self) -> Option<&CredentialProfiles> {
         None
     }
 
@@ -94,7 +91,11 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     }
     let wallet_authenticated = id_token_public_jwk.is_some();
     let claims = PreAuthorizedCodeClaims {
-        credential_configuration_id: CREDENTIAL_CONFIGURATION_ID.to_owned(),
+        credential_configuration_ids: crate::config::Config::global()
+            .credentials
+            .iter()
+            .map(|credential| credential.credential_configuration_id.clone())
+            .collect(),
         subject,
         credential_profile: request.credential_profile().cloned().unwrap_or_default(),
         id_token_public_jwk,

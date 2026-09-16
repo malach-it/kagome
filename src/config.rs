@@ -38,6 +38,10 @@ pub struct Config {
     #[serde(default)]
     #[schemars(default)]
     pub tokens: TokenTtlsConfig,
+    /// Verifiable credential configurations advertised and issued by the server.
+    #[serde(default = "default_credential_configurations")]
+    #[schemars(default = "default_credential_configurations", length(min = 1))]
+    pub credentials: Vec<CredentialConfig>,
     /// OAuth clients accepted by the authorization server.
     #[schemars(length(min = 1))]
     pub clients: Vec<ClientConfig>,
@@ -47,6 +51,33 @@ pub struct Config {
     #[serde(skip)]
     #[schemars(skip)]
     key_manager: KeyManager,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialConfig {
+    /// Identifier used in issuer metadata, offers, and credential requests.
+    #[schemars(length(min = 1))]
+    pub credential_configuration_id: String,
+    /// Human-readable credential name advertised in issuer metadata.
+    #[schemars(length(min = 1))]
+    pub name: String,
+    /// Verifiable credential type identifier carried by the credential.
+    #[schemars(length(min = 1))]
+    pub vct: String,
+    /// W3C Verifiable Credential type carried by the credential.
+    #[serde(rename = "type")]
+    #[schemars(length(min = 1))]
+    pub credential_type: String,
+}
+
+fn default_credential_configurations() -> Vec<CredentialConfig> {
+    vec![CredentialConfig {
+        credential_configuration_id: "UniversityDegreeCredential".to_owned(),
+        name: "University Degree Credential".to_owned(),
+        vct: "UniversityDegreeCredential".to_owned(),
+        credential_type: "UniversityDegreeCredential".to_owned(),
+    }]
 }
 
 #[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -203,9 +234,9 @@ pub struct FederatedIdentityClaimConfig {
     /// Include the attribute in generated ID tokens.
     #[serde(default)]
     pub id_token: bool,
-    /// Include the attribute in generated verifiable credentials.
+    /// Credential configuration identifiers whose subjects include the attribute.
     #[serde(default)]
-    pub credential: bool,
+    pub credential: Vec<String>,
 }
 
 impl Config {
@@ -264,6 +295,12 @@ impl Config {
                         .is_some_and(|configured| configured.eq_ignore_ascii_case(public_host))
                 })
             })
+    }
+
+    pub fn credential(&self, credential_configuration_id: &str) -> Option<&CredentialConfig> {
+        self.credentials.iter().find(|credential| {
+            credential.credential_configuration_id == credential_configuration_id
+        })
     }
 
     pub fn client_password_file(&self, client_id: &str) -> Option<(&str, &[String])> {
@@ -386,6 +423,43 @@ impl Config {
                 path: path.to_owned(),
                 message: "clients must contain at least one client".to_owned(),
             });
+        }
+
+        if self.credentials.is_empty() {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "credentials must contain at least one credential configuration"
+                    .to_owned(),
+            });
+        }
+        let mut credential_configuration_ids = HashSet::new();
+        for (index, credential) in self.credentials.iter().enumerate() {
+            for (field, value) in [
+                (
+                    "credential_configuration_id",
+                    credential.credential_configuration_id.as_str(),
+                ),
+                ("name", credential.name.as_str()),
+                ("vct", credential.vct.as_str()),
+                ("type", credential.credential_type.as_str()),
+            ] {
+                if value.trim().is_empty() {
+                    return Err(ConfigError::Validation {
+                        path: path.to_owned(),
+                        message: format!("credentials[{index}].{field} must not be empty"),
+                    });
+                }
+            }
+            if !credential_configuration_ids.insert(credential.credential_configuration_id.as_str())
+            {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "credential_configuration_id must be unique: {}",
+                        credential.credential_configuration_id
+                    ),
+                });
+            }
         }
 
         for (field, ttl) in [
@@ -572,9 +646,36 @@ impl Config {
                                 ),
                             });
                         }
-                        if identity_claim.credential
-                            && matches!(identity_claim.target.as_str(), "id" | "degree")
-                        {
+                        let mut claim_credential_ids = HashSet::new();
+                        for credential_configuration_id in &identity_claim.credential {
+                            if credential_configuration_id.trim().is_empty() {
+                                return Err(ConfigError::Validation {
+                                    path: path.to_owned(),
+                                    message: format!(
+                                        "clients[{index}].federated_server.endpoints[{endpoint_index}].claims[{claim_index}].credential must not contain empty values"
+                                    ),
+                                });
+                            }
+                            if !claim_credential_ids.insert(credential_configuration_id.as_str()) {
+                                return Err(ConfigError::Validation {
+                                    path: path.to_owned(),
+                                    message: format!(
+                                        "clients[{index}].federated_server.endpoints[{endpoint_index}].claims[{claim_index}].credential must not contain duplicate values"
+                                    ),
+                                });
+                            }
+                            if !credential_configuration_ids
+                                .contains(credential_configuration_id.as_str())
+                            {
+                                return Err(ConfigError::Validation {
+                                    path: path.to_owned(),
+                                    message: format!(
+                                        "clients[{index}].federated_server.endpoints[{endpoint_index}].claims[{claim_index}].credential references unknown credential configuration: {credential_configuration_id}"
+                                    ),
+                                });
+                            }
+                        }
+                        if !identity_claim.credential.is_empty() && identity_claim.target == "id" {
                             return Err(ConfigError::Validation {
                                 path: path.to_owned(),
                                 message: format!(

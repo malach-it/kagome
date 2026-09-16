@@ -10,6 +10,11 @@ tokens:
   authorization_code_ttl: 600
   id_token_ttl: 3600
   authorization_code_chain_max_depth: 8
+credentials:
+  - credential_configuration_id: UniversityDegreeCredential
+    name: University Degree Credential
+    vct: UniversityDegreeCredential
+    type: UniversityDegreeCredential
 clients:
   - client_id: client_id
     public: localhost:4000
@@ -43,4 +48,4 @@ clients:
             - claim: sub
               target: sub
               id_token: false
-              credential: false
+              credential: [UniversityDegreeCredential]

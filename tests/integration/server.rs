@@ -197,6 +197,12 @@ fn start_server() -> String {
         .expect("example configuration should load");
     let _ = std::fs::remove_file(config_path);
     config.clients[0].public = Some("example.com".to_owned());
+    config.credentials.push(kagome::config::CredentialConfig {
+        credential_configuration_id: "EmployeeCredential".to_owned(),
+        name: "Employee Credential".to_owned(),
+        vct: "https://credentials.example.com/employee".to_owned(),
+        credential_type: "EmployeeCredential".to_owned(),
+    });
     let password_file = config.clients[0].password_file.clone();
     let qr_password_file = password_file.clone();
     let restricted_password_file = password_file.clone();
@@ -215,7 +221,10 @@ fn start_server() -> String {
             claim: "profile.username".to_owned(),
             target: "username".to_owned(),
             id_token: true,
-            credential: true,
+            credential: vec![
+                "UniversityDegreeCredential".to_owned(),
+                "EmployeeCredential".to_owned(),
+            ],
         });
     let federated_qr_server = federated_server.clone();
     federated_server.endpoints[0]
@@ -224,7 +233,7 @@ fn start_server() -> String {
             claim: "profile.username".to_owned(),
             target: "display_name".to_owned(),
             id_token: false,
-            credential: true,
+            credential: vec!["EmployeeCredential".to_owned()],
         });
     config.clients.push(kagome::config::ClientConfig {
         client_id: "configured_client".to_owned(),

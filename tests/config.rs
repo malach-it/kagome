@@ -29,6 +29,17 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
+    assert_eq!(config.credentials.len(), 1);
+    assert_eq!(
+        config.credentials[0].credential_configuration_id,
+        "UniversityDegreeCredential"
+    );
+    assert_eq!(config.credentials[0].name, "University Degree Credential");
+    assert_eq!(config.credentials[0].vct, "UniversityDegreeCredential");
+    assert_eq!(
+        config.credentials[0].credential_type,
+        "UniversityDegreeCredential"
+    );
     assert_eq!(config.clients[0].client_id, "client_id");
     assert_eq!(config.clients[0].public, None);
     assert_eq!(config.clients[0].client_secret, "client_secret");
@@ -99,7 +110,10 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(federated_server.endpoints[0].claims[0].claim, "sub");
     assert_eq!(federated_server.endpoints[0].claims[0].target, "sub");
     assert!(!federated_server.endpoints[0].claims[0].id_token);
-    assert!(!federated_server.endpoints[0].claims[0].credential);
+    assert_eq!(
+        federated_server.endpoints[0].claims[0].credential,
+        ["UniversityDegreeCredential"]
+    );
 }
 
 #[test]
@@ -142,6 +156,7 @@ fn json_schema_describes_configuration_constraints() {
     let grant_type = &schema["$defs"]["GrantType"];
     let response_type = &schema["$defs"]["ResponseType"];
     let token_ttls = &schema["$defs"]["TokenTtlsConfig"];
+    let credential = &schema["$defs"]["CredentialConfig"];
     let crypto = &schema["$defs"]["CryptoConfig"];
 
     assert_eq!(
@@ -150,6 +165,15 @@ fn json_schema_describes_configuration_constraints() {
     );
     assert_eq!(schema["additionalProperties"], false);
     assert_eq!(schema["properties"]["clients"]["minItems"], 1);
+    assert_eq!(schema["properties"]["credentials"]["minItems"], 1);
+    assert_eq!(credential["additionalProperties"], false);
+    assert_eq!(
+        credential["required"],
+        serde_json::json!(["credential_configuration_id", "name", "vct", "type"])
+    );
+    for field in ["credential_configuration_id", "name", "vct", "type"] {
+        assert_eq!(credential["properties"][field]["minLength"], 1);
+    }
     assert_eq!(crypto["additionalProperties"], false);
     assert_eq!(crypto["required"], serde_json::json!(["key_file"]));
     assert_eq!(server["additionalProperties"], false);
@@ -255,7 +279,11 @@ fn json_schema_describes_configuration_constraints() {
     assert_eq!(identity_claim["properties"]["claim"]["minLength"], 1);
     assert_eq!(identity_claim["properties"]["target"]["minLength"], 1);
     assert_eq!(identity_claim["properties"]["id_token"]["default"], false);
-    assert_eq!(identity_claim["properties"]["credential"]["default"], false);
+    assert_eq!(
+        identity_claim["properties"]["credential"]["default"],
+        serde_json::json!([])
+    );
+    assert_eq!(identity_claim["properties"]["credential"]["type"], "array");
     assert_eq!(
         identity_claim["required"],
         serde_json::json!(["claim", "target"])
@@ -1028,7 +1056,7 @@ fn rejects_empty_federated_identity_endpoints() {
 #[test]
 fn loads_multiple_claims_for_one_federated_identity_endpoint() {
     let file = ConfigFile::new(&federated_configuration_yaml(
-        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username\n              id_token: true\n              credential: false\n            - claim: profile.username\n              target: display_name",
+        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username\n              id_token: true\n              credential: [UniversityDegreeCredential]\n            - claim: profile.username\n              target: display_name",
     ));
 
     let config = Config::load_from_path(file.path())
@@ -1043,11 +1071,11 @@ fn loads_multiple_claims_for_one_federated_identity_endpoint() {
     assert_eq!(claims.len(), 2);
     assert_eq!(claims[0].claim, "sub");
     assert!(claims[0].id_token);
-    assert!(!claims[0].credential);
+    assert_eq!(claims[0].credential, ["UniversityDegreeCredential"]);
     assert_eq!(claims[1].claim, "profile.username");
     assert_eq!(claims[1].target, "display_name");
     assert!(!claims[1].id_token);
-    assert!(!claims[1].credential);
+    assert!(claims[1].credential.is_empty());
 }
 
 #[test]
@@ -1139,9 +1167,9 @@ fn rejects_empty_federated_identity_target() {
 
 #[test]
 fn rejects_reserved_credential_subject_targets() {
-    for target in ["id", "degree"] {
+    for target in ["id"] {
         let file = ConfigFile::new(&federated_configuration_yaml(&format!(
-            "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: {target}\n              credential: true"
+            "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: {target}\n              credential: [UniversityDegreeCredential]"
         )));
 
         let error = Config::load_from_path(file.path())
@@ -1152,6 +1180,144 @@ fn rejects_reserved_credential_subject_targets() {
             "clients[0].federated_server.endpoints[0].claims[0].target is reserved for credential subjects"
         ));
     }
+}
+
+#[test]
+fn allows_degree_as_a_configured_credential_subject_attribute() {
+    let file = ConfigFile::new(&federated_configuration_yaml(
+        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: degree\n              target: degree\n              credential: [UniversityDegreeCredential]",
+    ));
+
+    let config = Config::load_from_path(file.path())
+        .expect("degree is no longer a reserved credential subject attribute");
+
+    assert_eq!(
+        config.clients[0]
+            .federated_server
+            .as_ref()
+            .unwrap()
+            .endpoints[0]
+            .claims[0]
+            .target,
+        "degree"
+    );
+}
+
+#[test]
+fn rejects_invalid_claim_credential_configuration_ids() {
+    for (credential, expected) in [
+        (
+            "[UnknownCredential]",
+            "credential references unknown credential configuration: UnknownCredential",
+        ),
+        ("[\"\"]", "credential must not contain empty values"),
+        (
+            "[UniversityDegreeCredential, UniversityDegreeCredential]",
+            "credential must not contain duplicate values",
+        ),
+    ] {
+        let file = ConfigFile::new(&federated_configuration_yaml(&format!(
+            "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: profile.name\n              target: name\n              credential: {credential}"
+        )));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("invalid claim credential configuration should fail");
+
+        assert!(error.to_string().contains(expected));
+    }
+}
+
+#[test]
+fn rejects_boolean_claim_credential_configuration() {
+    let file = ConfigFile::new(&federated_configuration_yaml(
+        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: profile.name\n              target: name\n              credential: true",
+    ));
+
+    let error = Config::load_from_path(file.path())
+        .expect_err("claim credential configuration must be an array");
+
+    assert!(error.to_string().contains("invalid type: boolean"));
+}
+
+#[test]
+fn loads_credential_configuration() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  - credential_configuration_id: EmployeeCredential\n    name: Employee credential\n    vct: https://credentials.example.com/employee\n    type: EmployeeCredential\n",
+    ));
+
+    let config = Config::load_from_path(file.path()).expect("credential configuration should load");
+
+    let credential = config
+        .credential("EmployeeCredential")
+        .expect("configured credential should be addressable by id");
+    assert_eq!(credential.name, "Employee credential");
+    assert_eq!(credential.vct, "https://credentials.example.com/employee");
+    assert_eq!(credential.credential_type, "EmployeeCredential");
+}
+
+#[test]
+fn rejects_empty_credential_configuration_list() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials: []\n",
+    ));
+
+    let error = Config::load_from_path(file.path())
+        .expect_err("empty credential configuration should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("credentials must contain at least one")
+    );
+}
+
+#[test]
+fn rejects_empty_credential_configuration_fields() {
+    for field in ["credential_configuration_id", "name", "vct", "type"] {
+        let values = [
+            ("credential_configuration_id", "EmployeeCredential"),
+            ("name", "Employee credential"),
+            ("vct", "EmployeeCredential"),
+            ("type", "EmployeeCredential"),
+        ];
+        let credential = values
+            .iter()
+            .map(|(key, value)| {
+                format!(
+                    "    {key}: {}\n",
+                    if *key == field { "\"\"" } else { value }
+                )
+            })
+            .collect::<String>();
+        let file = ConfigFile::new(&configuration_yaml(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  -\n{credential}"
+        )));
+
+        let error =
+            Config::load_from_path(file.path()).expect_err("empty credential field should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("credentials[0].{field} must not be empty"))
+        );
+    }
+}
+
+#[test]
+fn rejects_duplicate_credential_configuration_ids() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  - credential_configuration_id: EmployeeCredential\n    name: First credential\n    vct: FirstCredential\n    type: FirstCredential\n  - credential_configuration_id: EmployeeCredential\n    name: Second credential\n    vct: SecondCredential\n    type: SecondCredential\n",
+    ));
+
+    let error = Config::load_from_path(file.path())
+        .expect_err("duplicate credential configuration id should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("credential_configuration_id must be unique")
+    );
 }
 
 struct ConfigFile {

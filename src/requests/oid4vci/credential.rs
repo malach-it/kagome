@@ -1,11 +1,11 @@
 use crate::{
-    config::Config,
+    config::{Config, CredentialConfig},
     errors::OAuthError,
     handlers::responses::oid4vci_json_response,
     resources::{
         credential_access_token::{self, CredentialAccessTokenClaims},
         credential_issuer, credential_proof,
-        resource_owner::ResourceOwnerProfile,
+        resource_owner::{CredentialProfiles, ResourceOwnerProfile},
         verifiable_credential::{self, VerifiableCredential},
     },
     unit::{KagomeRequest, parse_request_json_parameter, parse_request_parameter, request_header},
@@ -24,10 +24,10 @@ pub struct CredentialRequest<'a> {
 #[derive(Debug, Default)]
 pub struct CredentialResponse {
     pub credential_issuer: Option<String>,
-    pub authorized_credential_configuration_id: Option<String>,
-    pub credential_configuration_id: Option<String>,
+    pub authorized_credential_configuration_ids: Vec<String>,
+    pub credential_configuration: Option<CredentialConfig>,
     pub subject: Option<String>,
-    pub credential_profile: ResourceOwnerProfile,
+    pub credential_profile: CredentialProfiles,
     pub holder_jwk: Option<serde_json::Value>,
     pub id_token_public_jwk: Option<serde_json::Value>,
     pub require_wallet_binding: bool,
@@ -72,8 +72,7 @@ impl credential_access_token::Validate for CredentialRequest<'_> {
     }
 
     fn add_credential_access_token_claims(&mut self, claims: CredentialAccessTokenClaims) {
-        self.response.authorized_credential_configuration_id =
-            Some(claims.credential_configuration_id);
+        self.response.authorized_credential_configuration_ids = claims.credential_configuration_ids;
         self.response.subject = Some(claims.subject);
         self.response.credential_profile = claims.credential_profile;
         self.response.id_token_public_jwk = claims.id_token_public_jwk;
@@ -90,18 +89,19 @@ impl credential_issuer::ValidateConfiguration for CredentialRequest<'_> {
         self.credential_identifier.as_deref()
     }
 
-    fn authorized_credential_configuration_id(&self) -> Option<&str> {
-        self.response
-            .authorized_credential_configuration_id
-            .as_deref()
+    fn authorized_credential_configuration_ids(&self) -> &[String] {
+        &self.response.authorized_credential_configuration_ids
     }
 
-    fn add_credential_configuration(&mut self, credential_configuration_id: String) {
-        self.response.credential_configuration_id = Some(credential_configuration_id);
+    fn add_credential_configuration(&mut self, credential: CredentialConfig) {
+        self.response.credential_configuration = Some(credential);
     }
 }
 
 impl verifiable_credential::Generate for CredentialRequest<'_> {
+    fn credential_configuration(&self) -> Option<&CredentialConfig> {
+        self.response.credential_configuration.as_ref()
+    }
     fn credential_issuer(&self) -> Option<&str> {
         self.response.credential_issuer.as_deref()
     }
@@ -111,7 +111,14 @@ impl verifiable_credential::Generate for CredentialRequest<'_> {
     }
 
     fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
-        Some(&self.response.credential_profile)
+        let credential_configuration_id = &self
+            .response
+            .credential_configuration
+            .as_ref()?
+            .credential_configuration_id;
+        self.response
+            .credential_profile
+            .get(credential_configuration_id)
     }
 
     fn holder_jwk(&self) -> Option<&serde_json::Value> {

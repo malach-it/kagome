@@ -256,9 +256,11 @@ pub fn credential_offer_uri(
 ) -> String {
     let credential_offer = serde_json::json!({
         "credential_issuer": credential_issuer,
-        "credential_configuration_ids": [
-            crate::resources::credential_issuer::CREDENTIAL_CONFIGURATION_ID
-        ],
+        "credential_configuration_ids": crate::config::Config::global()
+            .credentials
+            .iter()
+            .map(|credential| credential.credential_configuration_id.as_str())
+            .collect::<Vec<_>>(),
         "grants": {
             pre_authorized_code::GRANT_TYPE: {
                 "pre-authorized_code": pre_authorized_code
@@ -722,7 +724,12 @@ impl ResponseLog for CredentialRequest<'_> {
         eprintln!(
             "[{}] credential_handler success configuration={}",
             log_timestamp(),
-            optional_str(self.response.credential_configuration_id.as_deref())
+            optional_str(
+                self.response
+                    .credential_configuration
+                    .as_ref()
+                    .map(|credential| credential.credential_configuration_id.as_str())
+            )
         );
     }
 }

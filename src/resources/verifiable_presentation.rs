@@ -4,13 +4,11 @@ use jsonwebtoken::{
     get_current_timestamp,
 };
 use serde::Deserialize;
-use serde_json::Value;
 
-use crate::errors::OAuthError;
+use crate::{config::Config, errors::OAuthError};
 
 use super::{
-    credential_issuer::CREDENTIAL_TYPE, crypto::SigningArtifact,
-    presentation_state::PresentationStateClaims, self_issued_id_token,
+    crypto::SigningArtifact, presentation_state::PresentationStateClaims, self_issued_id_token,
 };
 
 pub const SUPPORTED_ALGORITHM_NAMES: [&str; 9] = [
@@ -66,6 +64,7 @@ struct CredentialClaims {
     sub: String,
     iat: u64,
     exp: u64,
+    vct: String,
     vc: CredentialBody,
 }
 
@@ -73,8 +72,6 @@ struct CredentialClaims {
 struct CredentialBody {
     #[serde(rename = "type")]
     credential_types: Vec<String>,
-    #[serde(rename = "credentialSubject")]
-    credential_subject: Value,
 }
 
 pub trait Validate {
@@ -275,24 +272,17 @@ fn validate_credential(
     if credential.iat > get_current_timestamp() || credential.exp <= credential.iat {
         return Err(invalid("presented credential time claims are invalid"));
     }
-    if !credential
-        .vc
-        .credential_types
-        .iter()
-        .any(|credential_type| credential_type == CREDENTIAL_TYPE)
-    {
+    let configured_credential = Config::global().credentials.iter().find(|configured| {
+        credential
+            .vc
+            .credential_types
+            .iter()
+            .any(|credential_type| credential_type == &configured.credential_type)
+            && credential.vct == configured.vct
+    });
+    if configured_credential.is_none() {
         return Err(invalid(
             "presented credential type does not satisfy the query",
-        ));
-    }
-    if credential
-        .vc
-        .credential_subject
-        .pointer("/degree")
-        .is_none()
-    {
-        return Err(invalid(
-            "presented credential claims do not satisfy the query",
         ));
     }
 

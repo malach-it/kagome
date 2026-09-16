@@ -8,20 +8,21 @@ use crate::{
 };
 
 pub type ResourceOwnerProfile = BTreeMap<String, String>;
+pub type CredentialProfiles = BTreeMap<String, ResourceOwnerProfile>;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ResourceOwner {
     pub username: String,
     pub authenticated: bool,
     pub profile: ResourceOwnerProfile,
-    pub credential_profile: ResourceOwnerProfile,
+    pub credential_profile: CredentialProfiles,
 }
 
 #[derive(Debug, Default)]
 pub struct ResourceOwnerAttributes {
     attributes: ResourceOwnerProfile,
     id_token_profile: ResourceOwnerProfile,
-    credential_profile: ResourceOwnerProfile,
+    credential_profile: CredentialProfiles,
 }
 
 impl ResourceOwner {
@@ -33,7 +34,7 @@ impl ResourceOwner {
             username,
             authenticated: true,
             profile,
-            credential_profile: ResourceOwnerProfile::new(),
+            credential_profile: CredentialProfiles::new(),
         }
     }
 
@@ -59,7 +60,7 @@ impl ResourceOwnerAttributes {
         target: &str,
         value: String,
         include_in_id_token: bool,
-        include_in_credential: bool,
+        credential_configuration_ids: &[String],
     ) {
         self.attributes.insert(target.to_owned(), value.clone());
         if include_in_id_token {
@@ -68,10 +69,16 @@ impl ResourceOwnerAttributes {
         } else {
             self.id_token_profile.remove(target);
         }
-        if include_in_credential {
-            self.credential_profile.insert(target.to_owned(), value);
-        } else {
-            self.credential_profile.remove(target);
+        for profile in self.credential_profile.values_mut() {
+            profile.remove(target);
+        }
+        self.credential_profile
+            .retain(|_, profile| !profile.is_empty());
+        for credential_configuration_id in credential_configuration_ids {
+            self.credential_profile
+                .entry(credential_configuration_id.clone())
+                .or_default()
+                .insert(target.to_owned(), value.clone());
         }
     }
 }
@@ -190,8 +197,13 @@ mod tests {
     #[test]
     fn builds_resource_owner_from_attributes() {
         let mut attributes = ResourceOwnerAttributes::default();
-        attributes.add("username", "username".to_owned(), true, false);
-        attributes.add("display_name", "display name".to_owned(), false, true);
+        attributes.add("username", "username".to_owned(), true, &[]);
+        attributes.add(
+            "display_name",
+            "display name".to_owned(),
+            false,
+            &["EmployeeCredential".to_owned()],
+        );
         let resource_owner = ResourceOwner::from_attributes(attributes)
             .expect("resource owner attributes should be complete");
 
@@ -200,10 +212,10 @@ mod tests {
         assert_eq!(resource_owner.profile["username"], "username");
         assert!(!resource_owner.profile.contains_key("display_name"));
         assert_eq!(
-            resource_owner.credential_profile["display_name"],
+            resource_owner.credential_profile["EmployeeCredential"]["display_name"],
             "display name"
         );
-        assert!(!resource_owner.credential_profile.contains_key("username"));
+        assert!(!resource_owner.credential_profile["EmployeeCredential"].contains_key("username"));
     }
 
     #[test]
@@ -214,8 +226,13 @@ mod tests {
     #[test]
     fn uses_last_artifact_selection_for_duplicate_attributes() {
         let mut attributes = ResourceOwnerAttributes::default();
-        attributes.add("username", "first".to_owned(), true, true);
-        attributes.add("username", "second".to_owned(), false, false);
+        attributes.add(
+            "username",
+            "first".to_owned(),
+            true,
+            &["EmployeeCredential".to_owned()],
+        );
+        attributes.add("username", "second".to_owned(), false, &[]);
         let resource_owner = ResourceOwner::from_attributes(attributes)
             .expect("resource owner attributes should be complete");
 

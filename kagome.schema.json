@@ -11,6 +11,14 @@
       },
       "minItems": 1
     },
+    "credentials": {
+      "description": "Verifiable credential configurations advertised and issued by the server.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CredentialConfig"
+      },
+      "minItems": 1
+    },
     "crypto": {
       "description": "External file containing encryption secrets and signing key pairs.",
       "$ref": "#/$defs/CryptoConfig"
@@ -113,6 +121,38 @@
         "redirect_uris"
       ]
     },
+    "CredentialConfig": {
+      "type": "object",
+      "properties": {
+        "credential_configuration_id": {
+          "description": "Identifier used in issuer metadata, offers, and credential requests.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Human-readable credential name advertised in issuer metadata.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "description": "W3C Verifiable Credential type carried by the credential.",
+          "type": "string",
+          "minLength": 1
+        },
+        "vct": {
+          "description": "Verifiable credential type identifier carried by the credential.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "credential_configuration_id",
+        "name",
+        "vct",
+        "type"
+      ]
+    },
     "CryptoConfig": {
       "type": "object",
       "properties": {
@@ -135,9 +175,12 @@
           "minLength": 1
         },
         "credential": {
-          "description": "Include the attribute in generated verifiable credentials.",
-          "type": "boolean",
-          "default": false
+          "description": "Credential configuration identifiers whose subjects include the attribute.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
         },
         "id_token": {
           "description": "Include the attribute in generated ID tokens.",

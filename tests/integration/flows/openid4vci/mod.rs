@@ -8,6 +8,7 @@ use super::super::server::send_request;
 const HOST: &str = "issuer.example.com";
 const ISSUER: &str = "http://localhost:4000";
 const CONFIGURATION_ID: &str = "UniversityDegreeCredential";
+const SECOND_CONFIGURATION_ID: &str = "EmployeeCredential";
 const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
 const RESPONSE_TYPE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_code";
 const PROOF_X: &str = "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI";
@@ -44,8 +45,8 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 //   rejects a missing code key or proof. A valid proof binds the issued subject
 //   and cnf.jwk to its wallet DID and public key.
 // - authorize response type: authenticated | unauthenticated | combined with another type
-// A token/configuration mismatch is unreachable because this profile advertises
-// and issues exactly one credential configuration.
+// - credential configuration: each configured identifier is advertised and authorized;
+//   selected identifiers drive the issued type, VCT, and subject container.
 
 #[test]
 fn returns_credential_issuer_metadata_from_configured_issuer() {
@@ -61,6 +62,24 @@ fn returns_credential_issuer_metadata_from_configured_issuer() {
     assert_eq!(
         body["credential_configurations_supported"][CONFIGURATION_ID]["format"],
         "jwt_vc"
+    );
+    assert_eq!(
+        body["credential_configurations_supported"][SECOND_CONFIGURATION_ID]["display"][0]["name"],
+        "Employee Credential"
+    );
+    assert_eq!(
+        body["credential_configurations_supported"][SECOND_CONFIGURATION_ID]["vct"],
+        "https://credentials.example.com/employee"
+    );
+    assert_eq!(
+        body["credential_configurations_supported"][SECOND_CONFIGURATION_ID]["credential_definition"]
+            ["type"],
+        json!(["VerifiableCredential", "EmployeeCredential"])
+    );
+    assert_eq!(
+        body["credential_configurations_supported"][SECOND_CONFIGURATION_ID]["credential_metadata"]
+            ["claims"],
+        json!([{"path": ["credentialSubject", "id"], "mandatory": true}])
     );
     assert_eq!(
         body["credential_configurations_supported"][CONFIGURATION_ID]["credential_signing_alg_values_supported"]
@@ -134,6 +153,10 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert_eq!(offer["credential_issuer"], "http://localhost:4000");
     assert_eq!(offer["credential_configuration_ids"][0], CONFIGURATION_ID);
+    assert_eq!(
+        offer["credential_configuration_ids"][1],
+        SECOND_CONFIGURATION_ID
+    );
     assert!(grant.get("tx_code").is_none());
 
     let token_response = token_request(&format!(
@@ -364,9 +387,44 @@ fn issues_ed25519_signed_jwt_vc() {
         claims["type"],
         serde_json::json!(["VerifiableCredential", CONFIGURATION_ID])
     );
+    assert_eq!(claims["vct"], CONFIGURATION_ID);
+    assert_eq!(claims["vc"]["vct"], CONFIGURATION_ID);
     assert_eq!(
-        claims["credentialSubject"][CONFIGURATION_ID]["degree"]["name"],
-        "Bachelor of Science and Arts"
+        claims["credentialSubject"][CONFIGURATION_ID]["id"],
+        "username"
+    );
+    assert!(
+        claims["credentialSubject"][CONFIGURATION_ID]
+            .get("degree")
+            .is_none()
+    );
+}
+
+#[test]
+fn issues_selected_configured_credential() {
+    let access_token = access_token();
+    let response = credential_request(
+        Some(&access_token),
+        "application/json",
+        SECOND_CONFIGURATION_ID,
+    );
+    let body = json_body(&response);
+    let claims = credential_claims(body["credential"].as_str().unwrap());
+
+    assert_ok_json(&response);
+    assert_eq!(claims["vct"], "https://credentials.example.com/employee");
+    assert_eq!(
+        claims["type"],
+        json!(["VerifiableCredential", "EmployeeCredential"])
+    );
+    assert_eq!(
+        claims["credentialSubject"][SECOND_CONFIGURATION_ID]["id"],
+        "username"
+    );
+    assert!(
+        claims["credentialSubject"][SECOND_CONFIGURATION_ID]
+            .get("degree")
+            .is_none()
     );
 }
 
@@ -565,6 +623,20 @@ fn rejects_expired_cose_bearer_token() {
 }
 
 #[test]
+fn rejects_configured_credential_not_authorized_by_access_token() {
+    let response = credential_request(
+        Some(&credential_access_token_for(&[CONFIGURATION_ID])),
+        "application/json",
+        SECOND_CONFIGURATION_ID,
+    );
+
+    assert_bearer_error(
+        &response,
+        "access token does not authorize the requested credential",
+    );
+}
+
+#[test]
 fn rejects_missing_credential_identifier() {
     let access_token = access_token();
     let response = post_json("/credential", Some(&format!("Bearer {access_token}")), "{}");
@@ -755,7 +827,7 @@ fn offered_code() -> String {
 
 fn expired_code() -> String {
     let claims = kagome::resources::pre_authorized_code::PreAuthorizedCodeClaims {
-        credential_configuration_id: CONFIGURATION_ID.to_owned(),
+        credential_configuration_ids: vec![CONFIGURATION_ID.to_owned()],
         subject: "did:example:alice".to_owned(),
         credential_profile: Default::default(),
         id_token_public_jwk: None,
@@ -774,13 +846,39 @@ fn expired_code() -> String {
 
 fn expired_credential_access_token() -> String {
     let claims = kagome::resources::credential_access_token::CredentialAccessTokenClaims {
-        credential_configuration_id: CONFIGURATION_ID.to_owned(),
+        credential_configuration_ids: vec![CONFIGURATION_ID.to_owned()],
         subject: "did:example:alice".to_owned(),
         credential_profile: Default::default(),
         id_token_public_jwk: None,
         require_wallet_binding: false,
         iat: 1,
         exp: 2,
+    };
+    let mut bytes = Vec::new();
+    ciborium::into_writer(&claims, &mut bytes).unwrap();
+    kagome::resources::crypto::encode_cose_encrypt0(
+        &bytes,
+        kagome::resources::crypto::EncryptedArtifact::CredentialAccessToken,
+    )
+    .unwrap()
+}
+
+fn credential_access_token_for(configuration_ids: &[&str]) -> String {
+    let iat = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let claims = kagome::resources::credential_access_token::CredentialAccessTokenClaims {
+        credential_configuration_ids: configuration_ids
+            .iter()
+            .map(|configuration_id| (*configuration_id).to_owned())
+            .collect(),
+        subject: "did:example:alice".to_owned(),
+        credential_profile: Default::default(),
+        id_token_public_jwk: None,
+        require_wallet_binding: false,
+        iat,
+        exp: iat + 300,
     };
     let mut bytes = Vec::new();
     ciborium::into_writer(&claims, &mut bytes).unwrap();
@@ -1024,6 +1122,10 @@ fn assert_token_response(response: &str) {
             "type": "openid_credential",
             "format": "jwt_vc",
             "credential_configuration_id": CONFIGURATION_ID,
+        }, {
+            "type": "openid_credential",
+            "format": "jwt_vc",
+            "credential_configuration_id": SECOND_CONFIGURATION_ID,
         }])
     );
     assert!(body["access_token"].as_str().is_some_and(|token| {

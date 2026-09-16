@@ -7,7 +7,7 @@ use crate::{
     errors::OAuthError,
     resources::{
         crypto::{self, CoseEncrypt0Errors, EncryptedArtifact},
-        resource_owner::ResourceOwnerProfile,
+        resource_owner::CredentialProfiles,
     },
 };
 
@@ -27,10 +27,10 @@ pub struct CredentialAccessToken {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CredentialAccessTokenClaims {
-    pub credential_configuration_id: String,
+    pub credential_configuration_ids: Vec<String>,
     pub subject: String,
     #[serde(default)]
-    pub credential_profile: ResourceOwnerProfile,
+    pub credential_profile: CredentialProfiles,
     pub id_token_public_jwk: Option<Value>,
     pub require_wallet_binding: bool,
     pub iat: u64,
@@ -38,9 +38,9 @@ pub struct CredentialAccessTokenClaims {
 }
 
 pub trait Generate {
-    fn credential_configuration_id(&self) -> Option<&str>;
+    fn credential_configuration_ids(&self) -> &[String];
     fn subject(&self) -> Option<&str>;
-    fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
+    fn credential_profile(&self) -> Option<&CredentialProfiles> {
         None
     }
     fn id_token_public_jwk(&self) -> Option<&Value> {
@@ -58,9 +58,12 @@ pub trait Validate {
 }
 
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
-    let credential_configuration_id = request.credential_configuration_id().ok_or_else(|| {
-        OAuthError::invalid_token_response("credential configuration is required")
-    })?;
+    let credential_configuration_ids = request.credential_configuration_ids();
+    if credential_configuration_ids.is_empty() {
+        return Err(OAuthError::invalid_token_response(
+            "credential configuration is required",
+        ));
+    }
     let subject = request
         .subject()
         .ok_or_else(|| OAuthError::invalid_token_response("credential subject is required"))?;
@@ -69,7 +72,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?
         .as_secs();
     let claims = CredentialAccessTokenClaims {
-        credential_configuration_id: credential_configuration_id.to_owned(),
+        credential_configuration_ids: credential_configuration_ids.to_owned(),
         subject: subject.to_owned(),
         credential_profile: request.credential_profile().cloned().unwrap_or_default(),
         id_token_public_jwk: request.id_token_public_jwk().cloned(),

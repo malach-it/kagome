@@ -44,6 +44,16 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .presentation_state()
         .ok_or_else(|| OAuthError::invalid_token_response("presentation state is required"))?;
     let redirect_uri = verifier::response_uri_with_state(verifier, &state.value);
+    let credential_types: Vec<_> = crate::config::Config::global()
+        .credentials
+        .iter()
+        .map(|credential| credential.credential_type.as_str())
+        .collect();
+    let credential_vcts: Vec<_> = crate::config::Config::global()
+        .credentials
+        .iter()
+        .map(|credential| credential.vct.as_str())
+        .collect();
     let claims = PresentationRequestClaims {
         iss: &state.claims.client_id,
         aud: request_object::SELF_ISSUED_AUDIENCE,
@@ -67,14 +77,13 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
                         "path": ["$.vc.type"],
                         "filter": {
                             "type": "array",
-                            "contains": {
-                                "const": credential_issuer::CREDENTIAL_TYPE
-                            }
+                            "contains": {"enum": credential_types}
                         }
                     }, {
                         "path": ["$.vc.credentialSubject.id"]
                     }, {
-                        "path": ["$.vc.credentialSubject.degree"]
+                        "path": ["$.vct", "$.vc.vct"],
+                        "filter": {"type": "string", "enum": credential_vcts}
                     }]
                 }
             }]

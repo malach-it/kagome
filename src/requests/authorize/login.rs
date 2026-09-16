@@ -59,7 +59,7 @@ pub struct AuthorizeLoginResponse {
     pub previous_authorization_code: Option<String>,
     pub username: Option<String>,
     pub resource_owner_profile: Option<resource_owner::ResourceOwnerProfile>,
-    pub credential_profile: Option<resource_owner::ResourceOwnerProfile>,
+    pub credential_profile: Option<resource_owner::CredentialProfiles>,
     pub authenticated: bool,
     pub wallet_authenticated: bool,
     pub siop_public_jwk: Option<Value>,
@@ -776,7 +776,7 @@ impl pre_authorized_code::Generate for AuthorizeLoginRequest<'_> {
         true
     }
 
-    fn credential_profile(&self) -> Option<&resource_owner::ResourceOwnerProfile> {
+    fn credential_profile(&self) -> Option<&resource_owner::CredentialProfiles> {
         self.response.credential_profile.as_ref()
     }
 
