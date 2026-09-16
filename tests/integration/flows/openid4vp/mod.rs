@@ -26,7 +26,8 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - wallet binding policy: disabled | enabled with a code ID-token key | enabled
 //   without a code ID-token key (invalid)
 // - verifier: configured issuer rather than request Host
-// - credential issuer Host: valid | missing | invalid
+// - request Host: configured-issuer host | different host. Both are intentionally
+//   equivalent because presentation state uses the configured credential issuer.
 // - generated transaction values: fresh nonce/state | generation failure (not
 //   reachable with the process RNG and embedded encryption key)
 // - request object: signed ES256 JWT redirect | signing failure (not reachable
@@ -172,15 +173,13 @@ fn generates_fresh_nonce_and_state_for_each_request() {
 }
 
 #[test]
-fn rejects_missing_or_invalid_credential_issuer_host() {
+fn accepts_presentation_request_with_a_different_request_host() {
     let path = presentation_request_path();
-    let missing = send_request(&format!("GET {path} HTTP/1.1\r\n\r\n"));
-    let invalid = send_request(&format!(
-        "GET {path} HTTP/1.1\r\nhost: verifier/example\r\n\r\n"
+    let response = send_request(&format!(
+        "GET {path} HTTP/1.1\r\nhost: attacker.example\r\n\r\n"
     ));
 
-    assert_authorize_error(&missing, "host header is required");
-    assert_authorize_error(&invalid, "host header is invalid");
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
 }
 
 #[test]
@@ -1389,7 +1388,7 @@ fn encoded_presentation_state(iat: u64, exp: u64, redirect_uri: &str) -> String 
         nonce: "expired-nonce".to_owned(),
         client_id: CLIENT_ID.to_owned(),
         verifier: "http://localhost:4000".to_owned(),
-        credential_issuer: "https://issuer.example.com".to_owned(),
+        credential_issuer: "http://localhost:4000".to_owned(),
         authorization_client_id: AUTHORIZE_CLIENT_ID.to_owned(),
         authorization_redirect_uri: redirect_uri.to_owned(),
         authorization_state: Some("client-state".to_owned()),

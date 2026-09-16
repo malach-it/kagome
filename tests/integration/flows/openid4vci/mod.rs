@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use super::super::server::send_request;
 
 const HOST: &str = "issuer.example.com";
+const ISSUER: &str = "http://localhost:4000";
 const CONFIGURATION_ID: &str = "UniversityDegreeCredential";
 const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
 const RESPONSE_TYPE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_code";
@@ -19,10 +20,11 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // Branch matrix:
 // - discovery endpoint: issuer metadata | authorization-server metadata | JWKS
 // - removed credential-offer endpoint: GET returns not found
-// - JWKS route: canonical | OpenID compatibility alias; response: success | error,
-//   each with Access-Control-Allow-Origin
+// - JWKS route: canonical | OpenID compatibility alias, each returning success
+//   with Access-Control-Allow-Origin
 // - endpoint method: supported | credential OPTIONS preflight | unsupported
-// - Host: valid | missing | invalid
+// - request Host: configured-issuer host | different host. Both are intentionally
+//   equivalent because issuer identity comes only from server configuration.
 // - token representation: form | JSON
 // - credential access-token artifact: opaque COSE_Encrypt0
 // - pre-authorized_code: valid | missing | invalid | expired
@@ -46,15 +48,15 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // and issues exactly one credential configuration.
 
 #[test]
-fn returns_credential_issuer_metadata() {
+fn returns_credential_issuer_metadata_from_configured_issuer() {
     let response = get("/.well-known/openid-credential-issuer");
     let body = json_body(&response);
 
     assert_ok_json(&response);
-    assert_eq!(body["credential_issuer"], "https://issuer.example.com");
+    assert_eq!(body["credential_issuer"], ISSUER);
     assert_eq!(
         body["credential_endpoint"],
-        "https://issuer.example.com/credential"
+        "http://localhost:4000/credential"
     );
     assert_eq!(
         body["credential_configurations_supported"][CONFIGURATION_ID]["format"],
@@ -75,13 +77,13 @@ fn returns_credential_issuer_metadata() {
 }
 
 #[test]
-fn returns_authorization_server_metadata() {
+fn returns_authorization_server_metadata_from_configured_issuer() {
     let response = get("/.well-known/oauth-authorization-server");
     let body = json_body(&response);
 
     assert_ok_json(&response);
-    assert_eq!(body["issuer"], "https://issuer.example.com");
-    assert_eq!(body["token_endpoint"], "https://issuer.example.com/token");
+    assert_eq!(body["issuer"], ISSUER);
+    assert_eq!(body["token_endpoint"], "http://localhost:4000/token");
     assert_eq!(body["response_types_supported"][1], RESPONSE_TYPE);
     assert_eq!(body["grant_types_supported"][1], GRANT_TYPE);
     assert_eq!(
@@ -355,7 +357,7 @@ fn issues_ed25519_signed_jwt_vc() {
     assert_ok_json(&response);
     assert!(response.contains("access-control-allow-origin: *\r\n"));
     assert_eq!(body["format"], "jwt_vc");
-    assert_eq!(claims["iss"], "https://issuer.example.com");
+    assert_eq!(claims["iss"], ISSUER);
     assert_eq!(claims["sub"], "username");
     assert_eq!(
         claims["type"],
@@ -655,22 +657,25 @@ fn returns_not_found_for_unsupported_oid4vci_methods() {
 }
 
 #[test]
-fn rejects_missing_or_invalid_host_for_issuer_endpoints() {
-    let missing = send_request("GET /.well-known/openid-credential-issuer HTTP/1.1\r\n\r\n");
-    assert_oauth_error(&missing, "invalid_request", "host header is required");
-
-    let invalid = send_request(
-        "GET /.well-known/openid-credential-issuer HTTP/1.1\r\nhost: issuer/example\r\n\r\n",
+fn request_host_cannot_override_configured_credential_issuer() {
+    let response = send_request(
+        "GET /.well-known/openid-credential-issuer HTTP/1.1\r\nhost: attacker.example\r\n\r\n",
     );
-    assert_oauth_error(&invalid, "invalid_request", "host header is invalid");
+    let body = json_body(&response);
+
+    assert_ok_json(&response);
+    assert_eq!(body["credential_issuer"], ISSUER);
+    assert_eq!(body["credential_endpoint"], format!("{ISSUER}/credential"));
 }
 
 #[test]
-fn returns_jwks_errors_with_access_control_allow_origin() {
+fn returns_jwks_without_deriving_identity_from_request_host() {
     for path in ["/jwks", "/openid/jwks"] {
-        let response = send_request(&format!("GET {path} HTTP/1.1\r\n\r\n"));
+        let response = send_request(&format!(
+            "GET {path} HTTP/1.1\r\nhost: attacker.example\r\n\r\n"
+        ));
 
-        assert_oauth_error(&response, "invalid_request", "host header is required");
+        assert_ok_json(&response);
         assert!(response.contains("access-control-allow-origin: *\r\n"));
     }
 }

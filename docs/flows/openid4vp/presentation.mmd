@@ -3,8 +3,7 @@ flowchart TD
     begin[GET /authorize with vp_token] --> verifier["verifier::validate"]
     verifier -- error --> request_error["`**HTTP 400** authorization error`"]
     verifier -- ok --> issuer["credential_issuer::validate"]
-    issuer -- error --> request_error
-    issuer -- ok --> state["presentation_state::generate"]
+    issuer --> state["presentation_state::generate"]
     state -- error --> request_error
     state -- ok --> request_object["presentation_request::generate"]
     request_object -- error --> request_error

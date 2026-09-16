@@ -16,7 +16,7 @@ pub(super) fn issuer_response(
 }
 
 fn metadata_response(
-    request: IssuerRequest<'_>,
+    request: IssuerRequest,
     body: impl FnOnce(&str) -> serde_json::Value,
 ) -> Result<String, OAuthError> {
     Ok(oid4vci_json_response(

@@ -3,5 +3,4 @@ flowchart TD
     start[Request /jwks] --> method{GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> issuer["credential_issuer::validate"]
-    issuer -- error --> error["`**HTTP 400** CORS invalid_request`"]
-    issuer -- ok --> success["`**HTTP 200** CORS loaded signing JWKs`"]
+    issuer --> success["`**HTTP 200** CORS loaded signing JWKs`"]

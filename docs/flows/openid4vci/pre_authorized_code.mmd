@@ -16,9 +16,8 @@ flowchart TD
     access -- ok --> token_success["`**HTTP 200** credential access token with authorization details`"]
     token_success --> credential_request[Request /credential]
     credential_request --> credential_issuer["credential_issuer::validate"]
-    credential_issuer -- error --> credential_error["`**HTTP 400/401** credential error with CORS header`"]
-    credential_issuer -- ok --> bearer["credential_access_token::validate"]
-    bearer -- error --> credential_error
+    credential_issuer --> bearer["credential_access_token::validate"]
+    bearer -- error --> credential_error["`**HTTP 400/401** credential error with CORS header`"]
     bearer -- ok --> configuration["credential_issuer::validate_configuration"]
     configuration -- error --> credential_error
     configuration -- ok --> proof["credential_proof::validate_optional"]

@@ -1,13 +1,7 @@
-use crate::{
-    errors::OAuthError,
-    resources::credential_issuer,
-    unit::{KagomeRequest, request_header},
-};
+use crate::{errors::OAuthError, resources::credential_issuer, unit::KagomeRequest};
 
 #[derive(Debug)]
-pub struct IssuerRequest<'a> {
-    pub request: &'a KagomeRequest,
-    pub host: Option<String>,
+pub struct IssuerRequest {
     pub response: IssuerResponse,
 }
 
@@ -16,11 +10,9 @@ pub struct IssuerResponse {
     pub credential_issuer: Option<String>,
 }
 
-impl<'a> IssuerRequest<'a> {
-    pub fn from_request(request: &'a KagomeRequest) -> Self {
+impl IssuerRequest {
+    pub fn from_request(_request: &KagomeRequest) -> Self {
         Self {
-            request,
-            host: request_header(request, "host"),
             response: IssuerResponse::default(),
         }
     }
@@ -33,11 +25,7 @@ impl<'a> IssuerRequest<'a> {
     }
 }
 
-impl credential_issuer::Validate for IssuerRequest<'_> {
-    fn request_host(&self) -> Option<&str> {
-        self.host.as_deref()
-    }
-
+impl credential_issuer::Validate for IssuerRequest {
     fn add_credential_issuer(&mut self, credential_issuer: String) {
         self.response.credential_issuer = Some(credential_issuer);
     }

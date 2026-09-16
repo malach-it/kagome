@@ -1,4 +1,4 @@
-use crate::errors::OAuthError;
+use crate::{config::Config, errors::OAuthError};
 
 pub const CREDENTIAL_CONFIGURATION_ID: &str = "UniversityDegreeCredential";
 pub const CREDENTIAL_SCOPE: &str = "UniversityDegree";
@@ -6,24 +6,12 @@ pub const CREDENTIAL_FORMAT: &str = "jwt_vc";
 pub const CREDENTIAL_TYPE: &str = "UniversityDegreeCredential";
 
 pub trait Validate {
-    fn request_host(&self) -> Option<&str>;
     fn add_credential_issuer(&mut self, credential_issuer: String);
 }
 
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
-    let host = request
-        .request_host()
-        .ok_or_else(|| OAuthError::invalid_request("host header is required"))?;
-
-    if host.is_empty()
-        || !host.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
-        })
-    {
-        return Err(OAuthError::invalid_request("host header is invalid"));
-    }
-
-    request.add_credential_issuer(format!("https://{host}"));
+    // Request headers are attacker-controlled and must not define issuer identity.
+    request.add_credential_issuer(Config::global().server.issuer.clone());
     Ok(request)
 }
 

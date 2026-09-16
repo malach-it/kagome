@@ -13,8 +13,7 @@ flowchart TD
     policy -- ok --> verifier["verifier::validate"]
     verifier -- error --> authorize_error
     verifier -- ok --> issuer["credential_issuer::validate"]
-    issuer -- error --> authorize_error
-    issuer -- ok --> state["presentation_state::generate"]
+    issuer --> state["presentation_state::generate"]
     state -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
     state -- ok --> request_object["presentation_request::generate"]
     request_object -- error --> generation_error

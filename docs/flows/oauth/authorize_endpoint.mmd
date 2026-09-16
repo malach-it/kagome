@@ -14,8 +14,7 @@ flowchart TD
     flow -- vp_token --> verifier["verifier::validate"]
     verifier -- error --> error
     verifier -- ok --> issuer["credential_issuer::validate"]
-    issuer -- error --> error
-    issuer -- ok --> state["presentation_state::generate"]
+    issuer --> state["presentation_state::generate"]
     state -- error --> error
     state -- ok --> request_object["presentation_request::generate"]
     request_object -- error --> error

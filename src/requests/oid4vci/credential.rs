@@ -13,7 +13,6 @@ use crate::{
 #[derive(Debug)]
 pub struct CredentialRequest<'a> {
     pub request: &'a KagomeRequest,
-    pub host: Option<String>,
     pub access_token: Option<String>,
     pub content_type: Option<String>,
     pub credential_identifier: Option<String>,
@@ -37,7 +36,6 @@ impl<'a> CredentialRequest<'a> {
     pub fn from_request(request: &'a KagomeRequest) -> Self {
         Self {
             request,
-            host: request_header(request, "host"),
             access_token: bearer_token(request_header(request, "authorization").as_deref()),
             content_type: request_header(request, "content-type"),
             credential_identifier: parse_request_parameter(request, "credential_identifier"),
@@ -61,10 +59,6 @@ impl<'a> CredentialRequest<'a> {
 }
 
 impl credential_issuer::Validate for CredentialRequest<'_> {
-    fn request_host(&self) -> Option<&str> {
-        self.host.as_deref()
-    }
-
     fn add_credential_issuer(&mut self, credential_issuer: String) {
         self.response.credential_issuer = Some(credential_issuer);
     }

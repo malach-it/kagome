@@ -21,7 +21,7 @@ use crate::{
         response_type::{self, ResponseType},
         verifier,
     },
-    unit::{KagomeRequest, parse_query_parameter, request_header},
+    unit::{KagomeRequest, parse_query_parameter},
 };
 
 use super::{client_id_username, response_type_query, valid_authorize_client_id};
@@ -40,7 +40,6 @@ pub struct AuthorizeLoginRequest<'a> {
     pub metadata_policy: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
-    pub host: Option<String>,
 }
 
 #[derive(Debug)]
@@ -80,7 +79,6 @@ impl<'a> AuthorizeLoginRequest<'a> {
             metadata_policy: parse_query_parameter(request, "metadata_policy"),
             username: None,
             password: None,
-            host: request_header(request, "host"),
         }
     }
 
@@ -113,7 +111,6 @@ impl<'a> AuthorizeLoginRequest<'a> {
             metadata_policy: parameters.metadata_policy,
             username: parameters.username,
             password: parameters.password,
-            host: request_header(request, "host"),
         })
     }
 
@@ -144,7 +141,6 @@ impl<'a> AuthorizeLoginRequest<'a> {
             metadata_policy: parameters.metadata_policy,
             username: None,
             password: None,
-            host: request_header(request, "host"),
         })
     }
 
@@ -382,10 +378,6 @@ impl verifier::Validate for AuthorizeLoginRequest<'_> {
 }
 
 impl credential_issuer::Validate for AuthorizeLoginRequest<'_> {
-    fn request_host(&self) -> Option<&str> {
-        self.host.as_deref()
-    }
-
     fn add_credential_issuer(&mut self, credential_issuer: String) {
         self.response.credential_issuer = Some(credential_issuer);
     }
