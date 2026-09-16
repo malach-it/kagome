@@ -1,4 +1,4 @@
-FROM rust:1-slim AS builder
+FROM rust:1-bookworm AS builder
 
 WORKDIR /app
 RUN apt-get update \
