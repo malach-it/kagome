@@ -4,8 +4,7 @@ use serde_json::{Value, json};
 use crate::errors::OAuthError;
 
 use super::{
-    credential_issuer, presentation_state::PresentationState, request_object,
-    verifiable_presentation, verifier,
+    presentation_state::PresentationState, request_object, verifiable_presentation, verifier,
 };
 
 #[derive(Debug)]
@@ -44,16 +43,6 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .presentation_state()
         .ok_or_else(|| OAuthError::invalid_token_response("presentation state is required"))?;
     let redirect_uri = verifier::response_uri_with_state(verifier, &state.value);
-    let credential_types: Vec<_> = crate::config::Config::global()
-        .credentials
-        .iter()
-        .map(|credential| credential.credential_type.as_str())
-        .collect();
-    let credential_vcts: Vec<_> = crate::config::Config::global()
-        .credentials
-        .iter()
-        .map(|credential| credential.vct.as_str())
-        .collect();
     let claims = PresentationRequestClaims {
         iss: &state.claims.client_id,
         aud: request_object::SELF_ISSUED_AUDIENCE,
@@ -63,31 +52,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         response_mode: "direct_post",
         nonce: &state.claims.nonce,
         state: &state.value,
-        presentation_definition: json!({
-            "id": state.claims.presentation_definition_id,
-            "input_descriptors": [{
-                "id": state.claims.input_descriptor_id,
-                "format": {
-                    credential_issuer::CREDENTIAL_FORMAT: {
-                        "alg": ["EdDSA"]
-                    }
-                },
-                "constraints": {
-                    "fields": [{
-                        "path": ["$.vc.type"],
-                        "filter": {
-                            "type": "array",
-                            "contains": {"enum": credential_types}
-                        }
-                    }, {
-                        "path": ["$.vc.credentialSubject.id"]
-                    }, {
-                        "path": ["$.vct", "$.vc.vct"],
-                        "filter": {"type": "string", "enum": credential_vcts}
-                    }]
-                }
-            }]
-        }),
+        presentation_definition: state.claims.presentation_definition.clone(),
         client_metadata: json!({
             "vp_formats_supported": {
                 "jwt_vp": {

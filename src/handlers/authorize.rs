@@ -2,8 +2,8 @@ use crate::{
     errors::OAuthError,
     resources::{
         access_token, authorization_code, client_credentials, credential_issuer, federated_server,
-        id_token, metadata_policy, pkce, pre_authorized_code, presentation_request,
-        presentation_state, resource_owner,
+        id_token, metadata_policy, pkce, pre_authorized_code, presentation_definition,
+        presentation_request, presentation_state, resource_owner,
         response_type::{self, ResponseType},
         verifier,
     },
@@ -172,6 +172,7 @@ fn generate_login_response(
         [ResponseType::IdToken] => Err(OAuthError::unauthenticated()),
         [ResponseType::VpToken] => verifier::validate(authorize_request)
             .and_then(credential_issuer::validate)
+            .and_then(presentation_definition::select)
             .and_then(presentation_state::generate)
             .and_then(presentation_request::generate),
         [ResponseType::Code, ..] => authorization_code::generate(authorize_request),

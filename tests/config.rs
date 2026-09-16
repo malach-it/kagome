@@ -37,8 +37,17 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.credentials[0].name, "University Degree Credential");
     assert_eq!(config.credentials[0].vct, "UniversityDegreeCredential");
     assert_eq!(
-        config.credentials[0].credential_type,
-        "UniversityDegreeCredential"
+        config.credentials[0].credential_types,
+        ["UniversityDegreeCredential"]
+    );
+    assert_eq!(config.presentation_definitions.len(), 1);
+    assert_eq!(
+        config.presentation_definitions[0].identifier,
+        "credential_presentation"
+    );
+    assert_eq!(
+        config.presentation_definitions[0].definition_id(),
+        Some("credential_presentation")
     );
     assert_eq!(config.clients[0].client_id, "client_id");
     assert_eq!(config.clients[0].public, None);
@@ -69,6 +78,11 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
     assert_eq!(config.clients.len(), 1);
+    assert_eq!(config.presentation_definitions.len(), 1);
+    assert_eq!(
+        config.presentation_definitions[0].input_descriptor_id(),
+        Some("credential")
+    );
     assert_eq!(config.clients[0].supported_grant_types, GrantType::ALL);
     assert_eq!(
         config.clients[0].supported_response_types,
@@ -157,6 +171,7 @@ fn json_schema_describes_configuration_constraints() {
     let response_type = &schema["$defs"]["ResponseType"];
     let token_ttls = &schema["$defs"]["TokenTtlsConfig"];
     let credential = &schema["$defs"]["CredentialConfig"];
+    let presentation_definition = &schema["$defs"]["PresentationDefinitionConfig"];
     let crypto = &schema["$defs"]["CryptoConfig"];
 
     assert_eq!(
@@ -166,14 +181,31 @@ fn json_schema_describes_configuration_constraints() {
     assert_eq!(schema["additionalProperties"], false);
     assert_eq!(schema["properties"]["clients"]["minItems"], 1);
     assert_eq!(schema["properties"]["credentials"]["minItems"], 1);
+    assert_eq!(
+        schema["properties"]["presentation_definitions"]["minItems"],
+        1
+    );
     assert_eq!(credential["additionalProperties"], false);
     assert_eq!(
         credential["required"],
         serde_json::json!(["credential_configuration_id", "name", "vct", "type"])
     );
     for field in ["credential_configuration_id", "name", "vct", "type"] {
-        assert_eq!(credential["properties"][field]["minLength"], 1);
+        if field == "type" {
+            assert_eq!(credential["properties"][field]["minItems"], 1);
+        } else {
+            assert_eq!(credential["properties"][field]["minLength"], 1);
+        }
     }
+    assert_eq!(presentation_definition["additionalProperties"], false);
+    assert_eq!(
+        presentation_definition["required"],
+        serde_json::json!(["identifier", "definition"])
+    );
+    assert_eq!(
+        presentation_definition["properties"]["identifier"]["minLength"],
+        1
+    );
     assert_eq!(crypto["additionalProperties"], false);
     assert_eq!(crypto["required"], serde_json::json!(["key_file"]));
     assert_eq!(server["additionalProperties"], false);
@@ -1242,7 +1274,7 @@ fn rejects_boolean_claim_credential_configuration() {
 #[test]
 fn loads_credential_configuration() {
     let file = ConfigFile::new(&configuration_yaml(
-        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  - credential_configuration_id: EmployeeCredential\n    name: Employee credential\n    vct: https://credentials.example.com/employee\n    type: EmployeeCredential\n",
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  - credential_configuration_id: EmployeeCredential\n    name: Employee credential\n    vct: https://credentials.example.com/employee\n    type: [EmployeeCredential, EmployeeBadgeCredential]\n",
     ));
 
     let config = Config::load_from_path(file.path()).expect("credential configuration should load");
@@ -1252,7 +1284,10 @@ fn loads_credential_configuration() {
         .expect("configured credential should be addressable by id");
     assert_eq!(credential.name, "Employee credential");
     assert_eq!(credential.vct, "https://credentials.example.com/employee");
-    assert_eq!(credential.credential_type, "EmployeeCredential");
+    assert_eq!(
+        credential.credential_types,
+        ["EmployeeCredential", "EmployeeBadgeCredential"]
+    );
 }
 
 #[test]
@@ -1273,12 +1308,12 @@ fn rejects_empty_credential_configuration_list() {
 
 #[test]
 fn rejects_empty_credential_configuration_fields() {
-    for field in ["credential_configuration_id", "name", "vct", "type"] {
+    for field in ["credential_configuration_id", "name", "vct"] {
         let values = [
             ("credential_configuration_id", "EmployeeCredential"),
             ("name", "Employee credential"),
             ("vct", "EmployeeCredential"),
-            ("type", "EmployeeCredential"),
+            ("type", "[EmployeeCredential]"),
         ];
         let credential = values
             .iter()
@@ -1305,9 +1340,51 @@ fn rejects_empty_credential_configuration_fields() {
 }
 
 #[test]
+fn rejects_invalid_credential_type_arrays() {
+    for (credential_types, expected) in [
+        ("[]", "type must contain non-empty values"),
+        (
+            "[EmployeeCredential, \"\"]",
+            "type must contain non-empty values",
+        ),
+        (
+            "[EmployeeCredential, EmployeeCredential]",
+            "type must not contain duplicates",
+        ),
+        (
+            "[VerifiableCredential]",
+            "type must not contain VerifiableCredential",
+        ),
+    ] {
+        let file = ConfigFile::new(&configuration_yaml(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  - credential_configuration_id: EmployeeCredential\n    name: Employee credential\n    vct: EmployeeCredential\n    type: {credential_types}\n"
+        )));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("invalid credential type array should fail");
+
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn rejects_scalar_credential_type() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  - credential_configuration_id: EmployeeCredential\n    name: Employee credential\n    vct: EmployeeCredential\n    type: EmployeeCredential\n",
+    ));
+
+    let error = Config::load_from_path(file.path()).expect_err("scalar type should fail");
+
+    assert!(
+        error.to_string().contains("invalid type: string"),
+        "{error}"
+    );
+}
+
+#[test]
 fn rejects_duplicate_credential_configuration_ids() {
     let file = ConfigFile::new(&configuration_yaml(
-        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  - credential_configuration_id: EmployeeCredential\n    name: First credential\n    vct: FirstCredential\n    type: FirstCredential\n  - credential_configuration_id: EmployeeCredential\n    name: Second credential\n    vct: SecondCredential\n    type: SecondCredential\n",
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\ncredentials:\n  - credential_configuration_id: EmployeeCredential\n    name: First credential\n    vct: FirstCredential\n    type: [FirstCredential]\n  - credential_configuration_id: EmployeeCredential\n    name: Second credential\n    vct: SecondCredential\n    type: [SecondCredential]\n",
     ));
 
     let error = Config::load_from_path(file.path())
@@ -1318,6 +1395,90 @@ fn rejects_duplicate_credential_configuration_ids() {
             .to_string()
             .contains("credential_configuration_id must be unique")
     );
+}
+
+#[test]
+fn loads_presentation_definition_configuration() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\npresentation_definitions:\n  - identifier: employee_presentation\n    definition:\n      id: employee_definition\n      input_descriptors:\n        - id: employee_credential\n          constraints:\n            fields: []\n",
+    ));
+
+    let config = Config::load_from_path(file.path()).expect("presentation definition should load");
+    let presentation = config
+        .presentation_definition("employee_presentation")
+        .expect("presentation definition should be addressable by scope identifier");
+
+    assert_eq!(presentation.definition_id(), Some("employee_definition"));
+    assert_eq!(
+        presentation.input_descriptor_id(),
+        Some("employee_credential")
+    );
+}
+
+#[test]
+fn rejects_empty_presentation_definition_list() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\npresentation_definitions: []\n",
+    ));
+
+    let error = Config::load_from_path(file.path())
+        .expect_err("empty presentation definition configuration should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("presentation_definitions must contain at least one")
+    );
+}
+
+#[test]
+fn rejects_invalid_presentation_definition_configuration() {
+    let cases = [
+        (
+            "  - identifier: \"\"\n    definition: { id: definition, input_descriptors: [{ id: credential }] }",
+            "presentation_definitions[0].identifier must not be empty",
+        ),
+        (
+            "  - identifier: presentation\n    definition: { input_descriptors: [{ id: credential }] }",
+            "definition.id must be a non-empty string",
+        ),
+        (
+            "  - identifier: presentation\n    definition: { id: definition, input_descriptors: [] }",
+            "input_descriptors must contain exactly one descriptor",
+        ),
+        (
+            "  - identifier: presentation\n    definition: { id: definition, input_descriptors: [{ id: \"\" }] }",
+            "input_descriptors[0].id must be a non-empty string",
+        ),
+    ];
+
+    for (configuration, expected) in cases {
+        let file = ConfigFile::new(&configuration_yaml(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\npresentation_definitions:\n{configuration}\n"
+        )));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("invalid presentation definition should fail");
+
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn rejects_duplicate_presentation_definition_identifiers_and_ids() {
+    for second in [
+        "identifier: first\n    definition: { id: second_definition, input_descriptors: [{ id: second }] }",
+        "identifier: second\n    definition: { id: first_definition, input_descriptors: [{ id: second }] }",
+    ] {
+        let file = ConfigFile::new(&configuration_yaml(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\npresentation_definitions:\n  - identifier: first\n    definition: {{ id: first_definition, input_descriptors: [{{ id: first }}] }}\n  - {second}\n"
+        )));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("duplicate presentation definition identity should fail");
+
+        assert!(error.to_string().contains("must be unique"), "{error}");
+    }
 }
 
 struct ConfigFile {

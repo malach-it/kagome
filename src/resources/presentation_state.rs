@@ -5,16 +5,16 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::errors::OAuthError;
+use crate::{
+    config::{Config, PresentationDefinitionConfig},
+    errors::OAuthError,
+};
 
 use super::{
     authorization_code, crypto, crypto::EncryptedArtifact, pkce, pkce::CodeChallenge, verifier,
 };
 
 pub const TTL_SECONDS: u64 = 300;
-pub const PRESENTATION_DEFINITION_ID: &str = "credential_presentation";
-pub const INPUT_DESCRIPTOR_ID: &str = "credential";
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PresentationStateClaims {
     pub nonce: String,
@@ -27,6 +27,8 @@ pub struct PresentationStateClaims {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_challenge: Option<CodeChallenge>,
     pub id_token_public_jwk: Option<Value>,
+    pub presentation_definition_identifier: String,
+    pub presentation_definition: Value,
     pub presentation_definition_id: String,
     pub input_descriptor_id: String,
     pub iat: u64,
@@ -40,6 +42,7 @@ pub struct PresentationState {
 }
 
 pub trait Generate {
+    fn presentation_definition(&self) -> Option<&PresentationDefinitionConfig>;
     fn verifier(&self) -> Option<&str>;
     fn credential_issuer(&self) -> Option<&str>;
     fn authorization_client_id(&self) -> Option<&str>;
@@ -59,6 +62,17 @@ pub trait Validate {
 }
 
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
+    let presentation_definition = request.presentation_definition().ok_or_else(|| {
+        OAuthError::invalid_token_response("presentation definition must be selected")
+    })?;
+    let presentation_definition_id = presentation_definition.definition_id().ok_or_else(|| {
+        OAuthError::invalid_token_response("presentation definition id is required")
+    })?;
+    let input_descriptor_id = presentation_definition
+        .input_descriptor_id()
+        .ok_or_else(|| {
+            OAuthError::invalid_token_response("presentation input descriptor id is required")
+        })?;
     let verifier = request
         .verifier()
         .ok_or_else(|| OAuthError::invalid_token_response("verifier is required"))?;
@@ -94,8 +108,10 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         authorization_state: request.authorization_state().map(str::to_owned),
         code_challenge: request.code_challenge().cloned(),
         id_token_public_jwk,
-        presentation_definition_id: PRESENTATION_DEFINITION_ID.to_owned(),
-        input_descriptor_id: INPUT_DESCRIPTOR_ID.to_owned(),
+        presentation_definition_identifier: presentation_definition.identifier.clone(),
+        presentation_definition: presentation_definition.definition.clone(),
+        presentation_definition_id: presentation_definition_id.to_owned(),
+        input_descriptor_id: input_descriptor_id.to_owned(),
         iat,
         exp: iat + TTL_SECONDS,
     };
@@ -146,8 +162,13 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
             .as_ref()
             .is_some_and(|jwk| !jwk.is_object())
         || claims.client_id != verifier::client_id(&claims.verifier)
-        || claims.presentation_definition_id != PRESENTATION_DEFINITION_ID
-        || claims.input_descriptor_id != INPUT_DESCRIPTOR_ID
+        || !Config::global()
+            .presentation_definition(&claims.presentation_definition_identifier)
+            .is_some_and(|configured| {
+                configured.definition == claims.presentation_definition
+                    && configured.definition_id() == Some(&claims.presentation_definition_id)
+                    && configured.input_descriptor_id() == Some(&claims.input_descriptor_id)
+            })
         || claims.iat > now
         || claims.exp <= claims.iat
         || claims.exp - claims.iat > TTL_SECONDS

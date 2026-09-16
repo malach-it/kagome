@@ -111,10 +111,12 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         OAuthError::invalid_request("state must be validated before presentation_submission")
     })?;
     let configured_descriptor = |id: &str| {
-        Config::global()
-            .credentials
-            .iter()
-            .any(|credential| credential.credential_type == id)
+        Config::global().credentials.iter().any(|credential| {
+            credential
+                .credential_types
+                .iter()
+                .any(|credential_type| credential_type == id)
+        })
     };
 
     if submission.id.is_empty() {

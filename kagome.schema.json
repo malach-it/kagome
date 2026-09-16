@@ -23,6 +23,14 @@
       "description": "External file containing encryption secrets and signing key pairs.",
       "$ref": "#/$defs/CryptoConfig"
     },
+    "presentation_definitions": {
+      "description": "Presentation definitions selected by OAuth scope identifiers.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PresentationDefinitionConfig"
+      },
+      "minItems": 1
+    },
     "server": {
       "description": "HTTP server settings.",
       "$ref": "#/$defs/ServerConfig"
@@ -135,9 +143,12 @@
           "minLength": 1
         },
         "type": {
-          "description": "W3C Verifiable Credential type carried by the credential.",
-          "type": "string",
-          "minLength": 1
+          "description": "W3C Verifiable Credential types carried by the credential.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
         },
         "vct": {
           "description": "Verifiable credential type identifier carried by the credential.",
@@ -275,6 +286,24 @@
         "implicit",
         "urn:ietf:params:oauth:grant-type:pre-authorized_code",
         "password"
+      ]
+    },
+    "PresentationDefinitionConfig": {
+      "type": "object",
+      "properties": {
+        "definition": {
+          "description": "Presentation Exchange definition sent to the wallet and enforced on response."
+        },
+        "identifier": {
+          "description": "OAuth scope value used to select the presentation definition.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "identifier",
+        "definition"
       ]
     },
     "ResponseType": {

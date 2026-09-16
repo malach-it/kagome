@@ -1,5 +1,5 @@
 use crate::{
-    config::Config,
+    config::{Config, PresentationDefinitionConfig},
     errors::OAuthError,
     handlers::responses::{
         access_token_redirect_response, authorization_request_uri, authorize_redirect_response,
@@ -17,7 +17,7 @@ use crate::{
         id_token::{self, IdToken},
         metadata_policy,
         pkce::{self, CodeChallenge},
-        pre_authorized_code,
+        pre_authorized_code, presentation_definition,
         presentation_request::{self, SignedPresentationRequest},
         presentation_state, resource_owner,
         response_type::{self, ResponseType},
@@ -41,6 +41,7 @@ pub struct AuthorizeLoginRequest<'a> {
     pub state: Option<String>,
     pub authorization_code: Option<String>,
     pub metadata_policy: Option<String>,
+    pub scope: Option<String>,
     pub code_challenge: Option<String>,
     pub code_challenge_method: Option<String>,
     pub username: Option<String>,
@@ -75,6 +76,7 @@ pub struct AuthorizeLoginResponse {
     pub presentation_state: Option<presentation_state::PresentationState>,
     pub signed_presentation_request: Option<SignedPresentationRequest>,
     pub credential_issuer: Option<String>,
+    pub presentation_definition: Option<PresentationDefinitionConfig>,
 }
 
 impl<'a> AuthorizeLoginRequest<'a> {
@@ -88,6 +90,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
             state: parse_query_parameter(request, "state"),
             authorization_code: parse_query_parameter(request, "code"),
             metadata_policy: parse_query_parameter(request, "metadata_policy"),
+            scope: parse_query_parameter(request, "scope"),
             code_challenge: parse_query_parameter(request, "code_challenge"),
             code_challenge_method: parse_query_parameter(request, "code_challenge_method"),
             username: None,
@@ -122,6 +125,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
             state: parameters.state,
             authorization_code: parameters.authorization_code,
             metadata_policy: parameters.metadata_policy,
+            scope: parameters.scope,
             code_challenge: parameters.code_challenge,
             code_challenge_method: parameters.code_challenge_method,
             username: parameters.username,
@@ -156,6 +160,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
             state: parameters.state,
             authorization_code: parameters.authorization_code,
             metadata_policy: parameters.metadata_policy,
+            scope: parameters.scope,
             code_challenge: parameters.code_challenge,
             code_challenge_method: parameters.code_challenge_method,
             username: None,
@@ -418,6 +423,7 @@ impl AuthorizeLoginResponse {
             presentation_state: None,
             signed_presentation_request: None,
             credential_issuer: None,
+            presentation_definition: None,
         }
     }
 }
@@ -435,6 +441,9 @@ impl credential_issuer::Validate for AuthorizeLoginRequest<'_> {
 }
 
 impl presentation_state::Generate for AuthorizeLoginRequest<'_> {
+    fn presentation_definition(&self) -> Option<&PresentationDefinitionConfig> {
+        self.response.presentation_definition.as_ref()
+    }
     fn verifier(&self) -> Option<&str> {
         self.response.verifier.as_deref()
     }
@@ -477,6 +486,16 @@ impl presentation_state::Generate for AuthorizeLoginRequest<'_> {
     }
 }
 
+impl presentation_definition::Select for AuthorizeLoginRequest<'_> {
+    fn requested_scope(&self) -> Option<&str> {
+        self.scope.as_deref()
+    }
+
+    fn add_presentation_definition(&mut self, definition: PresentationDefinitionConfig) {
+        self.response.presentation_definition = Some(definition);
+    }
+}
+
 impl presentation_request::Generate for AuthorizeLoginRequest<'_> {
     fn verifier(&self) -> Option<&str> {
         self.response.verifier.as_deref()
@@ -504,6 +523,7 @@ impl federated_server::Authorize for AuthorizeLoginRequest<'_> {
             state: self.state.clone(),
             authorization_code: self.authorization_code.clone(),
             metadata_policy: self.metadata_policy.clone(),
+            scope: self.scope.clone(),
             code_challenge: self.code_challenge.clone(),
             code_challenge_method: self.code_challenge_method.clone(),
             username: self.username.clone(),

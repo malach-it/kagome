@@ -201,8 +201,27 @@ fn start_server() -> String {
         credential_configuration_id: "EmployeeCredential".to_owned(),
         name: "Employee Credential".to_owned(),
         vct: "https://credentials.example.com/employee".to_owned(),
-        credential_type: "EmployeeCredential".to_owned(),
+        credential_types: vec!["EmployeeCredential".to_owned()],
     });
+    config
+        .presentation_definitions
+        .push(kagome::config::PresentationDefinitionConfig {
+            identifier: "employee_presentation".to_owned(),
+            definition: serde_json::json!({
+                "id": "employee_presentation",
+                "input_descriptors": [{
+                    "id": "employee_credential",
+                    "format": {"jwt_vc": {"alg": ["EdDSA"]}},
+                    "constraints": {"fields": [{
+                        "path": ["$.vc.type"],
+                        "filter": {
+                            "type": "array",
+                            "contains": {"const": "EmployeeCredential"}
+                        }
+                    }]}
+                }]
+            }),
+        });
     let password_file = config.clients[0].password_file.clone();
     let qr_password_file = password_file.clone();
     let restricted_password_file = password_file.clone();

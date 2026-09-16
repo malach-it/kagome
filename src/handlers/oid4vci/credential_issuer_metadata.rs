@@ -10,6 +10,9 @@ pub fn handle_credential_issuer_metadata(request: &KagomeRequest) -> String {
             .credentials
             .iter()
             .map(|credential| {
+                let credential_types: Vec<_> = std::iter::once("VerifiableCredential")
+                    .chain(credential.credential_types.iter().map(String::as_str))
+                    .collect();
                 (credential.credential_configuration_id.clone(), json!({
                     "format": credential_issuer::CREDENTIAL_FORMAT,
                     "scope": credential.credential_configuration_id,
@@ -24,7 +27,7 @@ pub fn handle_credential_issuer_metadata(request: &KagomeRequest) -> String {
                         }
                     },
                     "credential_definition": {
-                        "type": ["VerifiableCredential", credential.credential_type]
+                        "type": credential_types
                     },
                     "display": [{"name": credential.name, "locale": "en"}],
                     "credential_metadata": {

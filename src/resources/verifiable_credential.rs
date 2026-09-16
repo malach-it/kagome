@@ -38,7 +38,7 @@ struct JwtVcClaims<'a> {
     context: [&'static str; 1],
     id: String,
     #[serde(rename = "type")]
-    credential_types: [&'a str; 2],
+    credential_types: &'a [&'a str],
     vct: &'a str,
     issuer: &'a str,
     #[serde(rename = "issuanceDate")]
@@ -57,7 +57,7 @@ struct Confirmation {
 struct VerifiableCredentialClaims<'a> {
     id: String,
     #[serde(rename = "type")]
-    credential_types: [&'a str; 2],
+    credential_types: &'a [&'a str],
     vct: &'a str,
     issuer: &'a str,
     #[serde(rename = "issuanceDate")]
@@ -125,6 +125,14 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
             .as_str(),
         credential_subject.clone(),
     );
+    let credential_types: Vec<_> = std::iter::once("VerifiableCredential")
+        .chain(
+            credential_configuration
+                .credential_types
+                .iter()
+                .map(String::as_str),
+        )
+        .collect();
     let claims = JwtVcClaims {
         iss: issuer,
         sub: subject,
@@ -139,10 +147,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         },
         context: ["https://www.w3.org/ns/credentials/v2"],
         id: credential_id.clone(),
-        credential_types: [
-            "VerifiableCredential",
-            &credential_configuration.credential_type,
-        ],
+        credential_types: &credential_types,
         vct: &credential_configuration.vct,
         issuer,
         issuance_date: issuance_date.clone(),
@@ -152,10 +157,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         },
         vc: VerifiableCredentialClaims {
             id: credential_id,
-            credential_types: [
-                "VerifiableCredential",
-                &credential_configuration.credential_type,
-            ],
+            credential_types: &credential_types,
             vct: &credential_configuration.vct,
             issuer,
             issuance_date,

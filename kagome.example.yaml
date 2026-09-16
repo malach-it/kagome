@@ -14,7 +14,25 @@ credentials:
   - credential_configuration_id: UniversityDegreeCredential
     name: University Degree Credential
     vct: UniversityDegreeCredential
-    type: UniversityDegreeCredential
+    type:
+      - UniversityDegreeCredential
+presentation_definitions:
+  - identifier: credential_presentation
+    definition:
+      id: credential_presentation
+      input_descriptors:
+        - id: credential
+          format:
+            jwt_vc:
+              alg: [EdDSA]
+          constraints:
+            fields:
+              - path: [$.vc.type]
+                filter:
+                  type: array
+                  contains:
+                    const: UniversityDegreeCredential
+              - path: [$.vc.credentialSubject.id]
 clients:
   - client_id: client_id
     public: localhost:4000

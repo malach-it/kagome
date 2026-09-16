@@ -27,6 +27,9 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - wallet binding policy: disabled | enabled with a code ID-token key | enabled
 //   without a code ID-token key (invalid)
 // - verifier: configured issuer rather than request Host
+// - presentation definition scope: exactly one configured identifier selected |
+//   missing, unknown, or multiple configured identifiers (invalid). Extra
+//   unrelated scope values are intentionally ignored.
 // - request Host: configured-issuer host | different host. Both are intentionally
 //   equivalent because presentation state uses the configured credential issuer.
 // - generated transaction values: fresh nonce/state | generation failure (not
@@ -68,7 +71,8 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - holder binding: matching audience/nonce/subject/key | mismatch for each
 // - presentation contents: VerifiablePresentation with one credential | wrong type |
 //   multiple credentials
-// - credential: trusted issuer JWT satisfying type/claims | malformed/tampered
+// - credential: trusted issuer JWT satisfying the selected definition | valid
+//   credential that does not satisfy it | malformed/tampered
 // A trusted credential with the wrong issuer, type, claims, or holder key is
 // unreachable through Kagome's fixed issuer endpoint; tampering is covered as an
 // invalid issuer signature.
@@ -131,16 +135,8 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
     );
     assert_eq!(
         request.body["presentation_definition"]["input_descriptors"][0]["constraints"]["fields"][0]
-            ["filter"]["contains"]["enum"],
-        json!(["UniversityDegreeCredential", "EmployeeCredential"])
-    );
-    assert_eq!(
-        request.body["presentation_definition"]["input_descriptors"][0]["constraints"]["fields"][2]
-            ["filter"]["enum"],
-        json!([
-            "UniversityDegreeCredential",
-            "https://credentials.example.com/employee"
-        ])
+            ["filter"]["contains"]["const"],
+        "UniversityDegreeCredential"
     );
     assert_eq!(
         request.body["client_metadata"]["vp_formats_supported"]["jwt_vp"]["alg_values"],
@@ -158,9 +154,90 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
 }
 
 #[test]
+fn selects_presentation_definition_from_scope() {
+    let path = format!(
+        "/authorize?response_type=vp_token&client_id={AUTHORIZE_CLIENT_ID}&redirect_uri={}&scope=openid%20employee_presentation",
+        form_encode(AUTHORIZE_REDIRECT_URI)
+    );
+    let request = presentation_request_for_path(&path);
+
+    assert_eq!(
+        request.body["presentation_definition"]["id"],
+        "employee_presentation"
+    );
+    assert_eq!(
+        request.body["presentation_definition"]["input_descriptors"][0]["id"],
+        "employee_credential"
+    );
+    assert_eq!(
+        request.body["presentation_definition"]["input_descriptors"][0]["constraints"]["fields"][0]
+            ["filter"]["contains"]["const"],
+        "EmployeeCredential"
+    );
+}
+
+#[test]
+fn requires_scope_to_select_exactly_one_presentation_definition() {
+    for scope in [
+        "",
+        "&scope=unknown",
+        "&scope=credential_presentation%20employee_presentation",
+    ] {
+        let response = send_request(&format!(
+            "GET /authorize?response_type=vp_token&client_id={AUTHORIZE_CLIENT_ID}&redirect_uri={}{} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+            form_encode(AUTHORIZE_REDIRECT_URI),
+            scope
+        ));
+
+        assert_authorize_error(
+            &response,
+            "scope must select exactly one configured presentation definition",
+        );
+    }
+}
+
+#[test]
+fn rejects_credential_that_does_not_satisfy_selected_presentation_definition() {
+    let path = format!(
+        "/authorize?response_type=vp_token&client_id={AUTHORIZE_CLIENT_ID}&redirect_uri={}&state=client-state&scope=employee_presentation",
+        form_encode(AUTHORIZE_REDIRECT_URI)
+    );
+    let request = presentation_request_for_path(&path);
+    let credential = issued_credential();
+    let claims = presentation_claims(&request, &credential, &PresentationOverrides::default());
+    let mut header = Header::new(Algorithm::EdDSA);
+    header.jwk = Some(holder_jwk());
+    let presentation = encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ed_pem(HOLDER_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap();
+    let submission = presentation_submission(
+        "employee_presentation",
+        "employee_credential",
+        "jwt_vp",
+        "$",
+        1,
+    );
+    let response = submit_with_submission(
+        &request.state(),
+        Some(&presentation),
+        Some(&submission),
+        None,
+        FORM_CONTENT_TYPE,
+    );
+
+    assert_error(
+        &response,
+        "presented credential claims do not satisfy the query",
+    );
+}
+
+#[test]
 fn renders_presentation_request_as_qr_code_with_deep_link() {
     let response = send_request(&format!(
-        "GET /authorize?response_type=vp_token&client_id=qr_client&redirect_uri={} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        "GET /authorize?response_type=vp_token&client_id=qr_client&redirect_uri={}&scope=credential_presentation HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
         form_encode("https://qr.example.com/callback")
     ));
     let deep_link = super::common::qr_page_deep_link(&response);
@@ -756,7 +833,7 @@ fn verifies_presentation_kid_and_signature_against_code_id_token_public_key() {
 #[test]
 fn rejects_wallet_bound_presentation_request_without_code_id_token_key() {
     let response = send_request(
-        "GET /authorize?response_type=vp_token&client_id=wallet_bound_client&redirect_uri=https%3A%2F%2Fwallet-bound.example.com%2Fcallback HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
+        "GET /authorize?response_type=vp_token&client_id=wallet_bound_client&redirect_uri=https%3A%2F%2Fwallet-bound.example.com%2Fcallback&scope=credential_presentation HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
     );
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
@@ -767,7 +844,7 @@ fn rejects_wallet_bound_presentation_request_without_code_id_token_key() {
 fn accepts_wallet_bound_presentation_request_with_code_id_token_key() {
     let code = authorization_code_with_id_token_for_client(&ec_id_token(), "wallet_bound_client");
     let response = send_request(&format!(
-        "GET /authorize?response_type=vp_token&client_id=wallet_bound_client&redirect_uri=https%3A%2F%2Fwallet-bound.example.com%2Fcallback&code={} HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
+        "GET /authorize?response_type=vp_token&client_id=wallet_bound_client&redirect_uri=https%3A%2F%2Fwallet-bound.example.com%2Fcallback&scope=credential_presentation&code={} HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
         form_encode(&code)
     ));
 
@@ -1353,7 +1430,7 @@ fn ec_id_token() -> String {
 
 fn presentation_request_path() -> String {
     format!(
-        "/authorize?response_type=vp_token&client_id={AUTHORIZE_CLIENT_ID}&redirect_uri={}&state=client-state",
+        "/authorize?response_type=vp_token&client_id={AUTHORIZE_CLIENT_ID}&redirect_uri={}&state=client-state&scope=credential_presentation",
         form_encode(AUTHORIZE_REDIRECT_URI)
     )
 }
@@ -1441,6 +1518,8 @@ fn presentation_state_with_redirect_uri(redirect_uri: &str) -> String {
 }
 
 fn encoded_presentation_state(iat: u64, exp: u64, redirect_uri: &str) -> String {
+    let presentation_definition =
+        kagome::config::Config::global().presentation_definitions[0].clone();
     let claims = kagome::resources::presentation_state::PresentationStateClaims {
         nonce: "expired-nonce".to_owned(),
         client_id: CLIENT_ID.to_owned(),
@@ -1451,6 +1530,8 @@ fn encoded_presentation_state(iat: u64, exp: u64, redirect_uri: &str) -> String 
         authorization_state: Some("client-state".to_owned()),
         code_challenge: None,
         id_token_public_jwk: None,
+        presentation_definition_identifier: presentation_definition.identifier,
+        presentation_definition: presentation_definition.definition,
         presentation_definition_id: PRESENTATION_DEFINITION_ID.to_owned(),
         input_descriptor_id: INPUT_DESCRIPTOR_ID.to_owned(),
         iat,

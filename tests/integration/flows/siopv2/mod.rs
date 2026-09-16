@@ -497,6 +497,7 @@ fn rejects_expired_siop_state() {
             state: Some("client-state".to_owned()),
             authorization_code: None,
             metadata_policy: None,
+            scope: None,
             code_challenge: None,
             code_challenge_method: None,
         },
@@ -536,6 +537,7 @@ fn rejects_siop_state_bound_to_a_different_issuer() {
             state: None,
             authorization_code: None,
             metadata_policy: None,
+            scope: None,
             code_challenge: None,
             code_challenge_method: None,
         },
@@ -575,6 +577,7 @@ fn rejects_mismatched_request_response_type_in_state() {
             state: None,
             authorization_code: None,
             metadata_policy: None,
+            scope: None,
             code_challenge: None,
             code_challenge_method: None,
         },
@@ -765,7 +768,7 @@ fn authorization_request_for_client(
 
 fn qr_authorization_request(response_type: &str) -> AuthorizationFixture {
     let response = send_request(&format!(
-        "GET /siopv2-request?response_type={}&client_id=qr_client&redirect_uri={}&state=client-state HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        "GET /siopv2-request?response_type={}&client_id=qr_client&redirect_uri={}&state=client-state&scope=credential_presentation HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
         form_encode(response_type),
         form_encode("https://qr.example.com/callback"),
     ));

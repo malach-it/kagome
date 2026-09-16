@@ -29,6 +29,8 @@ pub struct SiopAuthorizationParameters {
     pub authorization_code: Option<String>,
     pub metadata_policy: Option<String>,
     #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
     pub code_challenge: Option<String>,
     #[serde(default)]
     pub code_challenge_method: Option<String>,

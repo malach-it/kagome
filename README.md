@@ -29,7 +29,19 @@ credentials:
   - credential_configuration_id: UniversityDegreeCredential
     name: University Degree Credential
     vct: UniversityDegreeCredential
-    type: UniversityDegreeCredential
+    type: [UniversityDegreeCredential]
+presentation_definitions:
+  - identifier: credential_presentation
+    definition:
+      id: credential_presentation
+      input_descriptors:
+        - id: credential
+          constraints:
+            fields:
+              - path: [$.vc.type]
+                filter:
+                  type: array
+                  contains: { const: UniversityDegreeCredential }
 clients:
   - client_id: client_id
     client_secret: client_secret
@@ -53,8 +65,16 @@ clients:
 
 Each `credentials` entry is advertised under its
 `credential_configuration_id`. Its `name` is used for display metadata, while
-`type` and `vct` are carried by issued credentials and used by presentation
-requests and validation.
+`type` is a non-empty array of domain-specific credential types; Kagome prepends
+`VerifiableCredential` when advertising and issuing the credential. The type
+array and `vct` are used by presentation requests and validation.
+
+Each `presentation_definitions` entry associates an OAuth scope value in
+`identifier` with the Presentation Exchange object in `definition`. An
+OpenID4VP authorization request selects exactly one configured definition by
+including its identifier in the space-delimited `scope` parameter. When only
+one definition is configured, `scope` may be omitted for compatibility;
+multiple definitions require an explicit, unambiguous selection.
 
 Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
 error when the file cannot be read, contains invalid YAML or unknown fields, or

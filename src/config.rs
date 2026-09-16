@@ -42,6 +42,10 @@ pub struct Config {
     #[serde(default = "default_credential_configurations")]
     #[schemars(default = "default_credential_configurations", length(min = 1))]
     pub credentials: Vec<CredentialConfig>,
+    /// Presentation definitions selected by OAuth scope identifiers.
+    #[serde(default = "default_presentation_definitions")]
+    #[schemars(default = "default_presentation_definitions", length(min = 1))]
+    pub presentation_definitions: Vec<PresentationDefinitionConfig>,
     /// OAuth clients accepted by the authorization server.
     #[schemars(length(min = 1))]
     pub clients: Vec<ClientConfig>,
@@ -65,10 +69,10 @@ pub struct CredentialConfig {
     /// Verifiable credential type identifier carried by the credential.
     #[schemars(length(min = 1))]
     pub vct: String,
-    /// W3C Verifiable Credential type carried by the credential.
+    /// W3C Verifiable Credential types carried by the credential.
     #[serde(rename = "type")]
     #[schemars(length(min = 1))]
-    pub credential_type: String,
+    pub credential_types: Vec<String>,
 }
 
 fn default_credential_configurations() -> Vec<CredentialConfig> {
@@ -76,8 +80,55 @@ fn default_credential_configurations() -> Vec<CredentialConfig> {
         credential_configuration_id: "UniversityDegreeCredential".to_owned(),
         name: "University Degree Credential".to_owned(),
         vct: "UniversityDegreeCredential".to_owned(),
-        credential_type: "UniversityDegreeCredential".to_owned(),
+        credential_types: vec!["UniversityDegreeCredential".to_owned()],
     }]
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PresentationDefinitionConfig {
+    /// OAuth scope value used to select the presentation definition.
+    #[schemars(length(min = 1))]
+    pub identifier: String,
+    /// Presentation Exchange definition sent to the wallet and enforced on response.
+    pub definition: serde_json::Value,
+}
+
+fn default_presentation_definitions() -> Vec<PresentationDefinitionConfig> {
+    vec![PresentationDefinitionConfig {
+        identifier: "credential_presentation".to_owned(),
+        definition: serde_json::json!({
+            "id": "credential_presentation",
+            "input_descriptors": [{
+                "id": "credential",
+                "format": {"jwt_vc": {"alg": ["EdDSA"]}},
+                "constraints": {"fields": [{
+                    "path": ["$.vc.type"],
+                    "filter": {
+                        "type": "array",
+                        "contains": {"const": "UniversityDegreeCredential"}
+                    }
+                }, {
+                    "path": ["$.vc.credentialSubject.id"]
+                }]}
+            }]
+        }),
+    }]
+}
+
+impl PresentationDefinitionConfig {
+    pub fn definition_id(&self) -> Option<&str> {
+        self.definition.get("id")?.as_str()
+    }
+
+    pub fn input_descriptor_id(&self) -> Option<&str> {
+        self.definition
+            .get("input_descriptors")?
+            .as_array()?
+            .first()?
+            .get("id")?
+            .as_str()
+    }
 }
 
 #[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -303,6 +354,15 @@ impl Config {
         })
     }
 
+    pub fn presentation_definition(
+        &self,
+        identifier: &str,
+    ) -> Option<&PresentationDefinitionConfig> {
+        self.presentation_definitions
+            .iter()
+            .find(|presentation| presentation.identifier == identifier)
+    }
+
     pub fn client_password_file(&self, client_id: &str) -> Option<(&str, &[String])> {
         let configured_path = self.client(client_id)?.password_file.as_ref()?;
         self.client_password_files
@@ -441,7 +501,6 @@ impl Config {
                 ),
                 ("name", credential.name.as_str()),
                 ("vct", credential.vct.as_str()),
-                ("type", credential.credential_type.as_str()),
             ] {
                 if value.trim().is_empty() {
                     return Err(ConfigError::Validation {
@@ -450,6 +509,40 @@ impl Config {
                     });
                 }
             }
+            if credential.credential_types.is_empty()
+                || credential
+                    .credential_types
+                    .iter()
+                    .any(|credential_type| credential_type.trim().is_empty())
+            {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("credentials[{index}].type must contain non-empty values"),
+                });
+            }
+            let mut credential_types = HashSet::new();
+            if credential
+                .credential_types
+                .iter()
+                .any(|credential_type| !credential_types.insert(credential_type))
+            {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("credentials[{index}].type must not contain duplicates"),
+                });
+            }
+            if credential
+                .credential_types
+                .iter()
+                .any(|credential_type| credential_type == "VerifiableCredential")
+            {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "credentials[{index}].type must not contain VerifiableCredential because it is added automatically"
+                    ),
+                });
+            }
             if !credential_configuration_ids.insert(credential.credential_configuration_id.as_str())
             {
                 return Err(ConfigError::Validation {
@@ -457,6 +550,75 @@ impl Config {
                     message: format!(
                         "credential_configuration_id must be unique: {}",
                         credential.credential_configuration_id
+                    ),
+                });
+            }
+        }
+
+        if self.presentation_definitions.is_empty() {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "presentation_definitions must contain at least one definition".to_owned(),
+            });
+        }
+        let mut presentation_identifiers = HashSet::new();
+        let mut presentation_definition_ids = HashSet::new();
+        for (index, presentation) in self.presentation_definitions.iter().enumerate() {
+            if presentation.identifier.trim().is_empty() {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "presentation_definitions[{index}].identifier must not be empty"
+                    ),
+                });
+            }
+            if !presentation_identifiers.insert(presentation.identifier.as_str()) {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "presentation definition identifier must be unique: {}",
+                        presentation.identifier
+                    ),
+                });
+            }
+            let definition_id = presentation
+                .definition_id()
+                .filter(|id| !id.trim().is_empty());
+            let Some(definition_id) = definition_id else {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "presentation_definitions[{index}].definition.id must be a non-empty string"
+                    ),
+                });
+            };
+            if !presentation_definition_ids.insert(definition_id) {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("presentation definition id must be unique: {definition_id}"),
+                });
+            }
+            let input_descriptors = presentation
+                .definition
+                .get("input_descriptors")
+                .and_then(serde_json::Value::as_array);
+            let Some([input_descriptor]) = input_descriptors.map(Vec::as_slice) else {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "presentation_definitions[{index}].definition.input_descriptors must contain exactly one descriptor"
+                    ),
+                });
+            };
+            if input_descriptor
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|id| id.trim().is_empty())
+            {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "presentation_definitions[{index}].definition.input_descriptors[0].id must be a non-empty string"
                     ),
                 });
             }

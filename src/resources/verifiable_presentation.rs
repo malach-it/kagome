@@ -4,8 +4,9 @@ use jsonwebtoken::{
     get_current_timestamp,
 };
 use serde::Deserialize;
+use serde_json::Value;
 
-use crate::{config::Config, errors::OAuthError};
+use crate::errors::OAuthError;
 
 use super::{
     crypto::SigningArtifact, presentation_state::PresentationStateClaims, self_issued_id_token,
@@ -64,14 +65,6 @@ struct CredentialClaims {
     sub: String,
     iat: u64,
     exp: u64,
-    vct: String,
-    vc: CredentialBody,
-}
-
-#[derive(Debug, Deserialize)]
-struct CredentialBody {
-    #[serde(rename = "type")]
-    credential_types: Vec<String>,
 }
 
 pub trait Validate {
@@ -256,7 +249,7 @@ fn validate_credential(
     let mut validation = Validation::new(Algorithm::EdDSA);
     validation.set_required_spec_claims(&["exp"]);
     validation.validate_aud = false;
-    let credential = decode::<CredentialClaims>(
+    let credential_value = decode::<Value>(
         credential,
         &SigningArtifact::Credential
             .decoding_key()
@@ -265,6 +258,8 @@ fn validate_credential(
     )
     .map_err(|_| invalid("presented credential is invalid or expired"))?
     .claims;
+    let credential: CredentialClaims = serde_json::from_value(credential_value.clone())
+        .map_err(|_| invalid("presented credential claims are invalid"))?;
 
     if credential.iss != state.credential_issuer {
         return Err(invalid("presented credential issuer is invalid"));
@@ -272,23 +267,135 @@ fn validate_credential(
     if credential.iat > get_current_timestamp() || credential.exp <= credential.iat {
         return Err(invalid("presented credential time claims are invalid"));
     }
-    let configured_credential = Config::global().credentials.iter().find(|configured| {
-        credential
-            .vc
-            .credential_types
-            .iter()
-            .any(|credential_type| credential_type == &configured.credential_type)
-            && credential.vct == configured.vct
-    });
-    if configured_credential.is_none() {
+    if !satisfies_presentation_definition(&credential_value, &state.presentation_definition) {
         return Err(invalid(
-            "presented credential type does not satisfy the query",
+            "presented credential claims do not satisfy the query",
         ));
     }
 
     Ok(credential)
 }
 
+fn satisfies_presentation_definition(credential: &Value, definition: &Value) -> bool {
+    definition
+        .pointer("/input_descriptors/0/constraints/fields")
+        .and_then(Value::as_array)
+        .is_none_or(|fields| {
+            fields
+                .iter()
+                .all(|field| satisfies_field(credential, field))
+        })
+}
+
+fn satisfies_field(credential: &Value, field: &Value) -> bool {
+    let Some(paths) = field.get("path").and_then(Value::as_array) else {
+        return false;
+    };
+    let filter = field.get("filter");
+
+    paths.iter().filter_map(Value::as_str).any(|path| {
+        resolve_json_path(credential, path)
+            .is_some_and(|value| filter.is_none_or(|filter| matches_filter(value, filter)))
+    })
+}
+
+fn resolve_json_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    let path = path.strip_prefix("$.")?;
+    path.split('.').try_fold(value, |value, segment| {
+        let (name, index) = segment
+            .strip_suffix(']')
+            .and_then(|segment| segment.rsplit_once('['))
+            .map_or((segment, None), |(name, index)| {
+                (name, index.parse::<usize>().ok())
+            });
+        let value = value.get(name)?;
+        index.map_or(Some(value), |index| value.get(index))
+    })
+}
+
+fn matches_filter(value: &Value, filter: &Value) -> bool {
+    let Some(filter) = filter.as_object() else {
+        return false;
+    };
+    if filter
+        .keys()
+        .any(|keyword| !matches!(keyword.as_str(), "type" | "const" | "enum" | "contains"))
+    {
+        return false;
+    }
+    let type_matches = filter
+        .get("type")
+        .and_then(Value::as_str)
+        .is_none_or(|expected| match expected {
+            "array" => value.is_array(),
+            "boolean" => value.is_boolean(),
+            "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+            "null" => value.is_null(),
+            "number" => value.is_number(),
+            "object" => value.is_object(),
+            "string" => value.is_string(),
+            _ => false,
+        });
+    let const_matches = filter.get("const").is_none_or(|expected| value == expected);
+    let enum_matches = filter
+        .get("enum")
+        .and_then(Value::as_array)
+        .is_none_or(|expected| expected.contains(value));
+    let contains_matches = filter.get("contains").is_none_or(|contains| {
+        value
+            .as_array()
+            .is_some_and(|values| values.iter().any(|value| matches_filter(value, contains)))
+    });
+
+    type_matches && const_matches && enum_matches && contains_matches
+}
+
 fn invalid(description: &str) -> OAuthError {
     OAuthError::invalid_request(description)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::satisfies_presentation_definition;
+
+    #[test]
+    fn matches_supported_presentation_definition_fields() {
+        let credential = json!({
+            "vc": {"type": ["VerifiableCredential", "EmployeeCredential"]},
+            "vct": "EmployeeCredential"
+        });
+        let definition = json!({
+            "input_descriptors": [{
+                "constraints": {"fields": [{
+                    "path": ["$.vc.type"],
+                    "filter": {
+                        "type": "array",
+                        "contains": {"const": "EmployeeCredential"}
+                    }
+                }, {
+                    "path": ["$.vc.vct", "$.vct"],
+                    "filter": {"enum": ["EmployeeCredential"]}
+                }]}
+            }]
+        });
+
+        assert!(satisfies_presentation_definition(&credential, &definition));
+    }
+
+    #[test]
+    fn rejects_unsupported_presentation_definition_filter_keyword() {
+        let credential = json!({"name": "Alice"});
+        let definition = json!({
+            "input_descriptors": [{
+                "constraints": {"fields": [{
+                    "path": ["$.name"],
+                    "filter": {"pattern": "^Alice$"}
+                }]}
+            }]
+        });
+
+        assert!(!satisfies_presentation_definition(&credential, &definition));
+    }
 }

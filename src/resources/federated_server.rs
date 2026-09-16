@@ -41,6 +41,8 @@ pub struct FederationRequestParameters {
     pub authorization_code: Option<String>,
     pub metadata_policy: Option<String>,
     #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
     pub code_challenge: Option<String>,
     #[serde(default)]
     pub code_challenge_method: Option<String>,
@@ -454,6 +456,7 @@ mod tests {
             state: Some("client state".to_owned()),
             authorization_code: Some("previous-code".to_owned()),
             metadata_policy: Some(r#"{"username":"username"}"#.to_owned()),
+            scope: Some("openid profile".to_owned()),
             code_challenge: Some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned()),
             code_challenge_method: Some("S256".to_owned()),
             username: Some("username".to_owned()),
