@@ -2,8 +2,8 @@ use crate::{
     errors::OAuthError,
     resources::{
         access_token, authorization_code, client_credentials, credential_issuer, federated_server,
-        id_token, metadata_policy, pre_authorized_code, presentation_request, presentation_state,
-        resource_owner,
+        id_token, metadata_policy, pkce, pre_authorized_code, presentation_request,
+        presentation_state, resource_owner,
         response_type::{self, ResponseType},
         verifier,
     },
@@ -35,6 +35,7 @@ fn is_oid4vp_authorization_request(request: &KagomeRequest) -> bool {
 
 fn handle_authorization_request(request: &KagomeRequest) -> String {
     let authorize_request = validate_authorize(AuthorizeLoginRequest::from_request(request))
+        .and_then(pkce::validate)
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate);
 
@@ -83,6 +84,7 @@ fn handle_authorization_request(request: &KagomeRequest) -> String {
 
 fn handle_authentication(request: &KagomeRequest) -> String {
     match validate_authorize(AuthorizeCodeRequest::from_request(request))
+        .and_then(pkce::validate)
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate)
         .and_then(resource_owner::validate)
@@ -108,6 +110,7 @@ pub fn validate_siop_authorize(
     authorize_request: AuthorizeLoginRequest<'_>,
 ) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
     validate_authorize(authorize_request)
+        .and_then(pkce::validate)
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate)
 }
@@ -116,6 +119,7 @@ pub fn continue_federated_authorize(
     authorize_request: AuthorizeLoginRequest<'_>,
 ) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
     validate_authorize(authorize_request)
+        .and_then(pkce::validate)
         .and_then(authorization_code::validate_optional)
         .and_then(metadata_policy::validate)
         .and_then(federated_server::request_access_token)

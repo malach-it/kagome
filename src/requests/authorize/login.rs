@@ -15,7 +15,9 @@ use crate::{
         authorization_code::{self, AuthorizationCode},
         client_credentials, credential_issuer, federated_server,
         id_token::{self, IdToken},
-        metadata_policy, pre_authorized_code,
+        metadata_policy,
+        pkce::{self, CodeChallenge},
+        pre_authorized_code,
         presentation_request::{self, SignedPresentationRequest},
         presentation_state, resource_owner,
         response_type::{self, ResponseType},
@@ -38,6 +40,8 @@ pub struct AuthorizeLoginRequest<'a> {
     pub state: Option<String>,
     pub authorization_code: Option<String>,
     pub metadata_policy: Option<String>,
+    pub code_challenge: Option<String>,
+    pub code_challenge_method: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -54,6 +58,7 @@ pub struct AuthorizeLoginResponse {
     pub previous_authorization_code: Option<String>,
     pub username: Option<String>,
     pub metadata_policy: Option<MetadataPolicy>,
+    pub code_challenge: Option<CodeChallenge>,
     pub response_types: Vec<ResponseType>,
     pub next_response_types: Vec<ResponseType>,
     pub federated_authorization: Option<federated_server::FederatedAuthorization>,
@@ -77,6 +82,8 @@ impl<'a> AuthorizeLoginRequest<'a> {
             state: parse_query_parameter(request, "state"),
             authorization_code: parse_query_parameter(request, "code"),
             metadata_policy: parse_query_parameter(request, "metadata_policy"),
+            code_challenge: parse_query_parameter(request, "code_challenge"),
+            code_challenge_method: parse_query_parameter(request, "code_challenge_method"),
             username: None,
             password: None,
         }
@@ -109,6 +116,8 @@ impl<'a> AuthorizeLoginRequest<'a> {
             state: parameters.state,
             authorization_code: parameters.authorization_code,
             metadata_policy: parameters.metadata_policy,
+            code_challenge: parameters.code_challenge,
+            code_challenge_method: parameters.code_challenge_method,
             username: parameters.username,
             password: parameters.password,
         })
@@ -139,6 +148,8 @@ impl<'a> AuthorizeLoginRequest<'a> {
             state: parameters.state,
             authorization_code: parameters.authorization_code,
             metadata_policy: parameters.metadata_policy,
+            code_challenge: parameters.code_challenge,
+            code_challenge_method: parameters.code_challenge_method,
             username: None,
             password: None,
         })
@@ -337,6 +348,8 @@ impl<'a> AuthorizeLoginRequest<'a> {
             ("state", self.state.as_ref()),
             ("code", self.authorization_code.as_ref()),
             ("metadata_policy", self.metadata_policy.as_ref()),
+            ("code_challenge", self.code_challenge.as_ref()),
+            ("code_challenge_method", self.code_challenge_method.as_ref()),
         ]
         .into_iter()
         .filter_map(|(name, value)| value.map(|value| (name.to_owned(), value.clone())))
@@ -357,6 +370,7 @@ impl AuthorizeLoginResponse {
             previous_authorization_code: None,
             username: None,
             metadata_policy: None,
+            code_challenge: None,
             response_types: Vec::new(),
             next_response_types: Vec::new(),
             federated_authorization: None,
@@ -408,6 +422,10 @@ impl presentation_state::Generate for AuthorizeLoginRequest<'_> {
         self.response.previous_authorization_code.as_deref()
     }
 
+    fn code_challenge(&self) -> Option<&CodeChallenge> {
+        self.response.code_challenge.as_ref()
+    }
+
     fn require_wallet_binding(&self) -> bool {
         !self.response.siop_authenticated
             && self
@@ -449,6 +467,8 @@ impl federated_server::Authorize for AuthorizeLoginRequest<'_> {
             state: self.state.clone(),
             authorization_code: self.authorization_code.clone(),
             metadata_policy: self.metadata_policy.clone(),
+            code_challenge: self.code_challenge.clone(),
+            code_challenge_method: self.code_challenge_method.clone(),
             username: self.username.clone(),
             password: self.password.clone(),
         }
@@ -618,6 +638,10 @@ impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
         None
     }
 
+    fn code_challenge(&self) -> Option<&CodeChallenge> {
+        self.response.code_challenge.as_ref()
+    }
+
     fn username(&self) -> Option<&str> {
         self.response.username.as_deref()
     }
@@ -632,6 +656,20 @@ impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
 
     fn require_username(&self) -> bool {
         true
+    }
+}
+
+impl pkce::Validate for AuthorizeLoginRequest<'_> {
+    fn request_code_challenge(&self) -> Option<&str> {
+        self.code_challenge.as_deref()
+    }
+
+    fn request_code_challenge_method(&self) -> Option<&str> {
+        self.code_challenge_method.as_deref()
+    }
+
+    fn add_code_challenge(&mut self, code_challenge: CodeChallenge) {
+        self.response.code_challenge = Some(code_challenge);
     }
 }
 

@@ -16,6 +16,8 @@ flowchart TD
     exchange_client -- error --> oauth_error
     exchange_client -- ok --> exchange_code["authorization_code::validate"]
     exchange_code -- error --> oauth_error
-    exchange_code -- ok --> access["access_token::generate"]
+    exchange_code -- ok --> pkce["pkce::verify"]
+    pkce -- error --> oauth_error
+    pkce -- ok --> access["access_token::generate"]
     access -- error --> oauth_error
     access -- ok --> token_success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token`"]

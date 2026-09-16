@@ -73,10 +73,11 @@ fn handle_validated_grant_type(
 fn authorization_code(
     token_request: AuthorizationCodeRequest,
 ) -> Result<AuthorizationCodeRequest, OAuthError> {
-    use crate::resources::authorization_code;
+    use crate::resources::{authorization_code, pkce};
 
     client_credentials::validate(token_request)
         .and_then(authorization_code::validate)
+        .and_then(pkce::verify)
         .and_then(access_token::generate)
 }
 

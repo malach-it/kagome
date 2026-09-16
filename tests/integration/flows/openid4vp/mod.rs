@@ -23,6 +23,7 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - endpoint method: supported | unsupported
 // - common authorize validation: valid client and redirect URI | missing/invalid;
 //   optional authorization code and metadata policy absent/valid | invalid
+// - PKCE: absent | valid S256 challenge carried in presentation state | unsupported method
 // - wallet binding policy: disabled | enabled with a code ID-token key | enabled
 //   without a code ID-token key (invalid)
 // - verifier: configured issuer rather than request Host
@@ -180,6 +181,46 @@ fn accepts_presentation_request_with_a_different_request_host() {
     ));
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+}
+
+#[test]
+fn carries_s256_pkce_challenge_in_presentation_state() {
+    let request = presentation_request_with_suffix(&format!(
+        "&code_challenge={}&code_challenge_method=S256",
+        "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+    ));
+    let plaintext = kagome::resources::crypto::decode_cose_encrypt0(
+        &request.state(),
+        kagome::resources::crypto::EncryptedArtifact::PresentationState,
+        kagome::resources::crypto::CoseEncrypt0Errors {
+            invalid_cose: "invalid",
+            missing_ciphertext: "invalid",
+            missing_nonce: "invalid",
+            decryption_failed: "invalid",
+        },
+    )
+    .unwrap();
+    let claims: kagome::resources::presentation_state::PresentationStateClaims =
+        ciborium::from_reader(plaintext.as_slice()).unwrap();
+
+    assert_eq!(
+        claims.code_challenge,
+        Some(kagome::resources::pkce::CodeChallenge {
+            value: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn applies_s256_only_pkce_validation_to_presentation_request() {
+    let path = format!(
+        "{}&code_challenge={}&code_challenge_method=plain",
+        presentation_request_path(),
+        "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+    );
+    let response = send_request(&format!("GET {path} HTTP/1.1\r\nhost: {HOST}\r\n\r\n"));
+
+    assert_authorize_error(&response, "code_challenge_method must be S256");
 }
 
 #[test]
@@ -1211,6 +1252,14 @@ fn presentation_request_with_code(code: Option<&str>) -> AuthorizationRequestFix
         path.push_str("&code=");
         path.push_str(&form_encode(code));
     }
+    presentation_request_for_path(&path)
+}
+
+fn presentation_request_with_suffix(suffix: &str) -> AuthorizationRequestFixture {
+    presentation_request_for_path(&format!("{}{suffix}", presentation_request_path()))
+}
+
+fn presentation_request_for_path(path: &str) -> AuthorizationRequestFixture {
     let response = send_request(&format!("GET {path} HTTP/1.1\r\nhost: {HOST}\r\n\r\n"));
     let signed_request = redirect_query_parameter(&response, "request");
     let request_key: jsonwebtoken::jwk::Jwk = serde_json::from_value(
@@ -1392,6 +1441,7 @@ fn encoded_presentation_state(iat: u64, exp: u64, redirect_uri: &str) -> String 
         authorization_client_id: AUTHORIZE_CLIENT_ID.to_owned(),
         authorization_redirect_uri: redirect_uri.to_owned(),
         authorization_state: Some("client-state".to_owned()),
+        code_challenge: None,
         id_token_public_jwk: None,
         presentation_definition_id: PRESENTATION_DEFINITION_ID.to_owned(),
         input_descriptor_id: INPUT_DESCRIPTOR_ID.to_owned(),

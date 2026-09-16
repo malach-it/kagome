@@ -7,7 +7,9 @@ flowchart TD
     response_type -- ok --> client["client_credentials::validate"]
     client -- invalid redirect URI --> html_error["`**HTTP 400** HTML authorization error`"]
     client -- other error --> request_error
-    client -- ok --> code["authorization_code::validate_optional"]
+    client -- ok --> pkce["pkce::validate"]
+    pkce -- error --> request_error
+    pkce -- ok --> code["authorization_code::validate_optional"]
     code -- error --> request_error
     code -- ok --> policy["metadata_policy::validate"]
     policy -- error --> request_error

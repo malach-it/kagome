@@ -7,7 +7,9 @@ use serde_json::Value;
 
 use crate::errors::OAuthError;
 
-use super::{authorization_code, crypto, crypto::EncryptedArtifact, verifier};
+use super::{
+    authorization_code, crypto, crypto::EncryptedArtifact, pkce, pkce::CodeChallenge, verifier,
+};
 
 pub const TTL_SECONDS: u64 = 300;
 pub const PRESENTATION_DEFINITION_ID: &str = "degree_presentation";
@@ -22,6 +24,8 @@ pub struct PresentationStateClaims {
     pub authorization_client_id: String,
     pub authorization_redirect_uri: String,
     pub authorization_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_challenge: Option<CodeChallenge>,
     pub id_token_public_jwk: Option<Value>,
     pub presentation_definition_id: String,
     pub input_descriptor_id: String,
@@ -42,6 +46,7 @@ pub trait Generate {
     fn authorization_redirect_uri(&self) -> Option<&str>;
     fn authorization_state(&self) -> Option<&str>;
     fn authorization_code(&self) -> Option<&str>;
+    fn code_challenge(&self) -> Option<&CodeChallenge>;
     fn require_wallet_binding(&self) -> bool {
         false
     }
@@ -87,6 +92,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         authorization_client_id: authorization_client_id.to_owned(),
         authorization_redirect_uri: authorization_redirect_uri.to_owned(),
         authorization_state: request.authorization_state().map(str::to_owned),
+        code_challenge: request.code_challenge().cloned(),
         id_token_public_jwk,
         presentation_definition_id: PRESENTATION_DEFINITION_ID.to_owned(),
         input_descriptor_id: INPUT_DESCRIPTOR_ID.to_owned(),
@@ -131,6 +137,10 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         || claims.credential_issuer.is_empty()
         || claims.authorization_client_id.is_empty()
         || claims.authorization_redirect_uri.is_empty()
+        || claims
+            .code_challenge
+            .as_ref()
+            .is_some_and(|challenge| !pkce::valid_code_challenge(&challenge.value))
         || claims
             .id_token_public_jwk
             .as_ref()

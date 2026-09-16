@@ -4,7 +4,9 @@ flowchart TD
     response_type -- error --> authorize_error["`**HTTP 400** HTML error or **HTTP 302** trusted redirect`"]
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
-    client -- ok --> previous["authorization_code::validate_optional"]
+    client -- ok --> challenge["pkce::validate"]
+    challenge -- error --> authorize_error
+    challenge -- ok --> previous["authorization_code::validate_optional"]
     previous -- error --> authorize_error
     previous -- ok --> policy["metadata_policy::validate"]
     policy -- error --> authorize_error
@@ -29,6 +31,8 @@ flowchart TD
     token_client -- error --> token_error
     token_client -- ok --> code["authorization_code::validate"]
     code -- error --> token_error
-    code -- ok --> access["access_token::generate"]
+    code -- ok --> verifier["pkce::verify"]
+    verifier -- error --> token_error
+    verifier -- ok --> access["access_token::generate"]
     access -- error --> token_error
     access -- ok --> success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token`"]

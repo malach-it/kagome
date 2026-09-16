@@ -1,5 +1,5 @@
 use crate::{
-    resources::{pre_authorized_code, response_type},
+    resources::{pkce, pre_authorized_code, response_type},
     unit::KagomeRequest,
 };
 
@@ -17,6 +17,7 @@ pub fn handle_authorization_server_metadata(request: &KagomeRequest) -> String {
                 "authorization_code",
                 pre_authorized_code::GRANT_TYPE
             ],
+            "code_challenge_methods_supported": [pkce::CODE_CHALLENGE_METHOD],
             "pre-authorized_grant_anonymous_access_supported": true
         })
     })

@@ -13,7 +13,9 @@ use crate::{
         authorization_code::{self, AuthorizationCode},
         client_credentials,
         id_token::{self, IdToken},
-        metadata_policy, pre_authorized_code, resource_owner,
+        metadata_policy,
+        pkce::{self, CodeChallenge},
+        pre_authorized_code, resource_owner,
         response_type::{self, ResponseType},
     },
     unit::{KagomeRequest, parse_query_parameter, parse_request_parameter},
@@ -33,6 +35,8 @@ pub struct AuthorizeCodeRequest<'a> {
     pub state: Option<String>,
     pub authorization_code: Option<String>,
     pub metadata_policy: Option<String>,
+    pub code_challenge: Option<String>,
+    pub code_challenge_method: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -49,6 +53,7 @@ pub struct AuthorizeCodeResponse {
     pub redirect_uri: Option<String>,
     pub username: Option<String>,
     pub metadata_policy: Option<MetadataPolicy>,
+    pub code_challenge: Option<CodeChallenge>,
     pub response_types: Vec<ResponseType>,
     pub next_response_types: Vec<ResponseType>,
 }
@@ -64,6 +69,8 @@ impl<'a> AuthorizeCodeRequest<'a> {
             state: parse_query_parameter(request, "state"),
             authorization_code: parse_query_parameter(request, "code"),
             metadata_policy: parse_query_parameter(request, "metadata_policy"),
+            code_challenge: parse_query_parameter(request, "code_challenge"),
+            code_challenge_method: parse_query_parameter(request, "code_challenge_method"),
             username: parse_request_parameter(request, "username"),
             password: parse_request_parameter(request, "password"),
         }
@@ -206,6 +213,7 @@ impl AuthorizeCodeResponse {
             redirect_uri: None,
             username: None,
             metadata_policy: None,
+            code_challenge: None,
             response_types: Vec::new(),
             next_response_types: Vec::new(),
         }
@@ -336,6 +344,10 @@ impl<'a> authorization_code::Generate for AuthorizeCodeRequest<'a> {
         None
     }
 
+    fn code_challenge(&self) -> Option<&CodeChallenge> {
+        self.response.code_challenge.as_ref()
+    }
+
     fn username(&self) -> Option<&str> {
         self.response.username.as_deref()
     }
@@ -350,6 +362,20 @@ impl<'a> authorization_code::Generate for AuthorizeCodeRequest<'a> {
 
     fn require_username(&self) -> bool {
         true
+    }
+}
+
+impl pkce::Validate for AuthorizeCodeRequest<'_> {
+    fn request_code_challenge(&self) -> Option<&str> {
+        self.code_challenge.as_deref()
+    }
+
+    fn request_code_challenge_method(&self) -> Option<&str> {
+        self.code_challenge_method.as_deref()
+    }
+
+    fn add_code_challenge(&mut self, code_challenge: CodeChallenge) {
+        self.response.code_challenge = Some(code_challenge);
     }
 }
 

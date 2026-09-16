@@ -32,6 +32,8 @@ impl<'a> SiopAuthorizationRequest<'a> {
                 state: request.state,
                 authorization_code: request.authorization_code,
                 metadata_policy: request.metadata_policy,
+                code_challenge: request.code_challenge,
+                code_challenge_method: request.code_challenge_method,
             },
             response: SiopAuthorizationResponse::default(),
         }

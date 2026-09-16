@@ -86,6 +86,7 @@ fn returns_authorization_server_metadata_from_configured_issuer() {
     assert_eq!(body["token_endpoint"], "http://localhost:4000/token");
     assert_eq!(body["response_types_supported"][1], RESPONSE_TYPE);
     assert_eq!(body["grant_types_supported"][1], GRANT_TYPE);
+    assert_eq!(body["code_challenge_methods_supported"], json!(["S256"]));
     assert_eq!(
         body["pre-authorized_grant_anonymous_access_supported"],
         true

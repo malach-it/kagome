@@ -6,6 +6,8 @@ use super::super::*;
 // - client_id: valid | missing | invalid
 // - client_secret: valid | missing | invalid
 // - code: valid | missing | invalid | issued to another client
+// - PKCE-bound code: matching S256 verifier | missing verifier | malformed verifier |
+//   valid but mismatching verifier
 // Credential and code failures are representation-independent after parsing, so each
 // equivalent validation path is exercised once with form input.
 
@@ -49,6 +51,58 @@ fn returns_token_response_for_json_authorization_code_grant_type() {
     assert!(response.contains("\"access_token\":\""));
     assert!(response.contains("\"expires_in\":3600"));
     assert!(!response.contains("\"authorization_code\""));
+}
+
+#[test]
+fn exchanges_s256_pkce_bound_authorization_code() {
+    let code = authorization_code_for_client_id_and_challenge("client_id", Some(PKCE_CHALLENGE));
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={code}&code_verifier={PKCE_VERIFIER}"
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("\"access_token\":\""));
+}
+
+#[test]
+fn rejects_pkce_bound_code_without_verifier() {
+    let code = authorization_code_for_client_id_and_challenge("client_id", Some(PKCE_CHALLENGE));
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={code}"
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("code_verifier is required"));
+}
+
+#[test]
+fn rejects_malformed_pkce_code_verifier() {
+    let code = authorization_code_for_client_id_and_challenge("client_id", Some(PKCE_CHALLENGE));
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={code}&code_verifier=short"
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("code_verifier is invalid"));
+}
+
+#[test]
+fn rejects_pkce_code_verifier_that_does_not_match_challenge() {
+    let code = authorization_code_for_client_id_and_challenge("client_id", Some(PKCE_CHALLENGE));
+    let verifier = "a".repeat(43);
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={code}&code_verifier={verifier}"
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("code_verifier does not match code_challenge"));
 }
 
 #[test]

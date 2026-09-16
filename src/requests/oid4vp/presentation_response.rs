@@ -6,6 +6,7 @@ use crate::{
     resources::{
         authorization_code::{self, AuthorizationCode},
         client_credentials,
+        pkce::CodeChallenge,
         presentation_state::{self, PresentationStateClaims},
         presentation_submission,
         verifiable_presentation::{self, ValidatedPresentation},
@@ -225,6 +226,13 @@ impl authorization_code::Generate for PresentationResponseRequest<'_> {
 
     fn id_token(&self) -> Option<&str> {
         None
+    }
+
+    fn code_challenge(&self) -> Option<&CodeChallenge> {
+        self.response
+            .state_claims
+            .as_ref()
+            .and_then(|state| state.code_challenge.as_ref())
     }
 
     fn username(&self) -> Option<&str> {

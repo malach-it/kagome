@@ -11,6 +11,8 @@ use super::super::*;
 //   missing | invalid
 // - metadata policy: missing | valid string | valid username superset | invalid |
 //   username mismatch
+// - PKCE: absent | valid S256 | missing challenge | missing method | unsupported
+//   method | malformed challenge
 // - generated artifacts: COSE_Encrypt0 code/access token | EdDSA ID token
 // - federation: configured redirect | local authentication not implemented
 // Error rendering: validated redirect | missing, invalid, or another client's redirect;
@@ -617,6 +619,67 @@ fn returns_authorization_code_for_valid_authorize_request() {
     ));
     let code = redirect_code(&response).expect("authorize redirect should include code");
     assert!(!code.is_empty());
+}
+
+#[test]
+fn binds_s256_pkce_challenge_to_authorization_code() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&code_challenge={PKCE_CHALLENGE}&code_challenge_method=S256",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&response).expect("authorize redirect should include code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&code).unwrap();
+
+    assert_eq!(
+        payload.code_challenge,
+        Some(kagome::resources::pkce::CodeChallenge {
+            value: PKCE_CHALLENGE.to_owned(),
+        })
+    );
+}
+
+#[test]
+fn rejects_pkce_challenge_without_s256_method() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&code_challenge={PKCE_CHALLENGE}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("code_challenge_method must be S256"));
+}
+
+#[test]
+fn rejects_plain_pkce_method() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&code_challenge={PKCE_CHALLENGE}&code_challenge_method=plain",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("code_challenge_method must be S256"));
+}
+
+#[test]
+fn rejects_pkce_method_without_challenge() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&code_challenge_method=S256",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("code_challenge is required when code_challenge_method is provided"));
+}
+
+#[test]
+fn rejects_malformed_s256_code_challenge() {
+    let response = send_post_authorize_request(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&code_challenge=short&code_challenge_method=S256",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("code_challenge is invalid"));
 }
 
 #[test]

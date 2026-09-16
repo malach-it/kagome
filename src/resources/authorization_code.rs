@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{
     config::{Config, DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS},
     errors::OAuthError,
-    resources::{crypto, crypto::EncryptedArtifact, id_token},
+    resources::{crypto, crypto::EncryptedArtifact, id_token, pkce::CodeChallenge},
 };
 
 pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS;
@@ -31,6 +31,8 @@ pub struct AuthorizationCodeCosePayload {
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_challenge: Option<CodeChallenge>,
     pub iat: u64,
     pub exp: u64,
 }
@@ -40,6 +42,10 @@ pub trait Generate {
     fn client_id(&self) -> Option<&str>;
     fn id_token(&self) -> Option<&str>;
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode);
+
+    fn code_challenge(&self) -> Option<&CodeChallenge> {
+        None
+    }
 
     fn username(&self) -> Option<&str> {
         None
@@ -113,6 +119,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         (None, false) => None,
     };
     let previous_code = request.previous_authorization_code().map(str::to_owned);
+    let code_challenge = request.code_challenge().cloned();
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("authorization code generation failed"))?
@@ -127,6 +134,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         id_token,
         username,
         previous_code,
+        code_challenge,
         iat,
         exp,
     };

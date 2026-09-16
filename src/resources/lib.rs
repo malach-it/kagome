@@ -9,6 +9,7 @@ pub mod federated_server;
 pub mod grant_type;
 pub mod id_token;
 pub mod metadata_policy;
+pub mod pkce;
 pub mod pre_authorized_code;
 pub mod presentation_request;
 pub mod presentation_state;

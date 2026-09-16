@@ -23,6 +23,7 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - authorization request error format: invalid redirect URI renders HTML because
 //   it is not a trusted error destination | other validation failures render JSON
 // - wallet binding policy: SIOPv2-authenticated continuation does not require it
+// - PKCE: absent | valid S256 parameters preserved in state | unsupported method
 // - verifier origin: configured issuer | unrelated or missing Host (equivalent)
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
@@ -101,6 +102,41 @@ fn returns_signed_direct_post_siop_authorization_request() {
     assert_eq!(
         claims["client_metadata"]["id_token_signed_response_alg"],
         "ES256"
+    );
+}
+
+#[test]
+fn preserves_s256_pkce_parameters_in_siop_state() {
+    let response = send_request(&format!(
+        "GET /siopv2-request?response_type=code&client_id={CLIENT_ID}&redirect_uri={}&state=client-state&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256 HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        form_encode(CLIENT_REDIRECT_URI)
+    ));
+    let fixture = AuthorizationFixture {
+        body: redirect_parameters(&response),
+        response,
+    };
+    let authorization = fixture.state_claims().authorization;
+
+    assert_eq!(
+        authorization.code_challenge.as_deref(),
+        Some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    );
+    assert_eq!(authorization.code_challenge_method.as_deref(), Some("S256"));
+}
+
+#[test]
+fn rejects_non_s256_pkce_method_for_siop_authorization() {
+    let response = send_request(&format!(
+        "GET /siopv2-request?response_type=code&client_id={CLIENT_ID}&redirect_uri={}&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=plain HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        form_encode(CLIENT_REDIRECT_URI)
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    let body = json_body(&response);
+    assert_eq!(body["error"], "invalid_request");
+    assert_eq!(
+        body["error_description"],
+        "code_challenge_method must be S256"
     );
 }
 
@@ -454,6 +490,8 @@ fn rejects_expired_siop_state() {
             state: Some("client-state".to_owned()),
             authorization_code: None,
             metadata_policy: None,
+            code_challenge: None,
+            code_challenge_method: None,
         },
         iat: 1,
         exp: 2,
@@ -491,6 +529,8 @@ fn rejects_siop_state_bound_to_a_different_issuer() {
             state: None,
             authorization_code: None,
             metadata_policy: None,
+            code_challenge: None,
+            code_challenge_method: None,
         },
         iat: now,
         exp: now + kagome::resources::siopv2_state::TTL_SECONDS,
@@ -528,6 +568,8 @@ fn rejects_mismatched_request_response_type_in_state() {
             state: None,
             authorization_code: None,
             metadata_policy: None,
+            code_challenge: None,
+            code_challenge_method: None,
         },
         iat: now,
         exp: now + kagome::resources::siopv2_state::TTL_SECONDS,

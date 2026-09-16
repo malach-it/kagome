@@ -5,6 +5,9 @@ mod federation_callback;
 mod implicit;
 mod resource_owner_password_credentials;
 
+const PKCE_VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+const PKCE_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+
 pub(super) use super::super::server::send_request;
 
 const ID_TOKEN_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
@@ -227,10 +230,18 @@ fn valid_authorization_code() -> String {
 }
 
 fn authorization_code_for_client_id(client_id: &str) -> String {
+    authorization_code_for_client_id_and_challenge(client_id, None)
+}
+
+fn authorization_code_for_client_id_and_challenge(
+    client_id: &str,
+    code_challenge: Option<&str>,
+) -> String {
     struct TestAuthorizationCodeRequest {
         authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
         client_id: String,
         id_token: String,
+        code_challenge: Option<kagome::resources::pkce::CodeChallenge>,
     }
 
     impl kagome::resources::authorization_code::Generate for TestAuthorizationCodeRequest {
@@ -246,6 +257,10 @@ fn authorization_code_for_client_id(client_id: &str) -> String {
             Some(&self.id_token)
         }
 
+        fn code_challenge(&self) -> Option<&kagome::resources::pkce::CodeChallenge> {
+            self.code_challenge.as_ref()
+        }
+
         fn add_authorization_code(
             &mut self,
             authorization_code: kagome::resources::authorization_code::AuthorizationCode,
@@ -258,6 +273,9 @@ fn authorization_code_for_client_id(client_id: &str) -> String {
         authorization_code: None,
         client_id: client_id.to_owned(),
         id_token: valid_id_token(),
+        code_challenge: code_challenge.map(|value| kagome::resources::pkce::CodeChallenge {
+            value: value.to_owned(),
+        }),
     };
 
     kagome::resources::authorization_code::generate(request)

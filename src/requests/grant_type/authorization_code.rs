@@ -4,6 +4,7 @@ use crate::{
         access_token::{self, AccessToken},
         authorization_code, client_credentials,
         grant_type::{self, GrantType},
+        pkce,
     },
     unit::{KagomeRequest, parse_request_parameter},
 };
@@ -19,6 +20,7 @@ pub struct AuthorizationCodeRequest<'a> {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub grant_type: Option<String>,
+    pub code_verifier: Option<String>,
 }
 
 #[derive(Debug)]
@@ -39,6 +41,7 @@ impl<'a> AuthorizationCodeRequest<'a> {
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
             grant_type: parse_request_parameter(request, "grant_type"),
+            code_verifier: parse_request_parameter(request, "code_verifier"),
         }
     }
 
@@ -58,6 +61,7 @@ impl<'a> AuthorizationCodeRequest<'a> {
                 .response
                 .grant_type
                 .map(|grant_type| grant_type.as_str().to_owned()),
+            code_verifier: parse_request_parameter(request, "code_verifier"),
         }
     }
 
@@ -131,5 +135,15 @@ impl<'a> authorization_code::Validate for AuthorizationCodeRequest<'a> {
 
     fn add_authorization_code(&mut self, authorization_code: &str) {
         self.response.authorization_code = Some(authorization_code.to_owned());
+    }
+}
+
+impl pkce::Verify for AuthorizationCodeRequest<'_> {
+    fn request_code_verifier(&self) -> Option<&str> {
+        self.code_verifier.as_deref()
+    }
+
+    fn validated_authorization_code(&self) -> Option<&str> {
+        self.response.authorization_code.as_deref()
     }
 }
