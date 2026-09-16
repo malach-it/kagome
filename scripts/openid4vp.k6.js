@@ -3,7 +3,7 @@ import http from "k6/http";
 import {
   callbackTarget,
   clientId,
-  credentialOfferLocation,
+  deepLinkLocation,
   issuer,
   issueCredential,
   jwkThumbprint,
@@ -54,7 +54,7 @@ export default async function () {
     })}`,
     redirectOptions("GET /authorize"),
   );
-  const walletRequest = parameters(credentialOfferLocation(requestResponse));
+  const walletRequest = parameters(deepLinkLocation(requestResponse));
   const requestObject = jwtPayload(walletRequest.request);
 
   const vpToken = await signEs256(
@@ -107,7 +107,7 @@ export default async function () {
   const result = parameters(target);
 
   check(requestResponse, {
-    "OpenID4VP request displays a qr code": (request) =>
+    "OpenID4VP request renders a qr code": (request) =>
       request.status === 200
   });
   check(response, {

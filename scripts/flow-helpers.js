@@ -79,7 +79,7 @@ export function authorize(responseType) {
 
 export async function issueCredential(proofFactory = defaultCredentialProof) {
   const authorizeResponse = authorize(preAuthorizedCodeResponse);
-  const authorizeLocation = credentialOfferLocation(authorizeResponse);
+  const authorizeLocation = deepLinkLocation(authorizeResponse);
   const offer = jsonParameter(authorizeLocation, "credential_offer");
   const code =
     offer?.grants?.[preAuthorizedCodeGrant]?.["pre-authorized_code"];
@@ -177,7 +177,7 @@ export async function issueCredential(proofFactory = defaultCredentialProof) {
   return credential;
 }
 
-export function credentialOfferLocation(response) {
+export function deepLinkLocation(response) {
   const redirect = location(response);
   if (redirect) {
     return redirect;

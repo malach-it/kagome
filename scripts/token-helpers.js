@@ -23,7 +23,7 @@ const username = __ENV.KAGOME_USERNAME || "username";
 const password = __ENV.KAGOME_PASSWORD || "password";
 export const idTokenClientId = `${username}@${publicHost}`;
 const pkceVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-const pkceChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+export const pkceChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 export function formHeaders() {
   return {

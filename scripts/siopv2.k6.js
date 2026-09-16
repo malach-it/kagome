@@ -3,8 +3,10 @@ import http from "k6/http";
 import {
   callbackTarget,
   clientId,
+  deepLinkLocation,
   formOptions,
   jwkThumbprint,
+  jwtPayload,
   location,
   options,
   parameters,
@@ -14,6 +16,7 @@ import {
   serverTarget,
   signEs256,
 } from "./flow-helpers.js";
+import {pkceChallenge} from "./token-helpers.js";
 
 export { options };
 
@@ -38,10 +41,13 @@ export default async function () {
       client_id: clientId,
       redirect_uri: redirectUri,
       state: "k6-state",
+      code_challenge: pkceChallenge,
+      code_challenge_method: "S256",
     })}`,
     redirectOptions("GET /siopv2-request"),
   );
-  const walletRequest = parameters(location(requestResponse));
+  const walletRequest = parameters(deepLinkLocation(requestResponse));
+  const requestObject = jwtPayload(walletRequest.request);
   const now = Math.floor(Date.now() / 1000);
   const idToken = await signEs256(
     { alg: "ES256", typ: "JWT", jwk: publicJwk },
@@ -49,8 +55,8 @@ export default async function () {
       iss: subject,
       sub: subject,
       sub_jwk: publicJwk,
-      aud: walletRequest.redirect_uri,
-      nonce: walletRequest.nonce,
+      aud: walletRequest.client_id,
+      nonce: requestObject.nonce,
       iat: now,
       exp: now + 300,
     },
@@ -68,10 +74,8 @@ export default async function () {
   const result = parameters(target);
 
   check(requestResponse, {
-    "SIOPv2 request redirects to a wallet": (request) =>
-      request.status === 302 &&
-      walletRequest.response_type === "id_token" &&
-      typeof walletRequest.nonce === "string",
+    "SIOPv2 request renders a qr code": (request) =>
+      request.status === 200
   });
   check(response, {
     "SIOPv2 response redirects to the client": (result) =>
