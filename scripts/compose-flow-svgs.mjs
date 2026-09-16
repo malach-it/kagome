@@ -62,7 +62,7 @@ const columns = 6;
 const cellWidth = 2000;
 const cellHeight = 2200;
 const horizontalPadding = 48;
-const titleHeight = 72;
+const titleHeight = 184;
 const verticalPadding = 48;
 const availableWidth = cellWidth - horizontalPadding * 2;
 const availableHeight = cellHeight - titleHeight - verticalPadding * 2;
@@ -97,9 +97,11 @@ for (const [index, [title, relativePath]] of graphs.entries()) {
   const x = cellX + (cellWidth - width) / 2;
   const y = cellY + titleHeight + (availableHeight - height) / 2;
   const data = Buffer.from(svg).toString("base64");
+  const [specification, graphTitle] = title.split(" — ");
+  const titleX = cellX + horizontalPadding;
 
   sections.push(
-    `  <text x="${cellX + horizontalPadding}" y="${cellY + 42}" class="title">${escapeXml(title)}</text>`,
+    `  <text x="${titleX}" y="${cellY + 68}" class="title"><tspan x="${titleX}">${escapeXml(specification)}</tspan><tspan x="${titleX}" dy="82">${escapeXml(graphTitle)}</tspan></text>`,
     `  <image x="${x}" y="${y}" width="${width}" height="${height}" href="data:image/svg+xml;base64,${data}"/>`,
   );
 }
@@ -109,7 +111,7 @@ const document = [
   `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}" role="img" aria-labelledby="title description">`,
   "  <title id=\"title\">Kagome identity flow graphs</title>",
   "  <desc id=\"description\">Landscape overview of all OAuth, OpenID4VCI, OpenID4VP, and SIOPv2 flow and endpoint graphs.</desc>",
-  "  <style>.title { font: 700 28px sans-serif; fill: #222; }</style>",
+  "  <style>.title { font: 700 72px sans-serif; fill: #222; }</style>",
   `  <rect width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`,
   ...sections,
   "</svg>",
