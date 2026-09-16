@@ -67,6 +67,8 @@ services:
       K6_DURATION: ${K6_DURATION:-30s}
     volumes:
       - ./scripts:/scripts:ro
+      - ./kagome.yaml:/kagome.yaml:ro
+      - ./kagome.crypto.yaml:/kagome.crypto.yaml:ro
     command: run /scripts/code-chain.k6.js
     profiles:
       - loadtest
