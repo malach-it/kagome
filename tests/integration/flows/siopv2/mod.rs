@@ -27,7 +27,8 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - verifier origin: configured issuer | unrelated or missing Host (equivalent)
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
-// - authorization request delivery: redirect | QR-code HTML with matching deep link
+// - authorization request delivery: redirect | QR-code HTML with matching deep link;
+//   nonce, state, and redirect URI occur only in the signed request JWT
 // - client authentication: local and federated clients start SIOPv2; federated
 //   clients then authenticate upstream with the wallet-bound code preserved
 // - authenticated continuation delivery: redirect even when the client enables QR
@@ -61,11 +62,14 @@ fn returns_signed_direct_post_siop_authorization_request() {
         fixture.response
     );
     assert!(fixture.response.contains("cache-control: no-store\r\n"));
-    assert_eq!(fixture.body["client_id"], RESPONSE_URI);
-    assert_eq!(fixture.body["response_type"], "id_token");
+    assert_eq!(fixture.parameters["client_id"], RESPONSE_URI);
+    assert_eq!(fixture.parameters["response_type"], "id_token");
     assert_eq!(fixture.state_claims().response_type, "code");
-    assert_eq!(fixture.body["response_mode"], "direct_post");
-    assert_eq!(fixture.body["scope"], "openid");
+    assert_eq!(fixture.parameters["response_mode"], "direct_post");
+    assert_eq!(fixture.parameters["scope"], "openid");
+    assert!(fixture.parameters.get("nonce").is_none());
+    assert!(fixture.parameters.get("state").is_none());
+    assert!(fixture.parameters.get("redirect_uri").is_none());
     assert!(
         fixture.body["redirect_uri"]
             .as_str()
@@ -92,15 +96,13 @@ fn returns_signed_direct_post_siop_authorization_request() {
     let mut validation = Validation::new(Algorithm::ES256);
     validation.set_audience(&[kagome::resources::request_object::SELF_ISSUED_AUDIENCE]);
     let claims = decode::<Value>(
-        fixture.body["request"].as_str().unwrap(),
+        &fixture.signed_request,
         &DecodingKey::from_jwk(&request_key).unwrap(),
         &validation,
     )
     .unwrap()
     .claims;
-    assert_eq!(claims["nonce"], fixture.body["nonce"]);
-    assert_eq!(claims["state"], fixture.body["state"]);
-    assert_eq!(claims["redirect_uri"], fixture.body["redirect_uri"]);
+    assert_eq!(claims, fixture.body);
     assert_eq!(
         claims["client_metadata"]["id_token_signed_response_alg"],
         "ES256"
@@ -124,10 +126,8 @@ fn preserves_s256_pkce_parameters_in_siop_state() {
         "GET /siopv2-request?response_type=code&client_id={CLIENT_ID}&redirect_uri={}&state=client-state&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256 HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
         form_encode(CLIENT_REDIRECT_URI)
     ));
-    let fixture = AuthorizationFixture {
-        body: redirect_parameters(&response),
-        response,
-    };
+    let location = response_header(&response, "location").unwrap().to_owned();
+    let fixture = authorization_fixture(response, &location);
     let authorization = fixture.state_claims().authorization;
 
     assert_eq!(
@@ -158,6 +158,10 @@ fn renders_siop_authorization_request_as_qr_code_with_deep_link() {
     assert!(deep_link.starts_with("https://qr.example.com/callback?client_id="));
     assert!(deep_link.contains("&response_type=id_token"));
     assert!(deep_link.contains("&response_mode=direct_post"));
+    let parameters = uri_parameters(&deep_link);
+    assert!(parameters.get("nonce").is_none());
+    assert!(parameters.get("state").is_none());
+    assert!(parameters.get("redirect_uri").is_none());
     assert!(deep_link.contains("&request="));
 }
 
@@ -167,10 +171,7 @@ fn federated_siop_authorization_preserves_wallet_binding_and_redirect_uri() {
         "GET /siopv2-request?response_type=vp_token&client_id=federated_qr_client&redirect_uri=https%3A%2F%2Ffederated-qr.example.com%2Fcallback&scope=credential_presentation HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
     );
     let deep_link = super::common::qr_page_deep_link(&initial_response);
-    let fixture = AuthorizationFixture {
-        body: uri_parameters(&deep_link),
-        response: initial_response,
-    };
+    let fixture = authorization_fixture(initial_response, &deep_link);
     let did = did_key();
     let token = id_token(&fixture, &did, &did, None, TokenOverrides::default());
     let federation = submit(&fixture, &token, None);
@@ -204,7 +205,7 @@ fn generates_fresh_siop_nonce_state_and_request_object() {
 
     assert_ne!(first.body["nonce"], second.body["nonce"]);
     assert_ne!(first.body["state"], second.body["state"]);
-    assert_ne!(first.body["request"], second.body["request"]);
+    assert_ne!(first.signed_request, second.signed_request);
 }
 
 #[test]
@@ -750,7 +751,9 @@ fn rejects_subject_key_and_time_mismatches() {
 
 struct AuthorizationFixture {
     response: String,
+    parameters: Value,
     body: Value,
+    signed_request: String,
 }
 
 impl AuthorizationFixture {
@@ -811,8 +814,8 @@ fn authorization_request_for_client(
         form_encode(response_type),
         form_encode(redirect_uri),
     ));
-    let body = redirect_parameters(&response);
-    AuthorizationFixture { response, body }
+    let location = response_header(&response, "location").unwrap().to_owned();
+    authorization_fixture(response, &location)
 }
 
 fn qr_authorization_request(response_type: &str) -> AuthorizationFixture {
@@ -822,9 +825,32 @@ fn qr_authorization_request(response_type: &str) -> AuthorizationFixture {
         form_encode("https://qr.example.com/callback"),
     ));
     let deep_link = super::common::qr_page_deep_link(&response);
-    let body = uri_parameters(&deep_link);
+    authorization_fixture(response, &deep_link)
+}
 
-    AuthorizationFixture { response, body }
+fn authorization_fixture(response: String, authorization_uri: &str) -> AuthorizationFixture {
+    let parameters = uri_parameters(authorization_uri);
+    let signed_request = parameters["request"].as_str().unwrap().to_owned();
+    let request_key: jsonwebtoken::jwk::Jwk = serde_json::from_value(
+        kagome::resources::crypto::SigningArtifact::RequestObject.public_jwk(),
+    )
+    .unwrap();
+    let mut validation = Validation::new(Algorithm::ES256);
+    validation.set_audience(&[kagome::resources::request_object::SELF_ISSUED_AUDIENCE]);
+    let body = decode::<Value>(
+        &signed_request,
+        &DecodingKey::from_jwk(&request_key).unwrap(),
+        &validation,
+    )
+    .unwrap()
+    .claims;
+
+    AuthorizationFixture {
+        response,
+        parameters,
+        body,
+        signed_request,
+    }
 }
 
 fn response_header<'a>(response: &'a str, name: &str) -> Option<&'a str> {

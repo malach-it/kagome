@@ -36,8 +36,9 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 //   equivalent because presentation state uses the configured credential issuer.
 // - generated transaction values: fresh nonce/state | generation failure (not
 //   reachable with the process RNG and embedded encryption key)
-// - request object: signed ES256 JWT redirect | signing failure (not reachable
-//   with the embedded signing key)
+// - request object: signed ES256 JWT redirect with nonce, state, and redirect URI
+//   omitted from the outer deep link | signing failure (not reachable with the
+//   embedded signing key)
 // - authorization request delivery: redirect | QR-code HTML with matching deep link
 // - response media type: form (case-insensitive, parameters allowed) | missing |
 //   unsupported
@@ -84,9 +85,8 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
     let request = presentation_request();
 
     assert!(request.response.starts_with(&format!(
-        "HTTP/1.1 302 Found\r\nlocation: {AUTHORIZE_REDIRECT_URI}?client_id={}&response_type=vp_token&redirect_uri={}%3Fstate%3D",
-        form_encode(CLIENT_ID),
-        form_encode(PRESENTATION_REDIRECT_URI)
+        "HTTP/1.1 302 Found\r\nlocation: {AUTHORIZE_REDIRECT_URI}?client_id={}&response_type=vp_token&request=",
+        form_encode(CLIENT_ID)
     )));
     assert!(request.response.contains("cache-control: no-store\r\n"));
     assert_eq!(request.body["client_id"], CLIENT_ID);
@@ -98,10 +98,9 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
         redirect_query_parameter(&request.response, "response_type"),
         request.body["response_type"]
     );
-    assert_eq!(
-        redirect_query_parameter(&request.response, "redirect_uri"),
-        request.body["redirect_uri"]
-    );
+    assert!(redirect_query_parameter_optional(&request.response, "nonce").is_none());
+    assert!(redirect_query_parameter_optional(&request.response, "state").is_none());
+    assert!(redirect_query_parameter_optional(&request.response, "redirect_uri").is_none());
     let presentation_redirect_uri = request.body["redirect_uri"].as_str().unwrap();
     assert!(presentation_redirect_uri.starts_with(&format!("{PRESENTATION_REDIRECT_URI}?state=")));
     assert_eq!(
@@ -263,7 +262,9 @@ fn renders_presentation_request_as_qr_code_with_deep_link() {
 
     assert!(deep_link.starts_with("https://qr.example.com/callback?client_id="));
     assert!(deep_link.contains("&response_type=vp_token"));
-    assert!(deep_link.contains("&redirect_uri="));
+    assert!(!deep_link.contains("&nonce="));
+    assert!(!deep_link.contains("&state="));
+    assert!(!deep_link.contains("&redirect_uri="));
     assert!(deep_link.contains("&request="));
 }
 
@@ -1731,6 +1732,10 @@ fn base58btc(value: &[u8]) -> String {
 }
 
 fn redirect_query_parameter(response: &str, name: &str) -> String {
+    redirect_query_parameter_optional(response, name).unwrap()
+}
+
+fn redirect_query_parameter_optional(response: &str, name: &str) -> Option<String> {
     let location = response
         .lines()
         .find_map(|line| line.strip_prefix("location: "))
@@ -1742,7 +1747,7 @@ fn redirect_query_parameter(response: &str, name: &str) -> String {
         .split('#')
         .next()
         .unwrap();
-    let encoded_value = query
+    query
         .split('&')
         .find_map(|parameter| {
             parameter
@@ -1750,9 +1755,7 @@ fn redirect_query_parameter(response: &str, name: &str) -> String {
                 .filter(|(parameter_name, _)| *parameter_name == name)
                 .map(|(_, value)| value)
         })
-        .unwrap();
-
-    percent_decode(encoded_value)
+        .map(percent_decode)
 }
 
 fn percent_decode(value: &str) -> String {

@@ -41,7 +41,7 @@ impl<'a> SiopAuthorizationRequest<'a> {
     }
 
     pub fn to_response(&self) -> Result<String, OAuthError> {
-        let state = self
+        let _state = self
             .response
             .state
             .as_ref()
@@ -62,12 +62,9 @@ impl<'a> SiopAuthorizationRequest<'a> {
             redirect_uri,
             &[
                 ("client_id", &signed_request.client_id),
-                ("redirect_uri", &signed_request.redirect_uri),
                 ("response_type", siopv2_request::RESPONSE_TYPE),
                 ("response_mode", "direct_post"),
                 ("scope", "openid"),
-                ("nonce", &state.claims.nonce),
-                ("state", &state.value),
                 ("request", &signed_request.value),
             ],
         );

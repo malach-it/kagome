@@ -11,7 +11,6 @@ pub const RESPONSE_TYPE: &str = "id_token";
 pub struct SignedSiopRequest {
     pub value: String,
     pub client_id: String,
-    pub redirect_uri: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -44,8 +43,9 @@ pub trait Generate {
 /// Signs a SIOPv2 direct-post request from generated SIOP state.
 ///
 /// Requires generated state and binds its verifier, nonce, lifetime, and encrypted transaction to
-/// an ES256 self-issued-ID request. The signed request object, client ID, and state-bearing response
-/// URI are added to the request.
+/// an ES256 self-issued-ID request. The signed request object and client ID are added to the
+/// request; nonce, state, and redirect URI remain inside the signed claims instead of being
+/// duplicated as wallet deep-link parameters.
 ///
 /// # Errors
 ///
@@ -75,11 +75,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     };
     let value = request_object::sign(&claims)?;
 
-    request.add_signed_siop_request(SignedSiopRequest {
-        value,
-        client_id,
-        redirect_uri,
-    });
+    request.add_signed_siop_request(SignedSiopRequest { value, client_id });
     Ok(request)
 }
 

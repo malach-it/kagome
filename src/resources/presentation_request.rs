@@ -10,7 +10,6 @@ use super::{
 #[derive(Debug)]
 pub struct SignedPresentationRequest {
     pub value: String,
-    pub redirect_uri: String,
 }
 
 #[derive(Serialize)]
@@ -39,7 +38,8 @@ pub trait Generate {
 ///
 /// Requires verifier and generated presentation-state data. It binds the definition, nonce,
 /// client identity, response endpoint, supported VP algorithms, and state lifetime into a signed
-/// request object, then stores that object and its redirect URI.
+/// request object, then stores that object. The nonce, state, and redirect URI remain inside the
+/// signed claims instead of being duplicated as wallet deep-link parameters.
 ///
 /// # Errors
 ///
@@ -75,9 +75,6 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     };
     let value = request_object::sign(&claims)?;
 
-    request.add_signed_presentation_request(SignedPresentationRequest {
-        value,
-        redirect_uri,
-    });
+    request.add_signed_presentation_request(SignedPresentationRequest { value });
     Ok(request)
 }
