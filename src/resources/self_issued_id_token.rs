@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::errors::OAuthError;
 
-use super::{siopv2_request, siopv2_state::SiopStateClaims};
+use super::{siopv2_state::SiopStateClaims, verifier};
 
 pub const SUPPORTED_WALLET_ERRORS: &[&str] = &[
     "access_denied",
@@ -59,7 +59,6 @@ pub trait ValidateWalletError {
 
 pub trait Validate {
     fn request_id_token(&self) -> Option<&str>;
-    fn request_state(&self) -> Option<&str>;
     fn state_claims(&self) -> Option<&SiopStateClaims>;
     fn add_validated_id_token(&mut self, id_token: ValidatedSelfIssuedIdToken);
 }
@@ -134,9 +133,6 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let token = request
         .request_id_token()
         .ok_or_else(|| invalid("id_token is required"))?;
-    let state_value = request
-        .request_state()
-        .ok_or_else(|| invalid("state must be validated before id_token"))?;
     let state = request
         .state_claims()
         .ok_or_else(|| invalid("state must be validated before id_token"))?;
@@ -154,7 +150,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let claims = decode::<SelfIssuedClaims>(token, &key, &validation)
         .map_err(|_| invalid("id_token is invalid or expired"))?
         .claims;
-    let expected_audience = siopv2_request::response_uri_with_state(&state.verifier, state_value);
+    let expected_audience = verifier::client_id(&state.verifier);
 
     validate_claims(&claims, state, &expected_audience)?;
     request.add_validated_id_token(ValidatedSelfIssuedIdToken {

@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::super::server::send_request;
 
 const HOST: &str = "issuer.example.com";
-const CLIENT_ID: &str = "redirect_uri:http://localhost:4000/presentation-response";
+const CLIENT_ID: &str = "http://localhost:4000";
 const PRESENTATION_REDIRECT_URI: &str = "http://localhost:4000/presentation-response";
 const AUTHORIZE_CLIENT_ID: &str = "configured_client";
 const AUTHORIZE_REDIRECT_URI: &str = "https://configured.example.com/callback";
@@ -29,7 +29,8 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - PKCE: absent | valid S256 challenge carried in presentation state | unsupported method
 // - wallet binding policy: disabled | enabled with a code ID-token key | enabled
 //   without a code ID-token key (invalid)
-// - verifier: configured issuer rather than request Host
+// - verifier client_id: normalized configured issuer rather than the request Host,
+//   response URI, or downstream authorization client
 // - presentation definition scope: exactly one configured identifier selected |
 //   missing, unknown, or multiple configured identifiers (invalid). Extra
 //   unrelated scope values are intentionally ignored.
@@ -70,10 +71,11 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 //   expired. Its signing key must match the credential cnf key.
 // - code ID-token public key: absent | matching VP signature | mismatching VP
 //   signature. Configured wallet binding makes absence invalid.
-// - presentation claims profile: standard nested VP with audience and time claims |
-//   Boruta top-level VP with issuer/subject, nonce, and definition ID bindings.
-// - audience and time claims: absent | present and valid | present and invalid.
-//   Missing values intentionally rely on the short-lived encrypted state binding.
+// - presentation claims profile: standard nested VP | Boruta top-level VP with
+//   issuer/subject and definition ID bindings. Both require audience, nonce, iat,
+//   and exp transaction bindings.
+// - audience and time claims: present and valid | missing audience, iat, or exp |
+//   wrong audience | future iat | expired or non-increasing lifetime
 // - holder binding: matching audience/nonce/subject/credential confirmation key |
 //   mismatch for each | missing credential confirmation
 // - presentation contents: VerifiablePresentation with one credential | wrong type |
@@ -781,15 +783,12 @@ fn accepts_es256_presentation_with_embedded_jwk_before_kid() {
 }
 
 #[test]
-fn accepts_standard_presentation_without_audience_or_time_claims() {
+fn rejects_presentation_without_audience() {
     let request = presentation_request();
     let credential = issued_credential();
     let mut claims = presentation_claims(&request, &credential, &PresentationOverrides::default());
     let claims = claims.as_object_mut().unwrap();
     claims.remove("aud");
-    claims.remove("iat");
-    claims.remove("nbf");
-    claims.remove("exp");
     let mut header = Header::new(Algorithm::EdDSA);
     header.jwk = Some(holder_jwk());
     let jwt = encode(
@@ -800,7 +799,45 @@ fn accepts_standard_presentation_without_audience_or_time_claims() {
     .unwrap();
     let response = submit(&request.state(), Some(&jwt), None, FORM_CONTENT_TYPE);
 
-    assert_presentation_success(&response);
+    assert_error(&response, "vp_token presentation audience is invalid");
+}
+
+#[test]
+fn rejects_presentation_without_iat() {
+    let request = presentation_request();
+    let credential = issued_credential();
+    let mut claims = presentation_claims(&request, &credential, &PresentationOverrides::default());
+    claims.as_object_mut().unwrap().remove("iat");
+    let mut header = Header::new(Algorithm::EdDSA);
+    header.jwk = Some(holder_jwk());
+    let jwt = encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ed_pem(HOLDER_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap();
+    let response = submit(&request.state(), Some(&jwt), None, FORM_CONTENT_TYPE);
+
+    assert_error(&response, "vp_token presentation time claims are invalid");
+}
+
+#[test]
+fn rejects_presentation_without_exp() {
+    let request = presentation_request();
+    let credential = issued_credential();
+    let mut claims = presentation_claims(&request, &credential, &PresentationOverrides::default());
+    claims.as_object_mut().unwrap().remove("exp");
+    let mut header = Header::new(Algorithm::EdDSA);
+    header.jwk = Some(holder_jwk());
+    let jwt = encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ed_pem(HOLDER_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap();
+    let response = submit(&request.state(), Some(&jwt), None, FORM_CONTENT_TYPE);
+
+    assert_error(&response, "vp_token presentation time claims are invalid");
 }
 
 #[test]
@@ -1052,6 +1089,22 @@ fn rejects_expired_presentation() {
 }
 
 #[test]
+fn rejects_presentation_issued_in_the_future() {
+    let fixture = presentation_fixture(PresentationOverrides {
+        issued_in_future: true,
+        ..Default::default()
+    });
+    let response = submit(
+        &fixture.state,
+        Some(&fixture.vp_token),
+        None,
+        FORM_CONTENT_TYPE,
+    );
+
+    assert_error(&response, "vp_token presentation time claims are invalid");
+}
+
+#[test]
 fn rejects_non_verifiable_presentation_type() {
     let fixture = presentation_fixture(PresentationOverrides {
         presentation_type: "OtherPresentation",
@@ -1288,6 +1341,7 @@ struct PresentationOverrides<'a> {
     presentation_type: &'a str,
     include_jwk: bool,
     expired: bool,
+    issued_in_future: bool,
     duplicate_credential: bool,
     tamper_credential: bool,
 }
@@ -1301,6 +1355,7 @@ impl Default for PresentationOverrides<'_> {
             presentation_type: "VerifiablePresentation",
             include_jwk: true,
             expired: false,
+            issued_in_future: false,
             duplicate_credential: false,
             tamper_credential: false,
         }
@@ -1344,9 +1399,12 @@ fn presentation_claims(
         .as_secs();
     let (iat, exp) = if overrides.expired {
         (1, 2)
+    } else if overrides.issued_in_future {
+        (now + 300, now + 600)
     } else {
         (now, now + 300)
     };
+    let nbf = if overrides.issued_in_future { now } else { iat };
     let mut credentials = vec![credential.to_owned()];
     if overrides.duplicate_credential {
         credentials.push(credential.to_owned());
@@ -1357,7 +1415,7 @@ fn presentation_claims(
         "aud": overrides.audience.unwrap_or(CLIENT_ID),
         "nonce": overrides.nonce.unwrap_or_else(|| request.nonce()),
         "iat": iat,
-        "nbf": iat,
+        "nbf": nbf,
         "exp": exp,
         "vp": {
             "type": [overrides.presentation_type],
@@ -1372,9 +1430,17 @@ fn boruta_presentation_claims(
     holder: &str,
     definition_id: &str,
 ) -> Value {
+    let iat = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     json!({
         "iss": holder,
         "sub": holder,
+        "aud": CLIENT_ID,
+        "iat": iat,
+        "nbf": iat,
+        "exp": iat + 300,
         "metadata_policy": {
             "client_id": {
                 "one_of": [holder]

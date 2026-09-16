@@ -92,10 +92,6 @@ impl self_issued_id_token::Validate for SiopResponseRequest<'_> {
         self.id_token.as_deref()
     }
 
-    fn request_state(&self) -> Option<&str> {
-        self.state.as_deref()
-    }
-
     fn state_claims(&self) -> Option<&SiopStateClaims> {
         self.response.state_claims.as_ref()
     }

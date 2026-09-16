@@ -15,8 +15,10 @@ resource owner while preserving wallet binding.
 
 The request endpoint redirects to the validated OAuth `redirect_uri`, appending
 the generated SIOPv2 authorization response fields as query parameters.
-The configured `server.issuer` is the verifier origin used for the callback and
-is authenticated as part of the encrypted state.
+The normalized configured `server.issuer` is Kagome's pre-registered wallet
+client identifier. The callback URI is carried separately, and the returned
+self-issued ID token must use that exact client identifier as its audience.
+The verifier and callback origins are authenticated as part of encrypted state.
 ID Token signature validation accepts both raw P-256 and Boruta Wallet's
 canonical `jwk_jcs-pub` P-256 `did:key` representation.
 Wallet and validation errors redirect to the trusted client `redirect_uri` with

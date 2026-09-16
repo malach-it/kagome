@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::errors::OAuthError;
 
-use super::{request_object, siopv2_state::SiopState};
+use super::{request_object, siopv2_state::SiopState, verifier};
 
 pub const RESPONSE_PATH: &str = "/siopv2-response";
 pub const RESPONSE_TYPE: &str = "id_token";
@@ -55,7 +55,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let state = request
         .siop_state()
         .ok_or_else(|| OAuthError::invalid_token_response("siop state is required"))?;
-    let client_id = response_uri(&state.claims.verifier);
+    let client_id = verifier::client_id(&state.claims.verifier);
     let redirect_uri = response_uri_with_state(&state.claims.verifier, &state.value);
     let claims = RequestClaims {
         iss: &client_id,

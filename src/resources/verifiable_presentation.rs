@@ -212,28 +212,20 @@ fn validate_presentation_claims<'a>(
     if presentation.nonce != state.nonce {
         return Err(invalid("vp_token presentation nonce is invalid"));
     }
+    if presentation.aud.as_deref() != Some(&state.client_id) {
+        return Err(invalid("vp_token presentation audience is invalid"));
+    }
+    if presentation.iat.is_none_or(|iat| iat > now)
+        || presentation.exp.is_none_or(|exp| exp <= now)
+        || presentation
+            .iat
+            .zip(presentation.exp)
+            .is_none_or(|(iat, exp)| exp <= iat)
+        || presentation.nbf.is_some_and(|nbf| nbf > now)
+    {
+        return Err(invalid("vp_token presentation time claims are invalid"));
+    }
     let (presentation_types, credentials) = if let Some(body) = &presentation.vp {
-        // Boruta wallet omits aud and JWT time claims. Their absence is accepted
-        // because the nonce is bound to short-lived authenticated presentation
-        // state; when these claims are present, their constraints still apply.
-        if presentation
-            .aud
-            .as_deref()
-            .is_some_and(|audience| audience != state.client_id)
-        {
-            return Err(invalid("vp_token presentation audience is invalid"));
-        }
-        if presentation.iat.is_some_and(|iat| iat > now)
-            || presentation.nbf.is_some_and(|nbf| nbf > now)
-            || presentation.exp.is_some_and(|exp| exp <= now)
-            || presentation
-                .iat
-                .zip(presentation.exp)
-                .is_some_and(|(iat, exp)| exp <= iat)
-        {
-            return Err(invalid("vp_token presentation time claims are invalid"));
-        }
-
         (&body.presentation_types, &body.credentials)
     } else {
         if presentation.id.as_deref() != Some(&state.presentation_definition_id) {

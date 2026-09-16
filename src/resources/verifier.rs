@@ -41,11 +41,12 @@ pub fn response_uri_with_state(verifier: &str, state: &str) -> String {
     format!("{}?state={}", response_uri(verifier), percent_encode(state))
 }
 
-/// Constructs the verifier's `redirect_uri:`-scheme OpenID4VP client identifier.
+/// Returns the verifier's pre-registered wallet-protocol client identifier.
 ///
-/// The identifier is derived from [`response_uri`] and is therefore stable for a verifier base.
+/// The normalized configured issuer identifies the signer of OpenID4VP and SIOPv2 request objects;
+/// callback response URIs remain separate protocol parameters.
 pub fn client_id(verifier: &str) -> String {
-    format!("redirect_uri:{}", response_uri(verifier))
+    verifier.to_owned()
 }
 
 fn percent_encode(value: &str) -> String {

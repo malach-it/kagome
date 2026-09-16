@@ -27,6 +27,8 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - PKCE when response_type contains code: valid S256 parameters preserved in state |
 //   absent | unsupported method
 // - verifier origin: configured issuer | unrelated or missing Host (equivalent)
+// - verifier client_id: normalized configured issuer rather than the response URI
+//   or downstream authorization client
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
 // - authorization request delivery: redirect | QR-code HTML with matching deep link;
@@ -52,7 +54,8 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 //   JWK thumbprint P-256 | unsupported | malformed/non-canonical key |
 //   subject/key mismatch | kid mismatch
 // - claims: issuer equals subject | mismatch; audience and nonce match | mismatch;
-//   time claims valid | invalid/expired
+//   audience, iat, and exp present | each missing; time claims valid |
+//   future-issued | invalid/expired
 // Equivalent valid state sources converge before ID Token validation. Malformed wallet
 // responses do not consume state; accepted ID-token and wallet-error responses do.
 // Any embedded authorization code is consumed after successful response generation.
@@ -69,7 +72,7 @@ fn returns_signed_direct_post_siop_authorization_request() {
         fixture.response
     );
     assert!(fixture.response.contains("cache-control: no-store\r\n"));
-    assert_eq!(fixture.parameters["client_id"], RESPONSE_URI);
+    assert_eq!(fixture.parameters["client_id"], ISSUER);
     assert_eq!(fixture.parameters["response_type"], "id_token");
     assert_eq!(fixture.state_claims().response_type, "code");
     assert_eq!(fixture.parameters["response_mode"], "direct_post");
@@ -245,7 +248,7 @@ fn uses_configured_issuer_independently_of_host() {
         assert!(response.starts_with(&format!(
             "HTTP/1.1 302 Found\r\nlocation: {CLIENT_REDIRECT_URI}?"
         )));
-        assert_eq!(redirect_parameters(&response)["client_id"], RESPONSE_URI);
+        assert_eq!(redirect_parameters(&response)["client_id"], ISSUER);
     }
 }
 
@@ -847,6 +850,42 @@ fn rejects_id_token_claim_mismatches() {
 }
 
 #[test]
+fn rejects_id_token_without_audience() {
+    assert_missing_id_token_claim("aud");
+}
+
+#[test]
+fn rejects_id_token_without_iat() {
+    assert_missing_id_token_claim("iat");
+}
+
+#[test]
+fn rejects_id_token_without_exp() {
+    assert_missing_id_token_claim("exp");
+}
+
+#[test]
+fn rejects_id_token_issued_in_the_future() {
+    let fixture = authorization_request();
+    let did = did_key();
+    let token = id_token(
+        &fixture,
+        &did,
+        &did,
+        None,
+        TokenOverrides {
+            issued_in_future: true,
+            ..Default::default()
+        },
+    );
+
+    assert_error(
+        &submit(&fixture, &token, None),
+        "id_token time claims are invalid",
+    );
+}
+
+#[test]
 fn rejects_subject_key_and_time_mismatches() {
     let fixture = authorization_request();
     let invalid_thumbprint = format!("urn:ietf:params:oauth:jwk-thumbprint:sha-256:{}", "invalid");
@@ -920,6 +959,7 @@ struct TokenOverrides<'a> {
     audience: Option<&'a str>,
     nonce: Option<&'a str>,
     expired: bool,
+    issued_in_future: bool,
 }
 
 fn authorization_request() -> AuthorizationFixture {
@@ -1061,6 +1101,10 @@ fn id_token(
     overrides: TokenOverrides<'_>,
 ) -> String {
     let claims = token_claims(fixture, subject, issuer, sub_jwk, overrides);
+    sign_id_token_claims(subject, &claims)
+}
+
+fn sign_id_token_claims(subject: &str, claims: &Value) -> String {
     let mut header = Header::new(Algorithm::ES256);
     if subject.starts_with("did:key:") {
         header.kid = Some(subject.to_owned());
@@ -1086,13 +1130,15 @@ fn token_claims(
         .as_secs();
     let (iat, exp) = if overrides.expired {
         (1, 2)
+    } else if overrides.issued_in_future {
+        (now + 300, now + 600)
     } else {
         (now, now + 300)
     };
     let mut claims = json!({
         "iss": issuer,
         "sub": subject,
-        "aud": overrides.audience.unwrap_or(fixture.body["redirect_uri"].as_str().unwrap()),
+        "aud": overrides.audience.unwrap_or(fixture.body["client_id"].as_str().unwrap()),
         "nonce": overrides.nonce.unwrap_or(fixture.body["nonce"].as_str().unwrap()),
         "iat": iat,
         "exp": exp,
@@ -1101,6 +1147,19 @@ fn token_claims(
         claims["sub_jwk"] = sub_jwk;
     }
     claims
+}
+
+fn assert_missing_id_token_claim(claim: &str) {
+    let fixture = authorization_request();
+    let did = did_key();
+    let mut claims = token_claims(&fixture, &did, &did, None, TokenOverrides::default());
+    claims.as_object_mut().unwrap().remove(claim);
+    let token = sign_id_token_claims(&did, &claims);
+
+    assert_error(
+        &submit(&fixture, &token, None),
+        "id_token claims are invalid",
+    );
 }
 
 fn signing_jwk() -> Value {

@@ -22,13 +22,15 @@ JWK. That JWK is protected in presentation state, and the returned VP JWT
 signature is verified against both its declared wallet key and the ID-token
 key.
 The handler redirects to the validated authorize `redirect_uri` with the
-verifier `client_id`, `response_type=vp_token`, and a signed JWT in its `request`
-query parameter. It also carries the verifier callback as `redirect_uri`. The
+normalized configured server `issuer` as Kagome's pre-registered verifier
+`client_id`, `response_type=vp_token`, and a signed JWT in its `request` query
+parameter. It separately carries the verifier callback as `redirect_uri`. The
 outer client identifier, response type, and callback URI match their signed
 claims. The callback includes the encrypted presentation `state` in its query
-so wallet form posts remain transaction-bound. The verifier and callback origin come from the configured server
-`issuer`, independently of the request `Host`. The request `Host` remains the
-validated credential issuer origin bound into presentation state. The request object contains the
+so wallet form posts remain transaction-bound. The verifier client identifier
+and callback origin come from the configured server `issuer`, independently of
+the request `Host`. The request `Host` remains the validated credential issuer
+origin bound into presentation state. The request object contains the
 Presentation Exchange `presentation_definition`; the direct-post response binds
 its `presentation_submission` descriptor map to that definition before
 validating the presentation and credential. The response validator also accepts
@@ -48,11 +50,11 @@ required, so possession of an unrelated presentation key cannot establish the
 credential holder.
 
 The verifier accepts the standard nested JWT VP profile and Boruta wallet's
-compact top-level VP profile. Audience and JWT time claims are optional, but are
-validated whenever present. When absent, the response remains bound to the
-short-lived encrypted request state through its nonce and, for the compact
-profile, presentation-definition ID. The compact profile also requires its
-issuer and subject to match.
+compact top-level VP profile. Both require `aud` to equal the verifier
+`client_id` from the signed presentation request, `iat` not to be in the future,
+and an unexpired `exp` later than `iat`. The nonce binds the response to the
+short-lived encrypted request state; the compact profile additionally binds the
+presentation-definition ID and requires its issuer and subject to match.
 
 After successful presentation validation, Kagome generates an authorization
 code for the original validated authorize client and redirects to that client's
