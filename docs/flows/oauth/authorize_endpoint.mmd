@@ -6,7 +6,9 @@ flowchart TD
     response_type -- error --> error
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> error
-    client -- ok --> pkce["pkce::validate"]
+    client -- ok --> scope["scope::validate"]
+    scope -- error --> error
+    scope -- ok --> pkce["pkce::validate"]
     pkce -- error --> error
     pkce -- ok --> code["authorization_code::validate_optional"]
     code -- invalid, oversized, or excessive depth --> error

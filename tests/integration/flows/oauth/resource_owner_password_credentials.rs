@@ -8,6 +8,7 @@ use super::*;
 // - client password file: configured | omitted
 // - username: first configured owner | second configured owner | missing | invalid
 // - password: valid | missing | invalid
+// - scope: omitted | authorized | unauthorized
 //
 // Both representations and both configured owners are covered by successful cases.
 // Validation failures are representation-independent after parsing, so each is
@@ -35,6 +36,25 @@ fn returns_resource_owner_access_token_for_json_password_grant_type() {
     );
 
     assert_access_token_response(&response, "client_id", "other_username");
+}
+
+#[test]
+fn accepts_authorized_password_grant_scope() {
+    let response = send_form_token_request(
+        "client_id=client_id&client_secret=client_secret&grant_type=password&username=username&password=password&scope=profile",
+    );
+
+    assert_access_token_response(&response, "client_id", "username");
+}
+
+#[test]
+fn rejects_unauthorized_password_grant_scope_before_resource_owner_validation() {
+    let response = send_form_token_request(
+        "client_id=client_id&client_secret=client_secret&grant_type=password&username=username&password=password&scope=admin",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_scope\""));
 }
 
 #[test]

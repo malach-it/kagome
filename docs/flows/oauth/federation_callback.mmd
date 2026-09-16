@@ -10,7 +10,9 @@ flowchart TD
     response_type -- error --> redirect_error
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> redirect_error
-    client -- ok --> pkce["pkce::validate"]
+    client -- ok --> scope["scope::validate"]
+    scope -- error --> redirect_error
+    scope -- ok --> pkce["pkce::validate"]
     pkce -- error --> redirect_error
     pkce -- ok --> code["authorization_code::validate_optional"]
     code -- invalid, oversized, or excessive depth --> redirect_error

@@ -6,7 +6,9 @@ flowchart TD
     response_type -- error --> authorize_error["`**HTTP 400** authorize HTML error`"]
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
-    client -- ok --> pkce["pkce::validate"]
+    client -- ok --> scope["scope::validate"]
+    scope -- error --> authorize_error
+    scope -- ok --> pkce["pkce::validate"]
     pkce -- error --> authorize_error
     pkce -- ok --> code["authorization_code::validate_optional"]
     code -- invalid, oversized, or excessive depth --> authorize_error

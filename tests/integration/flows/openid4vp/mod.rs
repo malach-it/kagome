@@ -178,11 +178,7 @@ fn selects_presentation_definition_from_scope() {
 
 #[test]
 fn requires_scope_to_select_exactly_one_presentation_definition() {
-    for scope in [
-        "",
-        "&scope=unknown",
-        "&scope=credential_presentation%20employee_presentation",
-    ] {
+    for scope in ["", "&scope=credential_presentation%20employee_presentation"] {
         let response = send_request(&format!(
             "GET /authorize?response_type=vp_token&client_id={AUTHORIZE_CLIENT_ID}&redirect_uri={}{} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
             form_encode(AUTHORIZE_REDIRECT_URI),
@@ -194,6 +190,16 @@ fn requires_scope_to_select_exactly_one_presentation_definition() {
             "scope must select exactly one configured presentation definition",
         );
     }
+}
+
+#[test]
+fn rejects_unauthorized_presentation_scope() {
+    let response = send_request(&format!(
+        "GET /authorize?response_type=vp_token&client_id={AUTHORIZE_CLIENT_ID}&redirect_uri={}&scope=unknown HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        form_encode(AUTHORIZE_REDIRECT_URI)
+    ));
+
+    assert_authorize_error(&response, "scope is not authorized for client: unknown");
 }
 
 #[test]

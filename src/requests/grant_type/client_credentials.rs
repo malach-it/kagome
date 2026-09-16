@@ -4,6 +4,7 @@ use crate::{
         access_token::{self, AccessToken},
         client_credentials,
         grant_type::{self, GrantType},
+        scope,
     },
     unit::{KagomeRequest, parse_request_parameter},
 };
@@ -19,6 +20,7 @@ pub struct ClientCredentialsRequest<'a> {
     pub client_secret: Option<String>,
     pub grant_type: Option<String>,
     pub grant_types: Vec<GrantType>,
+    pub scope: Option<String>,
 }
 
 #[derive(Debug)]
@@ -42,6 +44,7 @@ impl<'a> ClientCredentialsRequest<'a> {
                 .map(grant_type::parse_supported)
                 .unwrap_or_default(),
             grant_type,
+            scope: parse_request_parameter(request, "scope"),
         }
     }
 
@@ -61,6 +64,7 @@ impl<'a> ClientCredentialsRequest<'a> {
                 .grant_type
                 .map(|grant_type| grant_type.as_str().to_owned()),
             grant_types: response.response.grant_types.clone(),
+            scope: parse_request_parameter(request, "scope"),
         }
     }
 
@@ -123,5 +127,15 @@ impl<'a> grant_type::Validate for ClientCredentialsRequest<'a> {
 
     fn add_grant_type(&mut self, grant_type: &GrantType) {
         self.response.grant_type = Some(*grant_type);
+    }
+}
+
+impl scope::Validate for ClientCredentialsRequest<'_> {
+    fn request_scope(&self) -> Option<&str> {
+        self.scope.as_deref()
+    }
+
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
     }
 }

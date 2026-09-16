@@ -8,6 +8,7 @@ use super::super::*;
 // - client_id: local | second local | federated | public username@host |
 //   resource-owner form | missing | unconfigured
 // - client response policy: all requested types supported | one requested type unsupported
+// - scope: omitted | authorized | unauthorized
 // - redirect_uri: matching first URI | matching alternate URI | another client's URI |
 //   missing | invalid
 // - metadata policy: missing | valid string | valid username superset | invalid |
@@ -30,6 +31,34 @@ fn redirects_authorize_get_request_to_federated_server() {
     ));
 
     assert_federated_authorize_redirect(&response);
+}
+
+#[test]
+fn accepts_authorized_scope_for_authorize_get_request() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=federated_client&redirect_uri={}&scope=openid%20profile",
+        valid_redirect_uri()
+    ));
+
+    assert_federated_authorize_redirect(&response);
+}
+
+#[test]
+fn rejects_unauthorized_scope_for_authorize_get_and_post_requests() {
+    let query = format!(
+        "response_type=code&client_id=client_id&redirect_uri={}&scope=admin",
+        valid_redirect_uri()
+    );
+
+    for response in [
+        send_authorize_request(&query),
+        send_post_authorize_request(&query),
+    ] {
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+        assert!(
+            response.contains("<p role=\"alert\">scope is not authorized for client: admin</p>")
+        );
+    }
 }
 
 #[test]

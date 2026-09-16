@@ -4,7 +4,9 @@ flowchart TD
     response_type -- error --> authorize_error["`**HTTP 400** HTML authorization error`"]
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
-    client -- ok --> method{GET or POST?}
+    client -- ok --> scope["scope::validate"]
+    scope -- error --> authorize_error
+    scope -- ok --> method{GET or POST?}
     method -- GET --> owner_optional["resource_owner::validate_optional"]
     owner_optional -- error --> authorize_error
     owner_optional -- absent --> federation{federated_server configured?}

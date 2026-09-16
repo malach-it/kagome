@@ -4,7 +4,9 @@ flowchart TD
     grant -- error --> oauth_error["`**HTTP 400** OAuth error`"]
     grant -- code_chain --> client["client_credentials::validate"]
     client -- error --> oauth_error
-    client -- ok --> previous["authorization_code::validate_optional"]
+    client -- ok --> scope["scope::validate"]
+    scope -- error --> oauth_error
+    scope -- ok --> previous["authorization_code::validate_optional"]
     previous -- invalid, oversized, or excessive depth --> oauth_error
     previous -- absent or valid within depth limit --> id_token["id_token::validate"]
     id_token -- error --> oauth_error
@@ -14,7 +16,9 @@ flowchart TD
     combined -- no --> code_success["`**HTTP 200** authorization code`"]
     combined -- yes --> exchange_client["client_credentials::validate"]
     exchange_client -- error --> oauth_error
-    exchange_client -- ok --> exchange_code["authorization_code::validate"]
+    exchange_client -- ok --> exchange_scope["scope::validate"]
+    exchange_scope -- error --> oauth_error
+    exchange_scope -- ok --> exchange_code["authorization_code::validate"]
     exchange_code -- invalid, oversized, or excessive depth --> oauth_error
     exchange_code -- valid within depth limit --> pkce["pkce::verify"]
     pkce -- error --> oauth_error

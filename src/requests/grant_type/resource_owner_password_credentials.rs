@@ -5,7 +5,7 @@ use crate::{
         access_token::{self, AccessToken},
         client_credentials,
         grant_type::{self, GrantType},
-        resource_owner,
+        resource_owner, scope,
     },
     unit::{KagomeRequest, parse_request_parameter},
 };
@@ -21,6 +21,7 @@ pub struct ResourceOwnerPasswordCredentialsRequest {
     pub grant_types: Vec<GrantType>,
     pub username: Option<String>,
     pub password: Option<String>,
+    pub scope: Option<String>,
 }
 
 #[derive(Debug)]
@@ -48,6 +49,7 @@ impl ResourceOwnerPasswordCredentialsRequest {
             grant_types: response.response.grant_types.clone(),
             username: parse_request_parameter(request, "username"),
             password: parse_request_parameter(request, "password"),
+            scope: parse_request_parameter(request, "scope"),
         }
     }
 
@@ -115,6 +117,16 @@ impl grant_type::Validate for ResourceOwnerPasswordCredentialsRequest {
 
     fn add_grant_type(&mut self, grant_type: &GrantType) {
         self.response.grant_type = Some(*grant_type);
+    }
+}
+
+impl scope::Validate for ResourceOwnerPasswordCredentialsRequest {
+    fn request_scope(&self) -> Option<&str> {
+        self.scope.as_deref()
+    }
+
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
     }
 }
 

@@ -11,6 +11,7 @@ pub struct OAuthError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthErrorCode {
     InvalidRequest,
+    InvalidScope,
     InvalidGrant,
     InvalidAccessToken,
     InvalidCredentialRequest,
@@ -45,6 +46,14 @@ impl OAuthError {
         Self::new(
             OAuthErrorCode::InvalidRequest,
             "invalid_request",
+            error_description,
+        )
+    }
+
+    pub fn invalid_scope(error_description: impl Into<String>) -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidScope,
+            "invalid_scope",
             error_description,
         )
     }

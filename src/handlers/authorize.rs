@@ -5,7 +5,7 @@ use crate::{
         id_token, metadata_policy, pkce, pre_authorized_code, presentation_definition,
         presentation_request, presentation_state, resource_owner,
         response_type::{self, ResponseType},
-        verifier,
+        scope, verifier,
     },
     unit::KagomeRequest,
 };
@@ -101,9 +101,11 @@ fn handle_authentication(request: &KagomeRequest) -> String {
 
 fn validate_authorize<T>(authorize_request: T) -> Result<T, OAuthError>
 where
-    T: response_type::Validate + client_credentials::Validate,
+    T: response_type::Validate + client_credentials::Validate + scope::Validate,
 {
-    response_type::validate(authorize_request).and_then(client_credentials::validate)
+    response_type::validate(authorize_request)
+        .and_then(client_credentials::validate)
+        .and_then(scope::validate)
 }
 
 pub fn validate_siop_authorize(

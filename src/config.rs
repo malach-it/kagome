@@ -221,6 +221,10 @@ pub struct ClientConfig {
     #[serde(default = "empty_supported_response_types")]
     #[schemars(default = "empty_supported_response_types")]
     pub supported_response_types: Vec<ResponseType>,
+    /// OAuth scopes this client may request.
+    #[serde(default = "empty_scopes")]
+    #[schemars(default = "empty_scopes", inner(length(min = 1)))]
+    pub scopes: Vec<String>,
     /// Require wallet proofs and presentations to be bound to the public key
     /// from the ID token carried by the incoming authorization code.
     #[serde(default)]
@@ -239,6 +243,10 @@ fn empty_supported_grant_types() -> Vec<GrantType> {
 }
 
 fn empty_supported_response_types() -> Vec<ResponseType> {
+    Vec::new()
+}
+
+fn empty_scopes() -> Vec<String> {
     Vec::new()
 }
 
@@ -711,6 +719,15 @@ impl Config {
                 "supported_response_types",
                 &client.supported_response_types,
             )?;
+            validate_client_capabilities(path, index, "scopes", &client.scopes)?;
+            if client.scopes.iter().any(|scope| !is_scope_token(scope)) {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!(
+                        "clients[{index}].scopes must contain valid non-empty OAuth scope tokens"
+                    ),
+                });
+            }
             if client
                 .redirect_uris
                 .iter()
@@ -885,6 +902,13 @@ fn is_host(host: &str) -> bool {
     !host.is_empty()
         && host.bytes().all(|byte| {
             byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
+        })
+}
+
+fn is_scope_token(scope: &str) -> bool {
+    !scope.is_empty()
+        && scope.bytes().all(|byte| {
+            byte == b'!' || (b'#'..=b'[').contains(&byte) || (b']'..=b'~').contains(&byte)
         })
 }
 

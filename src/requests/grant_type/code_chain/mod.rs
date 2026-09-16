@@ -1,7 +1,7 @@
 use crate::{
     errors::OAuthError,
     handlers::responses::authorization_code_response,
-    resources::{authorization_code, client_credentials, grant_type::GrantType},
+    resources::{authorization_code, client_credentials, grant_type::GrantType, scope},
     unit::{KagomeRequest, parse_request_parameter},
 };
 
@@ -23,6 +23,7 @@ pub struct CodeChainRequest<'a> {
     pub client_secret: Option<String>,
     pub grant_types: Vec<GrantType>,
     id_token: Option<String>,
+    scope: Option<String>,
 }
 
 #[derive(Debug)]
@@ -49,6 +50,7 @@ impl<'a> CodeChainRequest<'a> {
                 .map(crate::resources::grant_type::parse_supported)
                 .unwrap_or_default(),
             id_token: parse_request_parameter(request, "id_token"),
+            scope: parse_request_parameter(request, "scope"),
         }
     }
 
@@ -67,6 +69,7 @@ impl<'a> CodeChainRequest<'a> {
             client_secret: parse_request_parameter(request, "client_secret"),
             grant_types: response.response.grant_types.clone(),
             id_token: parse_request_parameter(request, "id_token"),
+            scope: parse_request_parameter(request, "scope"),
         }
     }
 
@@ -157,5 +160,15 @@ impl<'a> id_token::Validate for CodeChainRequest<'a> {
 
     fn add_id_token(&mut self, id_token: &str) {
         self.response.id_token = Some(id_token.to_owned());
+    }
+}
+
+impl scope::Validate for CodeChainRequest<'_> {
+    fn request_scope(&self) -> Option<&str> {
+        self.scope.as_deref()
+    }
+
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
     }
 }

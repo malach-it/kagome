@@ -17,6 +17,7 @@ use crate::{
         pkce::{self, CodeChallenge},
         pre_authorized_code, resource_owner,
         response_type::{self, ResponseType},
+        scope,
     },
     unit::{KagomeRequest, parse_query_parameter, parse_request_parameter},
 };
@@ -33,6 +34,7 @@ pub struct AuthorizeCodeRequest<'a> {
     pub client_id: Option<String>,
     pub redirect_uri: Option<String>,
     pub state: Option<String>,
+    pub scope: Option<String>,
     pub authorization_code: Option<String>,
     pub metadata_policy: Option<String>,
     pub code_challenge: Option<String>,
@@ -70,6 +72,7 @@ impl<'a> AuthorizeCodeRequest<'a> {
             client_id: parse_query_parameter(request, "client_id"),
             redirect_uri: parse_query_parameter(request, "redirect_uri"),
             state: parse_query_parameter(request, "state"),
+            scope: parse_query_parameter(request, "scope"),
             authorization_code: parse_query_parameter(request, "code"),
             metadata_policy: parse_query_parameter(request, "metadata_policy"),
             code_challenge: parse_query_parameter(request, "code_challenge"),
@@ -285,6 +288,16 @@ impl<'a> client_credentials::Validate for AuthorizeCodeRequest<'a> {
     fn add_resource_owner_credentials(&mut self, username: &str, password: &str) {
         self.username = Some(username.to_owned());
         self.password = Some(password.to_owned());
+    }
+}
+
+impl scope::Validate for AuthorizeCodeRequest<'_> {
+    fn request_scope(&self) -> Option<&str> {
+        self.scope.as_deref()
+    }
+
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
     }
 }
 

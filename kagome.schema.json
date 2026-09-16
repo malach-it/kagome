@@ -107,6 +107,15 @@
           "type": "boolean",
           "default": false
         },
+        "scopes": {
+          "description": "OAuth scopes this client may request.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "supported_grant_types": {
           "description": "OAuth grant types this client may use.",
           "type": "array",

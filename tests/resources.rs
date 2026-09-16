@@ -7,6 +7,7 @@ fn configured_clients() -> Vec<kagome::config::ClientConfig> {
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
         supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
         supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
+        scopes: vec!["openid".to_owned(), "profile".to_owned()],
         require_wallet_binding: false,
         qr_code: false,
         federated_server: None,
@@ -14,6 +15,76 @@ fn configured_clients() -> Vec<kagome::config::ClientConfig> {
 }
 
 mod resources {
+    mod scope {
+        #[derive(Debug)]
+        struct Request {
+            scope: Option<String>,
+            client_id: Option<String>,
+        }
+
+        impl kagome::resources::scope::Validate for Request {
+            fn request_scope(&self) -> Option<&str> {
+                self.scope.as_deref()
+            }
+
+            fn validated_client_id(&self) -> Option<&str> {
+                self.client_id.as_deref()
+            }
+        }
+
+        #[test]
+        fn accepts_omitted_and_authorized_scopes() {
+            for scope in [None, Some("openid"), Some("openid profile")] {
+                let request = Request {
+                    scope: scope.map(str::to_owned),
+                    client_id: Some("client_id".to_owned()),
+                };
+
+                kagome::resources::scope::validate_with_clients(
+                    request,
+                    &super::super::configured_clients(),
+                )
+                .expect("configured scopes should be accepted");
+            }
+        }
+
+        #[test]
+        fn rejects_empty_and_unauthorized_scopes() {
+            for (scope, description) in [
+                (" ", "scope must not be empty"),
+                ("openid admin", "scope is not authorized for client: admin"),
+            ] {
+                let request = Request {
+                    scope: Some(scope.to_owned()),
+                    client_id: Some("client_id".to_owned()),
+                };
+
+                let error = kagome::resources::scope::validate_with_clients(
+                    request,
+                    &super::super::configured_clients(),
+                )
+                .unwrap_err();
+
+                assert_eq!(error.error, "invalid_scope");
+                assert_eq!(error.error_description, description);
+            }
+        }
+
+        #[test]
+        fn resolves_scopes_for_public_client_identifier() {
+            let request = Request {
+                scope: Some("openid".to_owned()),
+                client_id: Some("username@example.com".to_owned()),
+            };
+
+            kagome::resources::scope::validate_with_clients(
+                request,
+                &super::super::configured_clients(),
+            )
+            .expect("public client should use the matching host configuration");
+        }
+    }
+
     mod access_token {
         #[test]
         fn generates_cose_encrypt0_containing_client_id() {

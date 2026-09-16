@@ -21,7 +21,7 @@ use crate::{
         presentation_request::{self, SignedPresentationRequest},
         presentation_state, resource_owner,
         response_type::{self, ResponseType},
-        verifier,
+        scope, verifier,
     },
     unit::{KagomeRequest, parse_query_parameter},
 };
@@ -493,6 +493,16 @@ impl presentation_definition::Select for AuthorizeLoginRequest<'_> {
 
     fn add_presentation_definition(&mut self, definition: PresentationDefinitionConfig) {
         self.response.presentation_definition = Some(definition);
+    }
+}
+
+impl scope::Validate for AuthorizeLoginRequest<'_> {
+    fn request_scope(&self) -> Option<&str> {
+        self.scope.as_deref()
+    }
+
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
     }
 }
 

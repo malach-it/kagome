@@ -7,6 +7,7 @@ use super::*;
 //   unconfigured
 // - client_secret: matching | missing | invalid
 // - client grant policy: supported | unsupported
+// - scope: omitted | authorized | unauthorized
 // Missing and invalid credential failures are representation-independent after parsing,
 // so each equivalent validation path is exercised once with form input.
 
@@ -66,6 +67,28 @@ fn returns_token_response_for_second_configured_client() {
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));
+}
+
+#[test]
+fn accepts_authorized_client_credentials_scope() {
+    let response = send_form_token_request(
+        "client_id=client_id&client_secret=client_secret&grant_type=client_credentials&scope=openid%20profile",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+}
+
+#[test]
+fn rejects_unauthorized_client_credentials_scope() {
+    let response = send_form_token_request(
+        "client_id=client_id&client_secret=client_secret&grant_type=client_credentials&scope=admin",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_scope\""));
+    assert!(
+        response.contains("\"error_description\":\"scope is not authorized for client: admin\"")
+    );
 }
 
 #[test]

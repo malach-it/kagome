@@ -11,6 +11,7 @@ use super::*;
 // - previous authorization_code: missing | valid below maximum depth | valid at maximum depth |
 //   exceeding maximum depth | invalid | issued to another client
 // - chained authorization_code exchange: absent | valid | invalid
+// - scope: omitted | authorized | unauthorized
 // Validation failures are representation-independent after parsing, so each equivalent
 // failure path is exercised once with form input.
 
@@ -45,6 +46,16 @@ fn returns_authorization_code_for_valid_code_chain_request() {
         .expect("token response should include authorization_code");
 
     assert!(!authorization_code.is_empty());
+}
+
+#[test]
+fn rejects_unauthorized_code_chain_scope_before_id_token_validation() {
+    let response = send_form_token_request(
+        "client_id=client_id&client_secret=client_secret&grant_type=code_chain&id_token=invalid&scope=admin",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_scope\""));
 }
 
 #[test]

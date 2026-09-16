@@ -265,6 +265,7 @@ fn start_server() -> String {
         ],
         supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
         supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
+        scopes: integration_scopes(),
         require_wallet_binding: false,
         qr_code: false,
         federated_server: None,
@@ -277,6 +278,7 @@ fn start_server() -> String {
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
         supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
         supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
+        scopes: integration_scopes(),
         require_wallet_binding: false,
         qr_code: false,
         federated_server: Some(federated_server),
@@ -289,6 +291,7 @@ fn start_server() -> String {
         redirect_uris: vec!["https://federated-qr.example.com/callback".to_owned()],
         supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
         supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
+        scopes: integration_scopes(),
         require_wallet_binding: true,
         qr_code: true,
         federated_server: Some(federated_qr_server),
@@ -301,6 +304,7 @@ fn start_server() -> String {
         redirect_uris: vec!["https://restricted.example.com/callback".to_owned()],
         supported_grant_types: vec![kagome::resources::grant_type::GrantType::AuthorizationCode],
         supported_response_types: vec![kagome::resources::response_type::ResponseType::Code],
+        scopes: vec!["openid".to_owned()],
         require_wallet_binding: false,
         qr_code: false,
         federated_server: None,
@@ -313,6 +317,7 @@ fn start_server() -> String {
         redirect_uris: vec!["https://wallet-bound.example.com/callback".to_owned()],
         supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
         supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
+        scopes: integration_scopes(),
         require_wallet_binding: true,
         qr_code: false,
         federated_server: None,
@@ -325,6 +330,7 @@ fn start_server() -> String {
         redirect_uris: vec!["https://qr.example.com/callback".to_owned()],
         supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
         supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
+        scopes: integration_scopes(),
         require_wallet_binding: false,
         qr_code: true,
         federated_server: None,
@@ -343,6 +349,17 @@ fn start_server() -> String {
     });
 
     address
+}
+
+fn integration_scopes() -> Vec<String> {
+    [
+        "openid",
+        "profile",
+        "credential_presentation",
+        "employee_presentation",
+    ]
+    .map(str::to_owned)
+    .to_vec()
 }
 
 fn start_federated_server() -> (String, String) {

@@ -55,6 +55,7 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.clients[0].password_file, None);
     assert!(config.clients[0].supported_grant_types.is_empty());
     assert!(config.clients[0].supported_response_types.is_empty());
+    assert!(config.clients[0].scopes.is_empty());
     assert_eq!(
         config.clients[0].redirect_uris,
         ["https://client.example.com/callback"]
@@ -87,6 +88,10 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(
         config.clients[0].supported_response_types,
         ResponseType::ALL
+    );
+    assert_eq!(
+        config.clients[0].scopes,
+        ["openid", "profile", "credential_presentation"]
     );
     assert_eq!(config.clients[0].public.as_deref(), Some("localhost:4000"));
     assert!(
@@ -246,6 +251,11 @@ fn json_schema_describes_configuration_constraints() {
     );
     assert_eq!(client["properties"]["redirect_uris"]["minItems"], 1);
     assert_eq!(
+        client["properties"]["scopes"]["default"],
+        serde_json::json!([])
+    );
+    assert_eq!(client["properties"]["scopes"]["items"]["minLength"], 1);
+    assert_eq!(
         grant_type["enum"],
         serde_json::json!([
             "authorization_code",
@@ -374,6 +384,38 @@ fn loads_per_client_supported_grant_and_response_types() {
         config.clients[0].supported_response_types,
         [ResponseType::Code, ResponseType::IdToken]
     );
+}
+
+#[test]
+fn loads_per_client_authorized_scopes() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: [https://client.example.com/callback]\n    scopes: [openid, profile]\n",
+    );
+
+    let config = Config::load_from_path(file.path()).expect("client scopes should load");
+
+    assert_eq!(config.clients[0].scopes, ["openid", "profile"]);
+}
+
+#[test]
+fn rejects_invalid_or_duplicate_client_scopes() {
+    for (scopes, message) in [
+        ("[openid, openid]", "must not contain duplicates"),
+        ("[\"\"]", "must contain valid non-empty OAuth scope tokens"),
+        (
+            "[\"openid profile\"]",
+            "must contain valid non-empty OAuth scope tokens",
+        ),
+    ] {
+        let file = ConfigFile::new(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: [https://client.example.com/callback]\n    scopes: {scopes}\n"
+        ));
+
+        let error = Config::load_from_path(file.path()).expect_err("invalid scopes should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(error.to_string().contains(message));
+    }
 }
 
 #[test]

@@ -53,6 +53,10 @@ clients:
       - urn:ietf:params:oauth:response-type:pre-authorized_code
       - token
       - vp_token
+    scopes:
+      - openid
+      - profile
+      - credential_presentation
     require_wallet_binding: false
     qr_code: false
     federated_server:

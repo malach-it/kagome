@@ -19,7 +19,7 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // Branch matrix:
 // - endpoint method: supported | unsupported
 // - OAuth authorization attributes: valid response type(s), client, redirect URI,
-//   client state, and optional code | missing/invalid value for each
+//   client state, optional code, and authorized scope | missing/invalid value for each
 // - authorization request error format: every direct failure renders HTML
 // - wallet binding policy: SIOPv2 pre-authorized-code continuation carries the
 //   validated wallet key through an encrypted authorization code
@@ -103,6 +103,17 @@ fn returns_signed_direct_post_siop_authorization_request() {
         claims["client_metadata"]["id_token_signed_response_alg"],
         "ES256"
     );
+}
+
+#[test]
+fn rejects_unauthorized_siop_authorization_scope() {
+    let response = send_request(&format!(
+        "GET /siopv2-request?response_type=code&client_id={CLIENT_ID}&redirect_uri={}&scope=admin HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        form_encode(CLIENT_REDIRECT_URI)
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("<p role=\"alert\">scope is not authorized for client: admin</p>"));
 }
 
 #[test]

@@ -6,6 +6,7 @@ use super::super::*;
 // - client_id: valid | missing | invalid
 // - client_secret: valid | missing | invalid
 // - code: valid | missing | invalid | issued to another client
+// - scope: omitted | authorized | unauthorized
 // - PKCE-bound code: matching S256 verifier | missing verifier | malformed verifier |
 //   valid but mismatching verifier
 // Credential and code failures are representation-independent after parsing, so each
@@ -51,6 +52,16 @@ fn returns_token_response_for_json_authorization_code_grant_type() {
     assert!(response.contains("\"access_token\":\""));
     assert!(response.contains("\"expires_in\":3600"));
     assert!(!response.contains("\"authorization_code\""));
+}
+
+#[test]
+fn rejects_unauthorized_authorization_code_grant_scope_before_code_validation() {
+    let response = send_form_token_request(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code=invalid&scope=admin",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_scope\""));
 }
 
 #[test]

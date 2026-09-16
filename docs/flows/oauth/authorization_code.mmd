@@ -4,7 +4,9 @@ flowchart TD
     response_type -- error --> authorize_error["`**HTTP 400** HTML authorization error`"]
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
-    client -- ok --> challenge["pkce::validate"]
+    client -- ok --> authorize_scope["scope::validate"]
+    authorize_scope -- error --> authorize_error
+    authorize_scope -- ok --> challenge["pkce::validate"]
     challenge -- error --> authorize_error
     challenge -- ok --> previous["authorization_code::validate_optional"]
     previous -- invalid, oversized, or excessive depth --> authorize_error
@@ -29,7 +31,9 @@ flowchart TD
     grant -- error --> token_error["`**HTTP 400** OAuth error`"]
     grant -- authorization_code --> token_client["client_credentials::validate"]
     token_client -- error --> token_error
-    token_client -- ok --> code["authorization_code::validate"]
+    token_client -- ok --> token_scope["scope::validate"]
+    token_scope -- error --> token_error
+    token_scope -- ok --> code["authorization_code::validate"]
     code -- invalid, oversized, or excessive depth --> token_error
     code -- valid within depth limit --> verifier["pkce::verify"]
     verifier -- error --> token_error

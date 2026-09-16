@@ -3,6 +3,7 @@ use super::*;
 // Branch matrix:
 // - method: GET | unsupported
 // - authenticated state: valid | missing | invalid
+// - restored scope: omitted | authorized (unauthorized values cannot enter authenticated state)
 // - authorization response: code | upstream error | code and error | neither
 // - values: non-empty | empty
 // - token endpoint: valid token | rejected request | malformed response
@@ -30,6 +31,19 @@ fn populates_resource_owner_from_federated_identity() {
     )
     .expect("downstream authorization code should decode");
     assert_eq!(payload.username.as_deref(), Some("federated-user"));
+}
+
+#[test]
+fn accepts_authorized_scope_restored_from_federation_state() {
+    let state = federation_state_for(
+        "response_type=code&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&scope=openid%20profile",
+    );
+    let response = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?code="));
 }
 
 #[test]

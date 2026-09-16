@@ -7,6 +7,7 @@ use super::*;
 // - resource owner: first configured owner | second configured owner | missing username |
 //   invalid username | missing password | invalid password | invalid embedded credentials
 // - state: absent | present
+// - scope: omitted | authorized | unauthorized
 // - access-token artifact: opaque COSE_Encrypt0
 // - response: federated redirect | access-token fragment | not implemented | HTML error
 //
@@ -50,6 +51,27 @@ fn redirects_implicit_access_token_and_state_for_valid_post_request() {
 
     assert_implicit_token_response(&response, "client_id", "username");
     assert!(response.contains("&state=opaque%20state\r\n"));
+}
+
+#[test]
+fn accepts_authorized_implicit_scope() {
+    let response = send_implicit_post(
+        "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&scope=profile",
+        "username=username&password=password",
+    );
+
+    assert_implicit_token_response(&response, "client_id", "username");
+}
+
+#[test]
+fn rejects_unauthorized_implicit_scope() {
+    let response = send_implicit_post(
+        "response_type=token&client_id=client_id&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&scope=admin",
+        "username=username&password=password",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("<p role=\"alert\">scope is not authorized for client: admin</p>"));
 }
 
 #[test]

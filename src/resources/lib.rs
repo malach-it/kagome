@@ -18,6 +18,7 @@ pub mod presentation_submission;
 pub mod request_object;
 pub mod resource_owner;
 pub mod response_type;
+pub mod scope;
 pub mod self_issued_id_token;
 pub mod siopv2_request;
 pub mod siopv2_state;

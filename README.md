@@ -124,8 +124,10 @@ defaults to `false`, and `credential` defaults to an empty array. Clients withou
 this block
 continue to use local authentication.
 Each client must explicitly opt into protocol capabilities through
-`supported_grant_types` and `supported_response_types`; omitted or empty lists
-deny every corresponding type. Every type in a combined request must be
+`supported_grant_types`, `supported_response_types`, and `scopes`; omitted or
+empty lists deny every corresponding grant type, response type, or requested
+scope. Requests may omit `scope`, but every scope value they include must be
+listed for the client. Every type in a combined request must be
 allowed. Authorization responses also require their associated grant:
 `code` requires `authorization_code`, `token` and `id_token` require `implicit`,
 and the pre-authorized-code response requires its pre-authorized-code grant.

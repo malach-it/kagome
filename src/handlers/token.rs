@@ -3,7 +3,7 @@ use crate::{
     resources::{
         access_token, client_credentials,
         grant_type::{self, GrantType},
-        id_token, resource_owner,
+        id_token, resource_owner, scope,
     },
     unit::KagomeRequest,
 };
@@ -79,6 +79,7 @@ fn authorization_code(
     use crate::resources::{authorization_code, pkce};
 
     client_credentials::validate(token_request)
+        .and_then(scope::validate)
         .and_then(authorization_code::validate)
         .and_then(pkce::verify)
         .and_then(access_token::generate)
@@ -88,6 +89,7 @@ fn code_chain(token_request: CodeChainRequest) -> Result<CodeChainRequest, OAuth
     use crate::resources::authorization_code;
 
     client_credentials::validate(token_request)
+        .and_then(scope::validate)
         .and_then(authorization_code::validate_optional)
         .and_then(id_token::validate)
         .and_then(authorization_code::generate)
@@ -109,13 +111,16 @@ fn code_chain_authorization_code<'a>(
 fn client_credentials(
     token_request: ClientCredentialsRequest,
 ) -> Result<ClientCredentialsRequest, OAuthError> {
-    client_credentials::validate(token_request).and_then(access_token::generate)
+    client_credentials::validate(token_request)
+        .and_then(scope::validate)
+        .and_then(access_token::generate)
 }
 
 fn resource_owner_password_credentials(
     token_request: ResourceOwnerPasswordCredentialsRequest,
 ) -> Result<ResourceOwnerPasswordCredentialsRequest, OAuthError> {
     client_credentials::validate(token_request)
+        .and_then(scope::validate)
         .and_then(resource_owner::validate)
         .and_then(access_token::generate)
 }
