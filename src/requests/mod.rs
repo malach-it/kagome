@@ -15,8 +15,8 @@ pub use grant_type::{
     ResourceOwnerPasswordCredentialsResponse,
 };
 pub use oid4vci::{
-    CredentialOfferRequest, CredentialOfferResponse, CredentialRequest, CredentialResponse,
-    IssuerRequest, IssuerResponse, PreAuthorizedCodeRequest, PreAuthorizedCodeResponse,
+    CredentialRequest, CredentialResponse, IssuerRequest, IssuerResponse, PreAuthorizedCodeRequest,
+    PreAuthorizedCodeResponse,
 };
 pub use oid4vp::{PresentationResponse, PresentationResponseRequest};
 pub use siopv2::{

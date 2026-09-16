@@ -22,12 +22,6 @@ the adjacent SVG files are rendered for direct review.
 
 ![Authorization Server metadata endpoint](authorization_server_metadata_endpoint.svg)
 
-## Credential Offer Endpoint
-
-[Mermaid source](credential_offer_endpoint.mmd)
-
-![Credential Offer endpoint](credential_offer_endpoint.svg)
-
 ## Credential Endpoint
 
 The credential request may include a JWT proof. A valid asymmetric proof binds

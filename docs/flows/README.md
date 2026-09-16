@@ -106,12 +106,6 @@ this catalog.
 
 [Credential issuer metadata endpoint](openid4vci/credential_issuer_metadata_endpoint.svg)
 
-#### Credential Offer
-
-[Mermaid source](openid4vci/credential_offer_endpoint.mmd)
-
-[Credential offer endpoint](openid4vci/credential_offer_endpoint.svg)
-
 #### JWKS
 
 [Mermaid source](openid4vci/jwks_endpoint.mmd)

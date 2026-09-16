@@ -1,17 +1,12 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    endpoint[GET /credential-offer] --> issuer["credential_issuer::validate"]
-    issuer -- error --> offer_error["`**HTTP 400** invalid_request`"]
-    issuer -- ok --> generate["pre_authorized_code::generate"]
     authorize[GET or POST /authorize with pre-authorized_code] --> authorize_pipeline[Run common authorize resource pipeline]
     authorize_pipeline -- error --> authorize_error["`**HTTP 400** HTML error or **HTTP 302** trusted redirect`"]
     authorize_pipeline -- unauthenticated --> authentication["`**HTTP 501** local authentication or **HTTP 302** federation redirect`"]
     authorize_pipeline -- authenticated --> generate
     generate -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
-    generate -- credential-offer --> offer["`**HTTP 200** credential offer`"]
     generate -- authorize --> authorize_offer["`**HTTP 302** credential offer or **HTTP 200** QR relay`"]
-    offer --> token[POST /token with pre-authorized-code grant]
-    authorize_offer --> token
+    authorize_offer --> token[POST /token with pre-authorized-code grant]
     token --> grant["grant_type::validate"]
     grant -- error --> token_error["`**HTTP 400** OAuth error`"]
     grant -- pre-authorized_code --> code["pre_authorized_code::validate"]

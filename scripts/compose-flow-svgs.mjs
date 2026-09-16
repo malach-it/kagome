@@ -32,10 +32,6 @@ const graphs = [
     "OpenID4VCI — Credential Issuer Metadata Endpoint",
     "openid4vci/credential_issuer_metadata_endpoint.svg",
   ],
-  [
-    "OpenID4VCI — Credential Offer Endpoint",
-    "openid4vci/credential_offer_endpoint.svg",
-  ],
   ["OpenID4VCI — JWKS Endpoint", "openid4vci/jwks_endpoint.svg"],
   [
     "OpenID4VCI — Pre-Authorized Code Flow",

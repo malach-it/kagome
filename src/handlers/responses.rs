@@ -4,9 +4,8 @@ use crate::{
     requests::{
         AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
         ClientCredentialsRequest, CodeChainAuthorizationCodeRequest, CodeChainRequest,
-        CredentialOfferRequest, CredentialRequest, PreAuthorizedCodeRequest,
-        PresentationResponseRequest, ResourceOwnerPasswordCredentialsRequest,
-        SiopAuthorizationRequest, SiopResponseRequest,
+        CredentialRequest, PreAuthorizedCodeRequest, PresentationResponseRequest,
+        ResourceOwnerPasswordCredentialsRequest, SiopAuthorizationRequest, SiopResponseRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -248,18 +247,6 @@ pub fn code_redirect_response(
         "HTTP/1.1 302 Found\r\nlocation: {}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
         location
     )
-}
-
-pub fn credential_offer_redirect_response(
-    redirect_uri: &str,
-    credential_issuer: &str,
-    pre_authorized_code: &str,
-) -> String {
-    redirect_response(&credential_offer_uri(
-        redirect_uri,
-        credential_issuer,
-        pre_authorized_code,
-    ))
 }
 
 pub fn credential_offer_uri(
@@ -744,20 +731,6 @@ impl ResponseLog for CodeChainAuthorizationCodeRequest<'_> {
                     optional_str(access_token.map(|access_token| access_token.value.as_str())),
                 ),
             ],
-        );
-    }
-}
-
-impl ResponseLog for CredentialOfferRequest<'_> {
-    fn to_http_response(&self) -> Result<String, OAuthError> {
-        self.to_response()
-    }
-
-    fn log_success(&self) {
-        eprintln!(
-            "[{}] credential_offer_handler success configuration={}",
-            log_timestamp(),
-            crate::resources::credential_issuer::CREDENTIAL_CONFIGURATION_ID
         );
     }
 }

@@ -1326,18 +1326,16 @@ fn issued_credential_for_subject(subject: &str) -> String {
 }
 
 fn issued_credential_with_proof(proof: Option<&str>) -> String {
-    let offer_response = send_request(&format!(
-        "GET /credential-offer HTTP/1.1\r\nhost: {HOST}\r\n\r\n"
-    ));
-    let offer = json_body(&offer_response);
     let grant_type = kagome::resources::pre_authorized_code::GRANT_TYPE;
-    let code = offer["grants"][grant_type]["pre-authorized_code"]
-        .as_str()
-        .unwrap();
+    let code =
+        kagome::resources::pre_authorized_code::generate(PreAuthorizedCodeFixture::default())
+            .unwrap()
+            .code
+            .unwrap();
     let token_body = format!(
         "grant_type={}&pre-authorized_code={}&tx_code=493536",
         form_encode(grant_type),
-        form_encode(code)
+        form_encode(&code)
     );
     let token_response = post("/token", FORM_CONTENT_TYPE, None, &token_body);
     let access_token = json_body(&token_response)["access_token"]
@@ -1361,6 +1359,17 @@ fn issued_credential_with_proof(proof: Option<&str>) -> String {
         .as_str()
         .unwrap()
         .to_owned()
+}
+
+#[derive(Default)]
+struct PreAuthorizedCodeFixture {
+    code: Option<String>,
+}
+
+impl kagome::resources::pre_authorized_code::Generate for PreAuthorizedCodeFixture {
+    fn add_pre_authorized_code(&mut self, pre_authorized_code: String) {
+        self.code = Some(pre_authorized_code);
+    }
 }
 
 fn expired_state() -> String {

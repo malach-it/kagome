@@ -18,6 +18,7 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 
 // Branch matrix:
 // - discovery endpoint: issuer metadata | authorization-server metadata | JWKS
+// - removed credential-offer endpoint: GET returns not found
 // - JWKS route: canonical | OpenID compatibility alias; response: success | error,
 //   each with Access-Control-Allow-Origin
 // - endpoint method: supported | credential OPTIONS preflight | unsupported
@@ -113,19 +114,11 @@ fn returns_centralized_signing_jwks() {
 }
 
 #[test]
-fn returns_pre_authorized_credential_offer_with_cose_code() {
-    let response = credential_offer();
-    let body = json_body(&response);
-    let grant = &body["grants"][GRANT_TYPE];
-    let code = grant["pre-authorized_code"].as_str().unwrap();
+fn returns_not_found_for_removed_credential_offer_endpoint() {
+    let response = get("/credential-offer");
 
-    assert_ok_json(&response);
-    assert_eq!(body["credential_configuration_ids"][0], CONFIGURATION_ID);
-    assert!(grant.get("tx_code").is_none());
-    assert!(!code.contains('.'));
-    assert!(
-        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, code).is_ok()
-    );
+    assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+    assert!(response.ends_with("\r\n\r\nnot found"));
 }
 
 #[test]
@@ -363,7 +356,7 @@ fn issues_ed25519_signed_jwt_vc() {
     assert!(response.contains("access-control-allow-origin: *\r\n"));
     assert_eq!(body["format"], "jwt_vc");
     assert_eq!(claims["iss"], "https://issuer.example.com");
-    assert_eq!(claims["sub"], "did:example:alice");
+    assert_eq!(claims["sub"], "username");
     assert_eq!(
         claims["type"],
         serde_json::json!(["VerifiableCredential", CONFIGURATION_ID])
@@ -682,10 +675,6 @@ fn returns_jwks_errors_with_access_control_allow_origin() {
     }
 }
 
-fn credential_offer() -> String {
-    get("/credential-offer")
-}
-
 fn authorize_preauthorized_code(prefix: &str, body: &str) -> String {
     authorize_preauthorized_code_for_client(
         prefix,
@@ -749,7 +738,10 @@ fn decode_form_value(value: &str) -> String {
 }
 
 fn offered_code() -> String {
-    json_body(&credential_offer())["grants"][GRANT_TYPE]["pre-authorized_code"]
+    redirected_credential_offer(&authorize_preauthorized_code(
+        "",
+        "username=username&password=password",
+    ))["grants"][GRANT_TYPE]["pre-authorized_code"]
         .as_str()
         .unwrap()
         .to_owned()

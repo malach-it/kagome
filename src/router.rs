@@ -35,10 +35,6 @@ pub fn route_request(request: &KagomeRequest) -> String {
         return crate::handlers::oid4vci::authorization_server_metadata::handle_authorization_server_metadata(request);
     }
 
-    if request.method.eq_ignore_ascii_case("GET") && request.path == "/credential-offer" {
-        return crate::handlers::oid4vci::credential_offer::handle_credential_offer(request);
-    }
-
     if request.method.eq_ignore_ascii_case("GET")
         && (request.path == "/jwks" || request.path == "/openid/jwks")
     {
