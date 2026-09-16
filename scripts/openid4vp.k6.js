@@ -35,12 +35,14 @@ const privateJwk = {
 export default async function () {
   const holder = `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${jwkThumbprint(publicJwk)}`;
   const now = Math.floor(Date.now() / 1000);
-  const proof = await signEs256(
-    { alg: "ES256", typ: "openid4vci-proof+jwt", jwk: publicJwk },
-    { iss: holder, sub: holder, aud: issuer, iat: now },
-    privateJwk,
+  const credential = await issueCredential(
+    async (cNonce) =>
+      await signEs256(
+        { alg: "ES256", typ: "openid4vci-proof+jwt", jwk: publicJwk },
+        { iss: holder, sub: holder, aud: issuer, iat: now, nonce: cNonce },
+        privateJwk,
+      ),
   );
-  const credential = issueCredential(proof);
   const requestResponse = http.get(
     `${serverTarget}/authorize?${query({
       response_type: "vp_token",

@@ -62,6 +62,8 @@ impl<'a> PreAuthorizedCodeRequest<'a> {
             "access_token": access_token.value,
             "token_type": "Bearer",
             "expires_in": access_token.expires_in,
+            "c_nonce": access_token.c_nonce,
+            "c_nonce_expires_in": access_token.expires_in,
             "authorization_details": authorization_details,
         })
         .to_string();

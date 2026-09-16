@@ -31,6 +31,7 @@ pub struct CredentialResponse {
     pub holder_jwk: Option<serde_json::Value>,
     pub id_token_public_jwk: Option<serde_json::Value>,
     pub require_wallet_binding: bool,
+    pub c_nonce: Option<String>,
     pub credential: Option<VerifiableCredential>,
 }
 
@@ -77,6 +78,7 @@ impl credential_access_token::Validate for CredentialRequest<'_> {
         self.response.credential_profile = claims.credential_profile;
         self.response.id_token_public_jwk = claims.id_token_public_jwk;
         self.response.require_wallet_binding = claims.require_wallet_binding;
+        self.response.c_nonce = Some(claims.c_nonce);
     }
 }
 
@@ -143,8 +145,8 @@ impl credential_proof::Validate for CredentialRequest<'_> {
         self.response.id_token_public_jwk.as_ref()
     }
 
-    fn require_wallet_binding(&self) -> bool {
-        self.response.require_wallet_binding
+    fn credential_nonce(&self) -> Option<&str> {
+        self.response.c_nonce.as_deref()
     }
 
     fn add_validated_credential_proof(

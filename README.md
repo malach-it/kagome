@@ -209,7 +209,10 @@ requests require the matching verifier and reject codes without a PKCE binding.
 OAuth access tokens and credential access tokens are opaque COSE_Encrypt0
 artifacts. Encryption is centralized and domain-separated by artifact-specific
 keys and external authenticated data, so an artifact cannot be substituted in
-another protocol context. Server-generated credentials and ID tokens use
+another protocol context. Each credential access token carries a fresh 256-bit
+`c_nonce`; following the OpenID4VCI draft-11 profile, `/token` returns that
+nonce and its lifetime, and every submitted JWT issuance proof must contain the
+same value in its `nonce` claim. Server-generated credentials and ID tokens use
 separate centralized Ed25519 signing identities; request objects retain their
 centralized ES256 identity for wallet interoperability. All public keys are
 published by the JWKS endpoint. ID tokens carry issuer, subject, and audience
@@ -217,11 +220,11 @@ claims; code-chain validation requires Kagome's configured ID-token signing key
 and binds the audience to the authenticated client.
 
 The issued JWT VC is signed with Ed25519 and bound through its `cnf` claim to
-the demonstration holder key used by the presentation profile. This proof of
-concept does not require a proof in the Credential Request and does not support
-a nonce endpoint, deferred issuance, request or response encryption, batch
-issuance, or notifications. The embedded keys are development fixtures and
-must be replaced for deployment.
+the key from the required Credential Request proof. Every proof must contain
+the access token's `c_nonce`. This proof of concept does not support a nonce
+endpoint, deferred issuance, request or response encryption, batch issuance,
+or notifications.
+The embedded keys are development fixtures and must be replaced for deployment.
 
 ## Agent chat code-chain example
 

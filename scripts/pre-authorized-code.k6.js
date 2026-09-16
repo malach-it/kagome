@@ -3,8 +3,8 @@ import { isJwt, issueCredential, options } from "./flow-helpers.js";
 
 export { options };
 
-export default function () {
-  const credential = issueCredential();
+export default async function () {
+  const credential = await issueCredential();
 
   check({ credential }, {
     "pre-authorized credential flow completes": ({ credential }) =>

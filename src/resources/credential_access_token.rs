@@ -1,5 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -12,6 +14,7 @@ use crate::{
 };
 
 pub const TTL_SECONDS: u64 = 3600;
+const C_NONCE_BYTES: usize = 32;
 const COSE_ENCRYPT0_ERRORS: CoseEncrypt0Errors = CoseEncrypt0Errors {
     invalid_cose: "credential access token must be a cose_encrypt0",
     missing_ciphertext: "credential access token ciphertext is required",
@@ -23,6 +26,7 @@ const COSE_ENCRYPT0_ERRORS: CoseEncrypt0Errors = CoseEncrypt0Errors {
 pub struct CredentialAccessToken {
     pub value: String,
     pub expires_in: u64,
+    pub c_nonce: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,6 +37,7 @@ pub struct CredentialAccessTokenClaims {
     pub credential_profile: CredentialProfiles,
     pub id_token_public_jwk: Option<Value>,
     pub require_wallet_binding: bool,
+    pub c_nonce: String,
     pub iat: u64,
     pub exp: u64,
 }
@@ -60,7 +65,9 @@ pub trait Validate {
 /// Issues an encrypted bearer token authorizing configured credentials for one subject.
 ///
 /// Carries the authorized configuration IDs, credential-specific profile, optional wallet key,
-/// binding policy, and one-hour lifetime, then adds [`CredentialAccessToken`] state.
+/// binding policy, a fresh 256-bit credential nonce, and one-hour lifetime, then adds
+/// [`CredentialAccessToken`] state. The same nonce is exposed in the token response and required
+/// in any subsequent JWT issuance proof.
 ///
 /// # Errors
 ///
@@ -80,12 +87,14 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?
         .as_secs();
+    let c_nonce = generate_c_nonce()?;
     let claims = CredentialAccessTokenClaims {
         credential_configuration_ids: credential_configuration_ids.to_owned(),
         subject: subject.to_owned(),
         credential_profile: request.credential_profile().cloned().unwrap_or_default(),
         id_token_public_jwk: request.id_token_public_jwk().cloned(),
         require_wallet_binding: request.require_wallet_binding(),
+        c_nonce: c_nonce.clone(),
         iat,
         exp: iat + TTL_SECONDS,
     };
@@ -96,6 +105,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         value: crypto::encode_cose_encrypt0(&plaintext, EncryptedArtifact::CredentialAccessToken)
             .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?,
         expires_in: TTL_SECONDS,
+        c_nonce,
     };
 
     request.add_credential_access_token(access_token);
@@ -140,6 +150,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         .as_ref()
         .is_some_and(|jwk| !jwk.is_object())
         || claims.require_wallet_binding && claims.id_token_public_jwk.is_none()
+        || !valid_c_nonce(&claims.c_nonce)
     {
         return Err(OAuthError::invalid_access_token(
             "bearer access token is invalid or expired",
@@ -148,4 +159,18 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
 
     request.add_credential_access_token_claims(claims);
     Ok(request)
+}
+
+fn generate_c_nonce() -> Result<String, OAuthError> {
+    let mut bytes = [0_u8; C_NONCE_BYTES];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| OAuthError::invalid_token_response("access token generation failed"))?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn valid_c_nonce(c_nonce: &str) -> bool {
+    URL_SAFE_NO_PAD
+        .decode(c_nonce)
+        .is_ok_and(|bytes| bytes.len() == C_NONCE_BYTES)
 }

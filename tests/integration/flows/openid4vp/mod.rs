@@ -1516,29 +1516,14 @@ fn presentation_request_path() -> String {
 }
 
 fn issued_credential() -> String {
-    issued_credential_with_proof(None)
+    issued_credential_with_proof_subject(None)
 }
 
 fn issued_credential_for_subject(subject: &str) -> String {
-    let claims = json!({
-        "iss": subject,
-        "sub": subject,
-        "aud": "http://localhost:4000",
-        "iat": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-    });
-    let mut header = Header::new(Algorithm::ES256);
-    header.kid = Some(subject.to_owned());
-    let proof = encode(
-        &header,
-        &claims,
-        &EncodingKey::from_ec_pem(EC_HOLDER_PRIVATE_KEY).unwrap(),
-    )
-    .unwrap();
-
-    issued_credential_with_proof(Some(&proof))
+    issued_credential_with_proof_subject(Some(subject))
 }
 
-fn issued_credential_with_proof(proof: Option<&str>) -> String {
+fn issued_credential_with_proof_subject(proof_subject: Option<&str>) -> String {
     let grant_type = kagome::resources::pre_authorized_code::GRANT_TYPE;
     let code =
         kagome::resources::pre_authorized_code::generate(PreAuthorizedCodeFixture::default())
@@ -1551,16 +1536,44 @@ fn issued_credential_with_proof(proof: Option<&str>) -> String {
         form_encode(&code)
     );
     let token_response = post("/token", FORM_CONTENT_TYPE, None, &token_body);
-    let access_token = json_body(&token_response)["access_token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let mut credential_body = json!({
-        "credential_identifier": "UniversityDegreeCredential"
+    let token_body = json_body(&token_response);
+    let access_token = token_body["access_token"].as_str().unwrap().to_owned();
+    let c_nonce = token_body["c_nonce"].as_str().unwrap();
+    let subject = proof_subject.unwrap_or("did:example:alice");
+    let claims = json!({
+        "iss": subject,
+        "sub": subject,
+        "aud": "http://localhost:4000",
+        "iat": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        "nonce": c_nonce
     });
-    if let Some(proof) = proof {
-        credential_body["proof"] = json!({"proof_type": "jwt", "jwt": proof});
-    }
+    let proof = if proof_subject.is_some() {
+        let mut header = Header::new(Algorithm::ES256);
+        if subject.starts_with("did:key:") {
+            header.kid = Some(subject.to_owned());
+        } else {
+            header.jwk = Some(ec_holder_jwk());
+        }
+        encode(
+            &header,
+            &claims,
+            &EncodingKey::from_ec_pem(EC_HOLDER_PRIVATE_KEY).unwrap(),
+        )
+        .unwrap()
+    } else {
+        let mut header = Header::new(Algorithm::EdDSA);
+        header.jwk = Some(holder_jwk());
+        encode(
+            &header,
+            &claims,
+            &EncodingKey::from_ed_pem(HOLDER_PRIVATE_KEY).unwrap(),
+        )
+        .unwrap()
+    };
+    let credential_body = json!({
+        "credential_identifier": "UniversityDegreeCredential",
+        "proof": {"proof_type": "jwt", "jwt": proof}
+    });
     let credential_response = post(
         "/credential",
         "application/json",

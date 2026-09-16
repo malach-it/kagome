@@ -31,6 +31,7 @@ struct CredentialProofClaims {
     sub: String,
     aud: Value,
     iat: f64,
+    nonce: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -44,29 +45,24 @@ pub trait Validate {
     fn id_token_public_jwk(&self) -> Option<&Value> {
         None
     }
-    fn require_wallet_binding(&self) -> bool {
-        false
-    }
+    fn credential_nonce(&self) -> Option<&str>;
     fn add_validated_credential_proof(&mut self, proof: ValidatedCredentialProof);
 }
 
-/// Validates an optional holder JWT proof and enforces it when wallet binding is required.
+/// Validates the required holder JWT proof for a credential request.
 ///
 /// Accepts an asymmetric embedded JWK or P-256 `did:key`, verifies signature, issuer/subject,
-/// audience, and freshness, and—when available—requires the signature to match the ID-token key.
-/// A valid proof adds [`ValidatedCredentialProof`] state.
+/// audience, issuer-provided credential nonce, and freshness, and—when available—requires the
+/// signature to match the ID-token key. A valid proof adds [`ValidatedCredentialProof`] state.
 ///
 /// # Errors
 ///
-/// Returns `invalid_credential_request` for a required missing proof or malformed, untrusted,
-/// stale, wrongly addressed, or incorrectly bound JWT proof.
-pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
-    let Some(proof) = request.request_proof() else {
-        if request.require_wallet_binding() {
-            return Err(invalid("proof is required for wallet binding"));
-        }
-        return Ok(request);
-    };
+/// Returns the draft-11 `invalid_or_missing_proof` error for a missing, malformed, untrusted,
+/// stale, wrongly addressed, incorrectly nonce-bound, or otherwise invalid JWT proof.
+pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
+    let proof = request
+        .request_proof()
+        .ok_or_else(|| invalid("proof is required"))?;
     let proof: CredentialProof = serde_json::from_value(proof.clone())
         .map_err(|_| invalid("proof must contain proof_type and jwt"))?;
     if proof.proof_type != "jwt" {
@@ -130,6 +126,16 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     if !audience_contains(&claims.aud, proof_audience) {
         return Err(invalid("proof jwt audience is invalid"));
     }
+    let credential_nonce = request
+        .credential_nonce()
+        .ok_or_else(|| invalid("credential nonce must be validated before proof"))?;
+    let proof_nonce = claims
+        .nonce
+        .as_deref()
+        .ok_or_else(|| invalid("proof jwt nonce is required"))?;
+    if proof_nonce != credential_nonce {
+        return Err(invalid("proof jwt nonce is invalid"));
+    }
     let now = get_current_timestamp() as f64;
     if claims.iat > now + CLOCK_SKEW_SECONDS || claims.iat + MAX_PROOF_AGE_SECONDS < now {
         return Err(invalid("proof jwt iat is invalid"));
@@ -166,5 +172,5 @@ fn audience_contains(audience: &Value, expected: &str) -> bool {
 }
 
 fn invalid(description: &str) -> OAuthError {
-    OAuthError::invalid_credential_request(description)
+    OAuthError::invalid_or_missing_proof(description)
 }

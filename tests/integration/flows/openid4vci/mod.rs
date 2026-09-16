@@ -15,6 +15,7 @@ const PROOF_X: &str = "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI";
 const PROOF_Y: &str = "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8";
 const PROOF_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
 const OTHER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt\nbha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt\nWvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7\n-----END PRIVATE KEY-----\n";
+const C_NONCE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 const WALLET_BOUND_CLIENT_ID: &str = "wallet_bound_client";
 const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callback";
 
@@ -27,7 +28,8 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - request Host: configured-issuer host | different host. Both are intentionally
 //   equivalent because issuer identity comes only from server configuration.
 // - token representation: form | JSON
-// - credential access-token artifact: opaque COSE_Encrypt0
+// - credential access-token artifact: opaque COSE_Encrypt0 carrying the same fresh c_nonce
+//   returned by the token response
 // - pre-authorized_code: valid | missing | invalid | expired
 // - authorization response delivery: redirect | QR-code HTML with matching deep link
 // - successful token authorization_details: credential configuration | format | type
@@ -36,11 +38,12 @@ const WALLET_BOUND_REDIRECT_URI: &str = "https://wallet-bound.example.com/callba
 // - credential request media type: application/json (case-insensitive, parameters
 //   allowed) | missing | unsupported
 // - credential_identifier: supported | missing | legacy credential_configuration_id | unknown
-// - credential proof: absent (access-token subject fallback) | valid JWT proof with configured
-//   issuer audience | malformed | invalid signature | Host-derived or unrelated audience |
+// - credential proof: required and absent | valid JWT proof with configured issuer audience and
+//   access-token c_nonce | missing or mismatched nonce | malformed |
+//   invalid signature | Host-derived or unrelated audience |
 //   wallet-bound signature
 //   matching/mismatching the ID-token public key. A wallet-binding client also
-//   rejects a missing code key or proof. A valid proof binds the issued subject
+//   rejects a missing code key. A valid proof binds the issued subject
 //   and cnf.jwk to its wallet DID and public key.
 // - authorize response type: authenticated | unauthenticated | combined with another type
 // - credential configuration: each configured identifier is advertised and authorized;
@@ -158,12 +161,13 @@ fn redirects_authenticated_authorize_request_with_credential_offer() {
     let token_response = token_request(&format!(
         "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
-    let access_token = json_body(&token_response)["access_token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let token_body = json_body(&token_response);
+    let authorization = CredentialAuthorization {
+        access_token: token_body["access_token"].as_str().unwrap().to_owned(),
+        c_nonce: token_body["c_nonce"].as_str().unwrap().to_owned(),
+    };
     let credential_response =
-        credential_request(Some(&access_token), "application/json", CONFIGURATION_ID);
+        credential_request_with_proof(&authorization, "application/json", CONFIGURATION_ID);
     let credential = json_body(&credential_response)["credential"]
         .as_str()
         .unwrap()
@@ -314,8 +318,9 @@ fn rejects_expired_pre_authorized_code() {
 
 #[test]
 fn issues_ed25519_signed_jwt_vc() {
-    let access_token = access_token();
-    let response = credential_request(Some(&access_token), "application/json", CONFIGURATION_ID);
+    let authorization = credential_authorization();
+    let response =
+        credential_request_with_proof(&authorization, "application/json", CONFIGURATION_ID);
     let body = json_body(&response);
     let credential = body["credential"].as_str().unwrap();
     let mut validation = Validation::new(Algorithm::EdDSA);
@@ -354,12 +359,9 @@ fn issues_ed25519_signed_jwt_vc() {
 
 #[test]
 fn issues_selected_configured_credential() {
-    let access_token = access_token();
-    let response = credential_request(
-        Some(&access_token),
-        "application/json",
-        SECOND_CONFIGURATION_ID,
-    );
+    let authorization = credential_authorization();
+    let response =
+        credential_request_with_proof(&authorization, "application/json", SECOND_CONFIGURATION_ID);
     let body = json_body(&response);
     let claims = credential_claims(body["credential"].as_str().unwrap());
 
@@ -382,12 +384,12 @@ fn issues_selected_configured_credential() {
 
 #[test]
 fn issues_credential_bound_to_wallet_proof_subject_and_key() {
-    let access_token = access_token();
+    let authorization = credential_authorization();
     let did = proof_did_key();
-    let proof = credential_proof(&did, "http://localhost:4000");
+    let proof = credential_proof(&did, "http://localhost:4000", &authorization.c_nonce);
     let response = post_json(
         "/credential",
-        Some(&format!("Bearer {access_token}")),
+        Some(&format!("Bearer {}", authorization.access_token)),
         &credential_body_with_proof(CONFIGURATION_ID, &proof),
     );
     let body = json_body(&response);
@@ -402,12 +404,13 @@ fn issues_credential_bound_to_wallet_proof_subject_and_key() {
 
 #[test]
 fn verifies_credential_proof_signature_against_code_id_token_public_key() {
-    let access_token = wallet_bound_access_token(&id_token(PROOF_PRIVATE_KEY, proof_jwk()));
+    let authorization =
+        wallet_bound_credential_authorization(&id_token(PROOF_PRIVATE_KEY, proof_jwk()));
     let did = proof_did_key();
-    let proof = credential_proof(&did, "http://localhost:4000");
+    let proof = credential_proof(&did, "http://localhost:4000", &authorization.c_nonce);
     let response = post_json(
         "/credential",
-        Some(&format!("Bearer {access_token}")),
+        Some(&format!("Bearer {}", authorization.access_token)),
         &credential_body_with_proof(CONFIGURATION_ID, &proof),
     );
 
@@ -416,32 +419,33 @@ fn verifies_credential_proof_signature_against_code_id_token_public_key() {
 
 #[test]
 fn rejects_credential_proof_signature_not_matching_code_id_token_public_key() {
-    let access_token = wallet_bound_access_token(&id_token(OTHER_PRIVATE_KEY, other_jwk()));
+    let authorization =
+        wallet_bound_credential_authorization(&id_token(OTHER_PRIVATE_KEY, other_jwk()));
     let did = proof_did_key();
-    let proof = credential_proof(&did, "http://localhost:4000");
+    let proof = credential_proof(&did, "http://localhost:4000", &authorization.c_nonce);
     let response = post_json(
         "/credential",
-        Some(&format!("Bearer {access_token}")),
+        Some(&format!("Bearer {}", authorization.access_token)),
         &credential_body_with_proof(CONFIGURATION_ID, &proof),
     );
 
     assert_credential_error(
         &response,
-        "invalid_credential_request",
+        "invalid_or_missing_proof",
         "proof jwt signature does not match id_token public key",
     );
 }
 
 #[test]
-fn requires_credential_proof_for_wallet_bound_client() {
-    let access_token = wallet_bound_access_token(&id_token(PROOF_PRIVATE_KEY, proof_jwk()));
-    let response = credential_request(Some(&access_token), "application/json", CONFIGURATION_ID);
-
-    assert_credential_error(
-        &response,
-        "invalid_credential_request",
-        "proof is required for wallet binding",
+fn requires_credential_proof_for_every_credential_request() {
+    let authorization = credential_authorization();
+    let response = credential_request(
+        Some(&authorization.access_token),
+        "application/json",
+        CONFIGURATION_ID,
     );
+
+    assert_credential_error(&response, "invalid_or_missing_proof", "proof is required");
 }
 
 #[test]
@@ -460,64 +464,102 @@ fn rejects_wallet_bound_authorize_request_without_code_id_token_key() {
 
 #[test]
 fn rejects_credential_proof_with_invalid_signature() {
-    let access_token = access_token();
+    let authorization = credential_authorization();
     let did = proof_did_key();
-    let mut proof = credential_proof(&did, "http://localhost:4000");
+    let mut proof = credential_proof(&did, "http://localhost:4000", &authorization.c_nonce);
     proof.push('x');
     let response = post_json(
         "/credential",
-        Some(&format!("Bearer {access_token}")),
+        Some(&format!("Bearer {}", authorization.access_token)),
         &credential_body_with_proof(CONFIGURATION_ID, &proof),
     );
 
     assert_credential_error(
         &response,
-        "invalid_credential_request",
+        "invalid_or_missing_proof",
         "proof jwt signature is invalid",
     );
 }
 
 #[test]
 fn rejects_credential_proof_with_wrong_audience() {
-    let access_token = access_token();
+    let authorization = credential_authorization();
     let did = proof_did_key();
-    let proof = credential_proof(&did, "https://attacker.example.com");
+    let proof = credential_proof(&did, "https://attacker.example.com", &authorization.c_nonce);
     let response = post_json(
         "/credential",
-        Some(&format!("Bearer {access_token}")),
+        Some(&format!("Bearer {}", authorization.access_token)),
         &credential_body_with_proof(CONFIGURATION_ID, &proof),
     );
 
     assert_credential_error(
         &response,
-        "invalid_credential_request",
+        "invalid_or_missing_proof",
         "proof jwt audience is invalid",
     );
 }
 
 #[test]
 fn rejects_credential_proof_with_host_derived_audience() {
-    let access_token = access_token();
+    let authorization = credential_authorization();
     let did = proof_did_key();
-    let proof = credential_proof(&did, "https://issuer.example.com");
+    let proof = credential_proof(&did, "https://issuer.example.com", &authorization.c_nonce);
     let response = post_json(
         "/credential",
-        Some(&format!("Bearer {access_token}")),
+        Some(&format!("Bearer {}", authorization.access_token)),
         &credential_body_with_proof(CONFIGURATION_ID, &proof),
     );
 
     assert_credential_error(
         &response,
-        "invalid_credential_request",
+        "invalid_or_missing_proof",
         "proof jwt audience is invalid",
     );
 }
 
 #[test]
+fn rejects_credential_proof_without_c_nonce() {
+    let authorization = credential_authorization();
+    let did = proof_did_key();
+    let proof = credential_proof_with_optional_nonce(&did, ISSUER, None);
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {}", authorization.access_token)),
+        &credential_body_with_proof(CONFIGURATION_ID, &proof),
+    );
+
+    assert_credential_error(
+        &response,
+        "invalid_or_missing_proof",
+        "proof jwt nonce is required",
+    );
+}
+
+#[test]
+fn rejects_credential_proof_with_another_access_tokens_c_nonce() {
+    let authorization = credential_authorization();
+    let another_authorization = credential_authorization();
+    let did = proof_did_key();
+    let proof = credential_proof(&did, ISSUER, &another_authorization.c_nonce);
+    let response = post_json(
+        "/credential",
+        Some(&format!("Bearer {}", authorization.access_token)),
+        &credential_body_with_proof(CONFIGURATION_ID, &proof),
+    );
+
+    assert_ne!(authorization.c_nonce, another_authorization.c_nonce);
+    assert_credential_error(
+        &response,
+        "invalid_or_missing_proof",
+        "proof jwt nonce is invalid",
+    );
+}
+
+#[test]
 fn accepts_case_insensitive_json_credential_content_type_with_parameters() {
-    let access_token = access_token();
-    let response = credential_request(
-        Some(&access_token),
+    let authorization = credential_authorization();
+    let response = credential_request_with_proof(
+        &authorization,
         "Application/JSON; Charset=UTF-8",
         CONFIGURATION_ID,
     );
@@ -567,6 +609,17 @@ fn rejects_invalid_bearer_token() {
 fn rejects_expired_cose_bearer_token() {
     let response = credential_request(
         Some(&expired_credential_access_token()),
+        "application/json",
+        CONFIGURATION_ID,
+    );
+
+    assert_bearer_error(&response, "bearer access token is invalid or expired");
+}
+
+#[test]
+fn rejects_credential_access_token_without_c_nonce() {
+    let response = credential_request(
+        Some(&credential_access_token_without_c_nonce()),
         "application/json",
         CONFIGURATION_ID,
     );
@@ -803,6 +856,7 @@ fn expired_credential_access_token() -> String {
         credential_profile: Default::default(),
         id_token_public_jwk: None,
         require_wallet_binding: false,
+        c_nonce: C_NONCE.to_owned(),
         iat: 1,
         exp: 2,
     };
@@ -829,6 +883,7 @@ fn credential_access_token_for(configuration_ids: &[&str]) -> String {
         credential_profile: Default::default(),
         id_token_public_jwk: None,
         require_wallet_binding: false,
+        c_nonce: C_NONCE.to_owned(),
         iat,
         exp: iat + 300,
     };
@@ -841,18 +896,51 @@ fn credential_access_token_for(configuration_ids: &[&str]) -> String {
     .unwrap()
 }
 
+fn credential_access_token_without_c_nonce() -> String {
+    let iat = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let claims = json!({
+        "credential_configuration_ids": [CONFIGURATION_ID],
+        "subject": "did:example:alice",
+        "credential_profile": {},
+        "id_token_public_jwk": null,
+        "require_wallet_binding": false,
+        "iat": iat,
+        "exp": iat + 300
+    });
+    let mut bytes = Vec::new();
+    ciborium::into_writer(&claims, &mut bytes).unwrap();
+    kagome::resources::crypto::encode_cose_encrypt0(
+        &bytes,
+        kagome::resources::crypto::EncryptedArtifact::CredentialAccessToken,
+    )
+    .unwrap()
+}
+
 fn access_token() -> String {
+    credential_authorization().access_token
+}
+
+struct CredentialAuthorization {
+    access_token: String,
+    c_nonce: String,
+}
+
+fn credential_authorization() -> CredentialAuthorization {
     let code = offered_code();
     let response = token_request(&format!(
         "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
-    json_body(&response)["access_token"]
-        .as_str()
-        .unwrap()
-        .to_owned()
+    let body = json_body(&response);
+    CredentialAuthorization {
+        access_token: body["access_token"].as_str().unwrap().to_owned(),
+        c_nonce: body["c_nonce"].as_str().unwrap().to_owned(),
+    }
 }
 
-fn wallet_bound_access_token(id_token: &str) -> String {
+fn wallet_bound_credential_authorization(id_token: &str) -> CredentialAuthorization {
     let authorization_code = authorization_code_with_id_token(id_token);
     let response = authorize_preauthorized_code_for_client(
         "",
@@ -868,10 +956,11 @@ fn wallet_bound_access_token(id_token: &str) -> String {
     let response = token_request(&format!(
         "grant_type={GRANT_TYPE}&pre-authorized_code={code}"
     ));
-    json_body(&response)["access_token"]
-        .as_str()
-        .unwrap()
-        .to_owned()
+    let body = json_body(&response);
+    CredentialAuthorization {
+        access_token: body["access_token"].as_str().unwrap().to_owned(),
+        c_nonce: body["c_nonce"].as_str().unwrap().to_owned(),
+    }
 }
 
 struct AuthorizationCodeWithIdToken {
@@ -962,6 +1051,20 @@ fn credential_request(
     )
 }
 
+fn credential_request_with_proof(
+    authorization: &CredentialAuthorization,
+    content_type: &str,
+    credential_identifier: &str,
+) -> String {
+    let proof = credential_proof("username", ISSUER, &authorization.c_nonce);
+    post(
+        "/credential",
+        Some(&format!("Bearer {}", authorization.access_token)),
+        content_type,
+        &credential_body_with_proof(credential_identifier, &proof),
+    )
+}
+
 fn post_json(path: &str, authorization: Option<&str>, body: &str) -> String {
     post(path, authorization, "application/json", body)
 }
@@ -992,15 +1095,30 @@ fn credential_body_with_proof(credential_identifier: &str, proof: &str) -> Strin
     .to_string()
 }
 
-fn credential_proof(subject: &str, audience: &str) -> String {
-    let claims = json!({
+fn credential_proof(subject: &str, audience: &str, nonce: &str) -> String {
+    credential_proof_with_optional_nonce(subject, audience, Some(nonce))
+}
+
+fn credential_proof_with_optional_nonce(
+    subject: &str,
+    audience: &str,
+    nonce: Option<&str>,
+) -> String {
+    let mut claims = json!({
         "iss": subject,
         "sub": subject,
         "aud": audience,
         "iat": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
     });
+    if let Some(nonce) = nonce {
+        claims["nonce"] = json!(nonce);
+    }
     let mut header = Header::new(Algorithm::ES256);
-    header.kid = Some(subject.to_owned());
+    if subject.starts_with("did:key:") {
+        header.kid = Some(subject.to_owned());
+    } else {
+        header.jwk = Some(serde_json::from_value(proof_jwk()).unwrap());
+    }
     encode(
         &header,
         &claims,
@@ -1079,6 +1197,15 @@ fn assert_token_response(response: &str) {
     let body = json_body(response);
     assert_eq!(body["token_type"], "Bearer");
     assert_eq!(body["expires_in"], 3600);
+    assert_eq!(body["c_nonce_expires_in"], 3600);
+    let c_nonce = body["c_nonce"].as_str().unwrap();
+    assert_eq!(c_nonce.len(), 43);
+    assert_eq!(
+        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, c_nonce)
+            .unwrap()
+            .len(),
+        32
+    );
     assert_eq!(
         body["authorization_details"],
         serde_json::json!([{
@@ -1097,6 +1224,20 @@ fn assert_token_response(response: &str) {
             && base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, token)
                 .is_ok()
     }));
+    let claims_bytes = kagome::resources::crypto::decode_cose_encrypt0(
+        body["access_token"].as_str().unwrap(),
+        kagome::resources::crypto::EncryptedArtifact::CredentialAccessToken,
+        kagome::resources::crypto::CoseEncrypt0Errors {
+            invalid_cose: "invalid",
+            missing_ciphertext: "invalid",
+            missing_nonce: "invalid",
+            decryption_failed: "invalid",
+        },
+    )
+    .unwrap();
+    let claims: kagome::resources::credential_access_token::CredentialAccessTokenClaims =
+        ciborium::from_reader(claims_bytes.as_slice()).unwrap();
+    assert_eq!(claims.c_nonce, c_nonce);
 }
 
 fn assert_oauth_error(response: &str, error: &str, description: &str) {

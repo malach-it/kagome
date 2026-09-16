@@ -1,5 +1,7 @@
 use super::*;
 
+const CREDENTIAL_PROOF_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
+
 // Branch matrix:
 // - method: GET | unsupported
 // - authenticated state: valid | missing | invalid | first accepted callback | replayed
@@ -185,12 +187,10 @@ fn includes_selected_federated_attributes_in_credential_subject() {
         "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{token_body}",
         token_body.len()
     ));
-    let access_token = json_response_body(&token_response)["access_token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let credential_body =
-        serde_json::json!({"credential_identifier": CONFIGURATION_ID}).to_string();
+    let token_response = json_response_body(&token_response);
+    let access_token = token_response["access_token"].as_str().unwrap().to_owned();
+    let c_nonce = token_response["c_nonce"].as_str().unwrap();
+    let credential_body = credential_body_with_proof(CONFIGURATION_ID, c_nonce);
     let credential_response = send_request(&format!(
         "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\nauthorization: Bearer {access_token}\r\ncontent-length: {}\r\n\r\n{credential_body}",
         credential_body.len()
@@ -220,8 +220,7 @@ fn includes_selected_federated_attributes_in_credential_subject() {
         assert!(subject.get("display_name").is_none());
     }
 
-    let credential_body =
-        serde_json::json!({"credential_identifier": SECOND_CONFIGURATION_ID}).to_string();
+    let credential_body = credential_body_with_proof(SECOND_CONFIGURATION_ID, c_nonce);
     let credential_response = send_request(&format!(
         "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\nauthorization: Bearer {access_token}\r\ncontent-length: {}\r\n\r\n{credential_body}",
         credential_body.len()
@@ -248,6 +247,41 @@ fn includes_selected_federated_attributes_in_credential_subject() {
         assert_eq!(subject["username"], "federated-user");
         assert!(subject.get("sub").is_none());
     }
+}
+
+fn credential_body_with_proof(credential_identifier: &str, c_nonce: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
+    header.jwk = Some(
+        serde_json::from_value(serde_json::json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI",
+            "y": "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8"
+        }))
+        .unwrap(),
+    );
+    let proof = jsonwebtoken::encode(
+        &header,
+        &serde_json::json!({
+            "iss": "federated-user",
+            "sub": "federated-user",
+            "aud": "http://localhost:4000",
+            "iat": now,
+            "nonce": c_nonce
+        }),
+        &jsonwebtoken::EncodingKey::from_ec_pem(CREDENTIAL_PROOF_PRIVATE_KEY).unwrap(),
+    )
+    .unwrap();
+
+    serde_json::json!({
+        "credential_identifier": credential_identifier,
+        "proof": {"proof_type": "jwt", "jwt": proof}
+    })
+    .to_string()
 }
 
 #[test]

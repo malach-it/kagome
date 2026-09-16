@@ -15,6 +15,7 @@ pub enum OAuthErrorCode {
     InvalidGrant,
     InvalidAccessToken,
     InvalidCredentialRequest,
+    InvalidOrMissingProof,
     UnknownCredentialConfiguration,
     UnsupportedResponseType,
     InvalidFinalResponseType,
@@ -78,6 +79,14 @@ impl OAuthError {
         Self::new(
             OAuthErrorCode::InvalidCredentialRequest,
             "invalid_credential_request",
+            error_description,
+        )
+    }
+
+    pub fn invalid_or_missing_proof(error_description: impl Into<String>) -> Self {
+        Self::new(
+            OAuthErrorCode::InvalidOrMissingProof,
+            "invalid_or_missing_proof",
             error_description,
         )
     }

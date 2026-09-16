@@ -15,15 +15,15 @@ flowchart TD
     consume -- replay or storage error --> token_error
     consume -- ok --> access["credential_access_token::generate"]
     access -- error --> token_error
-    access -- ok --> token_success["`**HTTP 200** credential access token with authorization details`"]
+    access -- ok --> token_success["`**HTTP 200** credential access token, c_nonce, and authorization details`"]
     token_success --> credential_request[Request /credential]
     credential_request --> credential_issuer["credential_issuer::validate"]
     credential_issuer --> bearer["credential_access_token::validate"]
     bearer -- error --> credential_error["`**HTTP 400/401** credential error with CORS header`"]
     bearer -- ok --> configuration["credential_issuer::validate_configuration"]
     configuration -- error --> credential_error
-    configuration -- ok --> proof["credential_proof::validate_optional"]
+    configuration -- ok --> proof["credential_proof::validate"]
     proof -- error --> credential_error
-    proof -- ok --> issue["verifiable_credential::generate"]
+    proof -- valid with matching c_nonce --> issue["verifiable_credential::generate"]
     issue -- error --> credential_error
     issue -- ok --> success["`**HTTP 200** jwt_vc credential with CORS header`"]

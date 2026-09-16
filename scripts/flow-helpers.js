@@ -33,6 +33,19 @@ export const preAuthorizedCodeResponse =
   "urn:ietf:params:oauth:response-type:pre-authorized_code";
 export const credentialIdentifier = "UniversityDegreeCredential";
 
+const credentialProofPublicJwk = {
+  kty: "EC",
+  crv: "P-256",
+  x: "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI",
+  y: "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8",
+};
+const credentialProofPrivateJwk = {
+  ...credentialProofPublicJwk,
+  d: "9SWS4Y9IULSULCeaXPaFWOCkkYV_k1RW1NCRhdqo8NE",
+  key_ops: ["sign"],
+  ext: true,
+};
+
 const noRedirects = { redirects: 0 };
 const formNoRedirects = {
   headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -79,7 +92,7 @@ export function authorize(responseType) {
   });
 }
 
-export function issueCredential(proof) {
+export async function issueCredential(proofFactory = defaultCredentialProof) {
   const authorizeResponse = authorize(preAuthorizedCodeResponse);
   const authorizeLocation = location(authorizeResponse);
   const offer = jsonParameter(authorizeLocation, "credential_offer");
@@ -101,19 +114,26 @@ export function issueCredential(proof) {
     },
     formOptions("POST /token"),
   );
-  const token = json(tokenResponse).access_token;
+  const tokenBody = json(tokenResponse);
+  const token = tokenBody.access_token;
+  const cNonce = tokenBody.c_nonce;
 
   check(tokenResponse, {
     "pre-authorized code exchange succeeds": (response) =>
       response.status === 200,
     "credential access token is present": () =>
       typeof token === "string" && token.length > 0,
+    "credential nonce is present": () =>
+      typeof cNonce === "string" && cNonce.length > 0,
   });
 
-  const credentialRequest = { credential_identifier: credentialIdentifier };
-  if (proof !== undefined) {
-    credentialRequest.proof = { proof_type: "jwt", jwt: proof };
-  }
+  const credentialRequest = {
+    credential_identifier: credentialIdentifier,
+    proof: {
+      proof_type: "jwt",
+      jwt: await proofFactory(cNonce),
+    },
+  };
   const credentialResponse = http.post(
     `${serverTarget}/credential`,
     JSON.stringify(credentialRequest),
@@ -135,6 +155,21 @@ export function issueCredential(proof) {
   });
 
   return credential;
+}
+
+async function defaultCredentialProof(cNonce) {
+  const holder = `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${jwkThumbprint(credentialProofPublicJwk)}`;
+  return signEs256(
+    { alg: "ES256", typ: "openid4vci-proof+jwt", jwk: credentialProofPublicJwk },
+    {
+      iss: holder,
+      sub: holder,
+      aud: issuer,
+      iat: Math.floor(Date.now() / 1000),
+      nonce: cNonce,
+    },
+    credentialProofPrivateJwk,
+  );
 }
 
 export function location(response) {
