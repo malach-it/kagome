@@ -56,6 +56,9 @@ After the encrypted callback state validates the original client and redirect
 URI, callback, token-exchange, identity-fetch, and authorize-continuation errors
 redirect to that URI with `error`, `error_description`, and the original client
 `state`. Missing or invalid callback state remains a local JSON error.
+For QR-enabled clients, a pre-authorized-code continuation carrying a validated
+ID-token public key redirects directly to the wallet callback instead of
+rendering another QR relay.
 
 [Mermaid source](federation_callback.mmd)
 

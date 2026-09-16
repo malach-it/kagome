@@ -22,4 +22,6 @@ flowchart TD
     identity -- error --> redirect_error
     identity -- ok --> generate[Generate selected authorize response]
     generate -- error --> redirect_error
-    generate -- ok --> accepted["`**HTTP 302** downstream authorize response`"]
+    generate -- ok --> delivery{Wallet delivery?}
+    delivery -- QR client and no validated ID-token code --> qr["`**HTTP 200** QR relay`"]
+    delivery -- validated ID-token code or standard client --> accepted["`**HTTP 302** downstream authorize response`"]

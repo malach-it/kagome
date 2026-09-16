@@ -35,6 +35,8 @@ pub struct PreAuthorizedCodeClaims {
 pub trait Generate {
     fn add_pre_authorized_code(&mut self, pre_authorized_code: String);
 
+    fn add_wallet_authenticated(&mut self) {}
+
     fn client_id(&self) -> Option<&str> {
         None
     }
@@ -90,6 +92,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
             "wallet binding requires a code containing an id_token public key",
         ));
     }
+    let wallet_authenticated = id_token_public_jwk.is_some();
     let claims = PreAuthorizedCodeClaims {
         credential_configuration_id: CREDENTIAL_CONFIGURATION_ID.to_owned(),
         subject,
@@ -104,6 +107,9 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .map_err(|_| OAuthError::invalid_token_response("pre-authorized code generation failed"))?;
     let code = crypto::encode_cose_encrypt0(&claims_bytes, EncryptedArtifact::PreAuthorizedCode)?;
 
+    if wallet_authenticated {
+        request.add_wallet_authenticated();
+    }
     request.add_pre_authorized_code(code);
     Ok(request)
 }

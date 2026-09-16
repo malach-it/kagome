@@ -217,6 +217,7 @@ fn start_server() -> String {
             id_token: true,
             credential: true,
         });
+    let federated_qr_server = federated_server.clone();
     federated_server.endpoints[0]
         .claims
         .push(kagome::config::FederatedIdentityClaimConfig {
@@ -251,6 +252,18 @@ fn start_server() -> String {
         require_wallet_binding: false,
         qr_code: false,
         federated_server: Some(federated_server),
+    });
+    config.clients.push(kagome::config::ClientConfig {
+        client_id: "federated_qr_client".to_owned(),
+        public: None,
+        client_secret: "federated_qr_secret".to_owned(),
+        password_file: None,
+        redirect_uris: vec!["https://federated-qr.example.com/callback".to_owned()],
+        supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
+        supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
+        require_wallet_binding: true,
+        qr_code: true,
+        federated_server: Some(federated_qr_server),
     });
     config.clients.push(kagome::config::ClientConfig {
         client_id: "restricted_client".to_owned(),

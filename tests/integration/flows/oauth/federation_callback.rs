@@ -10,6 +10,8 @@ use super::*;
 //   malformed response | missing or non-string claim
 // - resource owner identifier: username | sub fallback | missing
 // - artifact inclusion: claim selected for ID token only | credential only | both
+// - wallet delivery: QR client with a valid ID-token code redirects directly |
+//   missing ID-token code fails wallet binding
 // - identity error response: error_description | message | error | HTTP status fallback
 // - error destination: validated redirect URI with error, description, and optional
 //   client state | local JSON error when callback state is missing or invalid
@@ -152,6 +154,43 @@ fn returns_credential_offer_for_federated_preauthorized_code_request() {
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://client.example.com/callback?credential_offer="));
     assert!(!response.contains("federated-code"));
+}
+
+#[test]
+fn redirects_qr_federation_callback_with_valid_id_token_code() {
+    let authorization_code = authorization_code_for_client_id("federated_qr_client");
+    let state = federation_state_for(&format!(
+        "response_type=urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code&client_id=federated_qr_client&redirect_uri=https%3A%2F%2Ffederated-qr.example.com%2Fcallback&code={authorization_code}",
+    ));
+    let response = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"), "{response}");
+    assert!(
+        response.contains("location: https://federated-qr.example.com/callback?credential_offer="),
+        "{response}"
+    );
+    assert!(!response.contains("<svg"), "{response}");
+}
+
+#[test]
+fn rejects_qr_federation_callback_without_id_token_code() {
+    let state = federation_state_for(
+        "response_type=urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code&client_id=federated_qr_client&redirect_uri=https%3A%2F%2Ffederated-qr.example.com%2Fcallback",
+    );
+    let response = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"), "{response}");
+    assert!(response.contains("error=invalid_request"), "{response}");
+    assert!(
+        response.contains(
+            "error_description=wallet%20binding%20requires%20a%20code%20containing%20an%20id_token%20public%20key"
+        ),
+        "{response}"
+    );
 }
 
 #[test]

@@ -61,6 +61,7 @@ pub struct AuthorizeLoginResponse {
     pub resource_owner_profile: Option<resource_owner::ResourceOwnerProfile>,
     pub credential_profile: Option<resource_owner::ResourceOwnerProfile>,
     pub authenticated: bool,
+    pub wallet_authenticated: bool,
     pub siop_public_jwk: Option<Value>,
     pub metadata_policy: Option<MetadataPolicy>,
     pub code_challenge: Option<CodeChallenge>,
@@ -352,7 +353,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
         client_id: &str,
         authorization_uri: &str,
     ) -> Result<String, OAuthError> {
-        if self.response.siop_authenticated {
+        if self.response.siop_authenticated || self.response.wallet_authenticated {
             return Ok(wallet_authorization_redirect_response(authorization_uri));
         }
 
@@ -403,6 +404,7 @@ impl AuthorizeLoginResponse {
             resource_owner_profile: None,
             credential_profile: None,
             authenticated: false,
+            wallet_authenticated: false,
             siop_public_jwk: None,
             metadata_policy: None,
             code_challenge: None,
@@ -745,6 +747,10 @@ impl<'a> id_token::Generate for AuthorizeLoginRequest<'a> {
 }
 
 impl pre_authorized_code::Generate for AuthorizeLoginRequest<'_> {
+    fn add_wallet_authenticated(&mut self) {
+        self.response.wallet_authenticated = true;
+    }
+
     fn client_id(&self) -> Option<&str> {
         self.response.client_id.as_deref()
     }
