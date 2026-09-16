@@ -2,6 +2,19 @@ services:
   kagome:
     build: .
     init: true
+    user: "${KAGOME_UID:-1000}:${KAGOME_GID:-1000}"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    secrets:
+      - source: kagome_config
+        target: kagome.yaml
+      - source: kagome_crypto
+        target: kagome.crypto.yaml
+      - source: kagome_passwords
+        target: kagome.htpasswd.example
     ports:
       - "${KAGOME_PORT:-4000}:${KAGOME_PORT:-4000}"
     healthcheck:
@@ -169,3 +182,11 @@ services:
     command: run /scripts/openid4vp.k6.js
     profiles:
       - loadtest
+
+secrets:
+  kagome_config:
+    file: ./kagome.yaml
+  kagome_crypto:
+    file: ./kagome.crypto.yaml
+  kagome_passwords:
+    file: ./kagome.htpasswd.example

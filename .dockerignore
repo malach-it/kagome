@@ -1,7 +1,9 @@
-target
-.git
-.github
-kagome.yaml
-kagome.crypto.yaml
-kagome.htpasswd
-.ssh
+**
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/**
+!templates/
+!templates/base.html
+!templates/authorization_error.html
+!templates/wallet_authorization.html

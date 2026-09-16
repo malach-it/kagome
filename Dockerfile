@@ -1,28 +1,32 @@
 FROM rust:1-bookworm AS builder
 
 WORKDIR /app
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl \
-    && rm -rf /var/lib/apt/lists/*
-COPY . .
-RUN cargo build --release
-RUN scripts/generate-crypto-config.sh /app/kagome.crypto.yaml
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && touch src/lib.rs
+RUN cargo fetch --locked
+RUN cargo build --release --locked
+RUN cargo clean --release -p kagome
+COPY src ./src
+COPY templates/base.html templates/authorization_error.html templates/wallet_authorization.html ./templates/
+RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends wget \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 kagome \
+    && useradd --system --uid 10001 --gid kagome --no-create-home --home-dir /nonexistent kagome \
+    && mkdir /templates \
+    && chown kagome:kagome /templates
 
 COPY --from=builder /app/target/release/kagome /usr/local/bin/kagome
-COPY --from=builder /app/kagome.example.yaml /etc/kagome/kagome.yaml
-COPY --from=builder /app/kagome.crypto.yaml /etc/kagome/kagome.crypto.yaml
-COPY --from=builder /app/kagome.htpasswd.example /etc/kagome/kagome.htpasswd.example
-COPY --from=builder /app/templates/*.html /templates/
 
-ENV KAGOME_CONFIG=/etc/kagome/kagome.yaml
+ENV KAGOME_CONFIG=/run/secrets/kagome.yaml
 ENV KAGOME_PORT=4000
 
 EXPOSE ${KAGOME_PORT}
+
+USER 10001:10001
 
 CMD ["kagome"]

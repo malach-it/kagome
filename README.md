@@ -152,6 +152,22 @@ empty, or providing invalid PEM prevents startup. Keep the private-key variable
 restricted to the server process and continue to set `server.issuer` to the
 public HTTPS origin.
 
+The container image does not contain a configuration file, password database,
+or generated cryptographic material. Supply them at runtime under
+`/run/secrets`; the image reads `/run/secrets/kagome.yaml` by default and
+resolves its relative `crypto.key_file` and `password_file` paths in that same
+directory. The provided Compose configuration mounts `kagome.yaml`,
+`kagome.crypto.yaml`, and `kagome.htpasswd.example` as read-only secrets. Treat
+the main configuration as a secret because it contains OAuth client and
+federation credentials, and replace the example password source in production.
+The image runs as the dedicated numeric user and group `10001:10001`. Because
+local-file Compose secrets retain host ownership, Compose instead uses
+`KAGOME_UID` and `KAGOME_GID` (both default to `1000`) for its non-root process;
+set them to the owner of the `0600` secret files. Compose additionally uses a
+read-only root filesystem, drops all Linux capabilities, and prevents privilege
+escalation. Client-specific HTML templates may be mounted read-only under
+`/templates` when required.
+
 For a federated client, `GET /authorize` redirects to the configured upstream
 authorization endpoint with `response_type=code`, the upstream `client_id`, the
 callback URI derived from `server.issuer`, and authenticated short-lived state.
