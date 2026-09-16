@@ -120,21 +120,6 @@ and is not shared across replicas. Nonce endpoints, deferred or batch issuance,
 request/response encryption, and notifications are not implemented. Replace
 embedded development keys before deployment.
 
-## Agent chat code-chain example
-
-The agent-chat example demonstrates public-client authentication and chained
-authorization codes: it obtains a hybrid `code id_token` response, then extends
-the authorization-code chain for each agent handoff.
-
-Run the example against the Docker Compose server with:
-
-```bash
-docker compose --profile tools run --rm agent-chat
-```
-
-Defaults match `kagome.example.yaml`; documented `KAGOME_*` variables override
-the server, public host, redirect URI, credentials, and timeout.
-
 ## OpenID for Verifiable Presentations
 
 Kagome provides a bounded OpenID4VP 1.0 Final verifier profile:
@@ -172,6 +157,21 @@ After validation, Kagome continues the original authorization flow and redirects
 to the trusted client URI. Replay tracking is bounded to the running process and
 is not shared across replicas; replace development signing keys before
 deployment.
+
+## Agent chat code-chain example
+
+The agent-chat example demonstrates public-client authentication and chained
+authorization codes: it obtains a hybrid `code id_token` response, then extends
+the authorization-code chain for each agent handoff.
+
+Run the example against the Docker Compose server with:
+
+```bash
+docker compose --profile tools run --rm agent-chat
+```
+
+Defaults match `kagome.example.yaml`; documented `KAGOME_*` variables override
+the server, public host, redirect URI, credentials, and timeout.
 
 ## Load testing
 
