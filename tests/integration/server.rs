@@ -1,8 +1,9 @@
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{self, BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
     sync::OnceLock,
     thread,
+    time::Duration,
 };
 
 static SERVER_ADDRESS: OnceLock<String> = OnceLock::new();
@@ -103,15 +104,178 @@ fn routes_echo_for_any_http_method() {
 }
 
 #[test]
-fn rejects_request_body_larger_than_ten_mebibytes() {
-    let body = "a".repeat(kagome::http_server::MAX_REQUEST_BODY_BYTES + 1);
+fn rejects_request_body_larger_than_one_mebibyte() {
+    let body = "a".repeat(kagome::http_server::MAX_ECHO_REQUEST_BODY_BYTES + 1);
     let response = send_request(&format!(
         "POST /echo HTTP/1.1\r\nhost: example.com\r\ncontent-length: {}\r\n\r\n{body}",
         body.len()
     ));
 
     assert!(response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
+    assert!(response.ends_with("request body exceeds 1048576 bytes"));
+}
+
+#[test]
+fn rejects_protocol_body_larger_than_256_kibibytes() {
+    let body = "a".repeat(kagome::http_server::MAX_PROTOCOL_REQUEST_BODY_BYTES + 1);
+    let response = send_request(&format!(
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
+    assert!(response.ends_with("request body exceeds 262144 bytes"));
+}
+
+#[test]
+fn permits_larger_presentation_response_within_global_limit() {
+    let body = "a".repeat(kagome::http_server::MAX_PROTOCOL_REQUEST_BODY_BYTES + 1);
+    let response = send_request(&format!(
+        "POST /presentation-response HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    ));
+
+    assert!(!response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
+}
+
+#[test]
+fn rejects_presentation_response_larger_than_ten_mebibytes() {
+    let body = "a".repeat(kagome::http_server::MAX_REQUEST_BODY_BYTES + 1);
+    let response = send_request(&format!(
+        "POST /presentation-response HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
     assert!(response.ends_with("request body exceeds 10485760 bytes"));
+}
+
+#[test]
+fn permits_larger_credential_request_within_ten_mebibyte_limit() {
+    let body = "a".repeat(kagome::http_server::MAX_PROTOCOL_REQUEST_BODY_BYTES + 1);
+    let response = send_request(&format!(
+        "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    ));
+
+    assert!(!response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
+}
+
+#[test]
+fn rejects_credential_request_larger_than_ten_mebibytes() {
+    let body = "a".repeat(kagome::http_server::MAX_REQUEST_BODY_BYTES + 1);
+    let response = send_request(&format!(
+        "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
+    assert!(response.ends_with("request body exceeds 10485760 bytes"));
+}
+
+#[test]
+fn rejects_more_than_64_request_headers() {
+    let headers = (0..kagome::http_server::MAX_REQUEST_HEADERS)
+        .map(|index| format!("x-test-{index}: value\r\n"))
+        .collect::<String>();
+    let response = send_request(&format!(
+        "GET /echo HTTP/1.1\r\nhost: example.com\r\n{headers}\r\n"
+    ));
+
+    assert!(
+        response.starts_with("HTTP/1.1 431 Request Header Fields Too Large\r\n"),
+        "{response}"
+    );
+}
+
+#[test]
+fn rejects_headers_exceeding_32_kibibytes() {
+    let value = "a".repeat(kagome::http_server::MAX_HEADER_BYTES);
+    let response = send_request(&format!(
+        "GET /echo HTTP/1.1\r\nhost: example.com\r\nx-large: {value}\r\n\r\n"
+    ));
+
+    assert!(
+        response.starts_with("HTTP/1.1 431 Request Header Fields Too Large\r\n"),
+        "{response}"
+    );
+}
+
+#[test]
+fn closes_connection_when_header_read_times_out() {
+    let address = start_server_with_limits(kagome::http_server::ServerLimits {
+        header_read_timeout: Duration::from_millis(50),
+        ..Default::default()
+    });
+    let mut stream = TcpStream::connect(address).expect("failed to connect to limited server");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("failed to set client read timeout");
+    stream
+        .write_all(b"GET /echo HTTP/1.1\r\nhost:")
+        .expect("failed to write partial headers");
+
+    let mut response = Vec::new();
+    let result = stream.read_to_end(&mut response);
+
+    assert!(
+        result.is_ok()
+            || result.as_ref().is_err_and(|error| {
+                matches!(
+                    error.kind(),
+                    io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof
+                )
+            }),
+        "{result:?}"
+    );
+    assert!(
+        response.is_empty() || response.starts_with(b"HTTP/1.1 408 Request Timeout\r\n"),
+        "{}",
+        String::from_utf8_lossy(&response)
+    );
+}
+
+#[test]
+fn times_out_incomplete_request_body() {
+    let address = start_server_with_limits(kagome::http_server::ServerLimits {
+        request_body_timeout: Duration::from_millis(50),
+        ..Default::default()
+    });
+    let mut stream = TcpStream::connect(address).expect("failed to connect to limited server");
+    let mut reader = BufReader::new(stream.try_clone().expect("failed to clone connection"));
+    stream
+        .write_all(b"POST /echo HTTP/1.1\r\nhost: example.com\r\ncontent-length: 5\r\n\r\na")
+        .expect("failed to write partial request");
+
+    let response = read_response(&mut reader);
+
+    assert!(response.starts_with("HTTP/1.1 408 Request Timeout\r\n"));
+    assert!(response.ends_with("request body timed out"));
+}
+
+#[test]
+fn rejects_request_when_concurrency_is_exhausted() {
+    let address = start_server_with_limits(kagome::http_server::ServerLimits {
+        max_concurrent_connections: 2,
+        max_concurrent_requests: 1,
+        request_body_timeout: Duration::from_secs(1),
+        ..Default::default()
+    });
+    let mut blocked = TcpStream::connect(&address).expect("failed to connect blocking request");
+    blocked
+        .write_all(b"POST /echo HTTP/1.1\r\nhost: example.com\r\ncontent-length: 5\r\n\r\na")
+        .expect("failed to write blocking request");
+    thread::sleep(Duration::from_millis(25));
+
+    let mut rejected = TcpStream::connect(address).expect("failed to connect rejected request");
+    let mut reader = BufReader::new(rejected.try_clone().expect("failed to clone connection"));
+    rejected
+        .write_all(b"GET /echo HTTP/1.1\r\nhost: example.com\r\n\r\n")
+        .expect("failed to write rejected request");
+    let response = read_response(&mut reader);
+
+    assert!(response.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
+    assert!(response.ends_with("request concurrency limit reached"));
 }
 
 #[test]
@@ -346,6 +510,21 @@ fn start_server() -> String {
     thread::spawn(move || {
         kagome::http_server::serve_listener_with_workers(listener, 2)
             .expect("kagome server failed");
+    });
+
+    address
+}
+
+fn start_server_with_limits(limits: kagome::http_server::ServerLimits) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind limited server");
+    let address = listener
+        .local_addr()
+        .expect("failed to read limited server address")
+        .to_string();
+
+    thread::spawn(move || {
+        kagome::http_server::serve_listener_with_workers_and_limits(listener, 1, limits)
+            .expect("limited kagome server failed");
     });
 
     address

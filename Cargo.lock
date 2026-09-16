@@ -924,6 +924,7 @@ dependencies = [
  "bcrypt",
  "ciborium",
  "coset",
+ "hyper-util",
  "jsonwebtoken",
  "minijinja",
  "p256",

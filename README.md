@@ -156,6 +156,16 @@ seconds. `tokens.authorization_code_chain_max_depth` bounds nested authorization
 codes (default `8`, accepted range `1..=32`). Omitted `tokens` configuration uses
 the example defaults.
 
+The HTTP boundary accepts at most 256 concurrent connections and 128 in-flight
+requests. It permits 64 request headers in a 32 KiB parsing buffer, allows five
+seconds to receive each header block, and applies separate 30-second body-read
+and response-generation deadlines. Protocol request bodies are limited to
+256 KiB and the development echo endpoint to 1 MiB. Credential issuance and
+presentation-response requests have route-specific 10 MiB ceilings to
+accommodate large credential and `vp_token` payloads. Connections or requests
+above their concurrency budgets fail closed instead of waiting in an unbounded
+application queue.
+
 Kagome serves plain HTTP by default. Set both `KAGOME_HTTPS_CERT` and
 `KAGOME_HTTPS_KEY` to PEM-formatted certificate-chain and private-key contents
 to terminate HTTPS directly in Kagome. Setting only one variable, leaving one
