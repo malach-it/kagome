@@ -552,6 +552,12 @@ fn parse_password_file(contents: &str) -> Result<ClientPasswordFile, String> {
                 index + 1
             ));
         }
+        if bcrypt::verify([], password).is_err() {
+            return Err(format!(
+                "line {} must contain a valid bcrypt password hash",
+                index + 1
+            ));
+        }
         if !unique_usernames.insert(username) {
             return Err(format!("username must be unique: {username}"));
         }

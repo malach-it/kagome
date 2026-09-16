@@ -1,5 +1,3 @@
-use htpasswd_verify::Htpasswd;
-
 use crate::{
     config::Config,
     errors::{OAuthError, OAuthErrorCode},
@@ -72,7 +70,7 @@ fn validate_resource_owner<T: Validate>(request: &T) -> Result<Option<ResourceOw
         .request_password()
         .ok_or_else(OAuthError::missing_password)?;
 
-    if !Htpasswd::from(passwords).check(username, password) {
+    if !verify_password(passwords, username, password) {
         return Err(OAuthError::invalid_password());
     }
 
@@ -81,8 +79,42 @@ fn validate_resource_owner<T: Validate>(request: &T) -> Result<Option<ResourceOw
     }))
 }
 
+fn verify_password(passwords: &str, username: &str, password: &str) -> bool {
+    passwords.lines().any(|line| {
+        let Some((configured_username, password_hash)) = line.split_once(':') else {
+            return false;
+        };
+
+        configured_username == username && bcrypt::verify(password, password_hash).unwrap_or(false)
+    })
+}
+
 pub fn configured_username(client_id: &str, username: &str) -> bool {
     Config::global()
         .client_password_file(client_id)
         .is_some_and(|(_, usernames)| usernames.iter().any(|configured| configured == username))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verify_password;
+
+    const PASSWORDS: &str = concat!(
+        "# password: password\n",
+        "username:$2y$05$4MDXTHOjtx8aCJ0k.Y/5leTGaeV.ffFF8jCeeA69BeQ.BvcTZZy06\n",
+        "malformed\n",
+        "broken:invalid-hash\n",
+    );
+
+    #[test]
+    fn verifies_nginx_bcrypt_password_entry() {
+        assert!(verify_password(PASSWORDS, "username", "password"));
+    }
+
+    #[test]
+    fn rejects_wrong_password_unknown_user_and_malformed_hash() {
+        assert!(!verify_password(PASSWORDS, "username", "wrong"));
+        assert!(!verify_password(PASSWORDS, "unknown", "password"));
+        assert!(!verify_password(PASSWORDS, "broken", "password"));
+    }
 }

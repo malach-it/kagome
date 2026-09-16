@@ -301,7 +301,13 @@ fn rejects_missing_client_password_file() {
 
 #[test]
 fn rejects_invalid_client_password_files() {
-    for contents in ["", "missing-separator\n", ":password\n", "username:\n"] {
+    for contents in [
+        "",
+        "missing-separator\n",
+        ":password\n",
+        "username:\n",
+        "username:unsupported-hash\n",
+    ] {
         let password_file = PasswordFile::new(contents);
         let file = ConfigFile::new(&format!(
             "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    password_file: {}\n    redirect_uris: [https://client.example.com/callback]\n",
@@ -317,7 +323,10 @@ fn rejects_invalid_client_password_files() {
 
 #[test]
 fn rejects_duplicate_client_password_file_usernames() {
-    let password_file = PasswordFile::new("username:first\nusername:second\n");
+    let password_file = PasswordFile::new(concat!(
+        "username:$2y$05$4MDXTHOjtx8aCJ0k.Y/5leTGaeV.ffFF8jCeeA69BeQ.BvcTZZy06\n",
+        "username:$2y$05$ALGmNcEd4nP1.Zq2D7CtHO1cLL01Xxyj6oxDZ5jAVxd5k5dZKS5XO\n",
+    ));
     let file = ConfigFile::new(&format!(
         "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    password_file: {}\n    redirect_uris: [https://client.example.com/callback]\n",
         password_file.file_name()

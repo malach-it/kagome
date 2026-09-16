@@ -62,8 +62,9 @@ outstanding artifacts in that context; replacing a signing pair immediately
 changes its published JWK and invalidates signatures made with the previous
 key. Coordinate rotation with the configured token and state lifetimes. The
 optional per-client `password_file` points to an nginx-style
-`name:password[:comment]` file. Relative paths are resolved from the YAML file,
-and credentials are loaded once at startup. A client without `password_file`
+`name:bcrypt-hash[:comment]` file. Other password-hash formats are rejected at
+startup. Relative paths are resolved from the YAML file, and credentials are
+loaded once at startup. A client without `password_file`
 cannot authenticate local resource owners. The committed
 `kagome.htpasswd.example` contains the example users; create the ignored local
 file with `htpasswd -B kagome.htpasswd username`. The
