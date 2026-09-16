@@ -1,11 +1,22 @@
 use std::{
-    io::{self, BufRead, BufReader, Read, Write},
-    net::{TcpListener, TcpStream, ToSocketAddrs},
-    sync::{Arc, Mutex, mpsc},
-    thread,
+    io,
+    net::{TcpListener, ToSocketAddrs},
 };
 
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{
+        HeaderName, HeaderValue, Request, Response, StatusCode,
+        header::{CONNECTION, CONTENT_LENGTH},
+    },
+    routing::any,
+};
+
+use crate::unit::{HttpHeader, KagomeRequest};
+
 pub const DEFAULT_WORKERS: usize = 4;
+pub const MAX_REQUEST_BODY_BYTES: usize = 10 * 1024 * 1024;
 
 pub fn serve(address: impl ToSocketAddrs) -> io::Result<()> {
     serve_with_workers(address, DEFAULT_WORKERS)
@@ -19,83 +30,119 @@ pub fn serve_with_workers(address: impl ToSocketAddrs, worker_count: usize) -> i
 
 pub fn serve_listener_with_workers(listener: TcpListener, worker_count: usize) -> io::Result<()> {
     let worker_count = worker_count.max(1);
-
     println!("{}", listener.local_addr()?);
+    listener.set_nonblocking(true)?;
 
-    let (sender, receiver) = mpsc::channel();
-    let receiver = Arc::new(Mutex::new(receiver));
-    let mut workers = Vec::with_capacity(worker_count);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_count)
+        .enable_all()
+        .thread_name("kagome-http")
+        .build()?;
 
-    for _ in 0..worker_count {
-        let receiver = Arc::clone(&receiver);
-        workers.push(thread::spawn(move || worker_loop(receiver)));
-    }
+    runtime.block_on(async move {
+        let listener = tokio::net::TcpListener::from_std(listener)?;
+        let application = Router::new().fallback(any(handle_request));
 
-    let accept_result = accept_connections(listener, sender.clone());
-    drop(sender);
-
-    for worker in workers {
-        worker
-            .join()
-            .map_err(|_| io::Error::other("http server worker panicked"))?;
-    }
-
-    accept_result
+        axum::serve(listener, application).await
+    })
 }
 
-fn accept_connections(listener: TcpListener, sender: mpsc::Sender<TcpStream>) -> io::Result<()> {
-    for stream in listener.incoming() {
-        let stream = stream?;
-        sender
-            .send(stream)
-            .map_err(|_| io::Error::other("http server workers stopped"))?;
-    }
+async fn handle_request(request: Request<Body>) -> Response<Body> {
+    let keep_alive = request
+        .headers()
+        .get(CONNECTION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case("keep-alive"));
 
-    Ok(())
+    let request = match kagome_request(request).await {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+
+    raw_http_response(&crate::router::route_request(&request), keep_alive)
 }
 
-fn worker_loop(receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>) {
-    loop {
-        let stream = {
-            let receiver = receiver
-                .lock()
-                .expect("http server worker receiver poisoned");
-            receiver.recv()
+async fn kagome_request(request: Request<Body>) -> Result<KagomeRequest, Response<Body>> {
+    let (parts, body) = request.into_parts();
+    let body = to_bytes(body, MAX_REQUEST_BODY_BYTES)
+        .await
+        .map_err(|_| payload_too_large_response())?;
+    let headers = parts
+        .headers
+        .iter()
+        .map(|(name, value)| HttpHeader {
+            name: name.as_str().to_owned(),
+            value: String::from_utf8_lossy(value.as_bytes()).into_owned(),
+        })
+        .collect();
+
+    Ok(KagomeRequest::from_http_parts(
+        parts.method.as_str().to_owned(),
+        parts
+            .uri
+            .path_and_query()
+            .map_or_else(|| "/".to_owned(), ToString::to_string),
+        format!("{:?}", parts.version),
+        headers,
+        String::from_utf8_lossy(&body).into_owned(),
+    ))
+}
+
+fn raw_http_response(raw_response: &str, keep_alive: bool) -> Response<Body> {
+    let Some((head, body)) = raw_response.split_once("\r\n\r\n") else {
+        return internal_server_error_response();
+    };
+    let mut lines = head.lines();
+    let status = lines
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|status| status.parse::<u16>().ok())
+        .and_then(|status| StatusCode::from_u16(status).ok());
+    let Some(status) = status else {
+        return internal_server_error_response();
+    };
+    let mut response = Response::builder().status(status);
+
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else {
+            return internal_server_error_response();
         };
-
-        match stream {
-            Ok(stream) => {
-                if let Err(error) = handle_connection(stream)
-                    && !is_client_disconnect(&error)
-                {
-                    eprintln!("failed to handle connection: {error}");
-                }
-            }
-            Err(_) => break,
+        let Ok(name) = HeaderName::from_bytes(name.trim().as_bytes()) else {
+            return internal_server_error_response();
+        };
+        if name == CONTENT_LENGTH || name == CONNECTION {
+            continue;
         }
+        let Ok(value) = HeaderValue::from_str(value.trim()) else {
+            return internal_server_error_response();
+        };
+        response = response.header(name, value);
     }
+
+    response
+        .header(CONNECTION, if keep_alive { "keep-alive" } else { "close" })
+        .body(Body::from(body.to_owned()))
+        .unwrap_or_else(|_| internal_server_error_response())
 }
 
-fn handle_connection(stream: TcpStream) -> io::Result<()> {
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let mut writer = stream;
+fn payload_too_large_response() -> Response<Body> {
+    text_response(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "request body exceeds 10485760 bytes",
+    )
+}
 
-    while let Some(request) = read_http_request(&mut reader)? {
-        let should_keep_alive = raw_request_connection_keep_alive(&request);
-        let mut response = crate::router::route_raw_request(&request);
+fn internal_server_error_response() -> Response<Body> {
+    text_response(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+}
 
-        if should_keep_alive {
-            response = response.replace("connection: close", "connection: keep-alive");
-        }
-
-        writer.write_all(response.as_bytes())?;
-
-        if !should_keep_alive {
-            break;
-        }
-    }
-
-    Ok(())
+fn text_response(status: StatusCode, body: &'static str) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header("content-type", "text/plain; charset=utf-8")
+        .header(CONNECTION, "close")
+        .body(Body::from(body))
+        .expect("static HTTP response must be valid")
 }
 
 pub fn is_client_disconnect(error: &io::Error) -> bool {
@@ -105,50 +152,30 @@ pub fn is_client_disconnect(error: &io::Error) -> bool {
     )
 }
 
-fn read_http_request(reader: &mut BufReader<TcpStream>) -> io::Result<Option<String>> {
-    let mut request = String::new();
-    let mut content_length = 0;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    loop {
-        let mut line = String::new();
-        let bytes_read = reader.read_line(&mut line)?;
+    #[test]
+    fn translates_raw_handler_response() {
+        let response = raw_http_response(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok",
+            false,
+        );
 
-        if bytes_read == 0 {
-            return if request.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(request))
-            };
-        }
-
-        if let Some((name, value)) = line.split_once(':')
-            && name.eq_ignore_ascii_case("content-length")
-        {
-            content_length = value.trim().parse().unwrap_or_default();
-        }
-
-        let is_end_of_headers = line == "\r\n" || line == "\n";
-        request.push_str(&line);
-
-        if is_end_of_headers {
-            break;
-        }
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[CONNECTION], "close");
+        assert_eq!(response.headers()["content-type"], "text/plain");
     }
 
-    let mut body = vec![0; content_length];
-    reader.read_exact(&mut body)?;
-    request.push_str(&String::from_utf8_lossy(&body));
+    #[test]
+    fn preserves_explicit_keep_alive_policy() {
+        let response = raw_http_response(
+            "HTTP/1.1 204 No Content\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+            true,
+        );
 
-    Ok(Some(request))
-}
-
-fn raw_request_connection_keep_alive(request: &str) -> bool {
-    request.lines().any(|line| {
-        line.split_once(':')
-            .map(|(name, value)| {
-                name.eq_ignore_ascii_case("connection")
-                    && value.trim().eq_ignore_ascii_case("keep-alive")
-            })
-            .unwrap_or(false)
-    })
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(response.headers()[CONNECTION], "keep-alive");
+    }
 }

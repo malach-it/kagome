@@ -14,6 +14,27 @@ pub struct HttpHeader {
     pub value: String,
 }
 
+impl KagomeRequest {
+    pub fn from_http_parts(
+        method: String,
+        path_and_query: String,
+        protocol: String,
+        headers: Vec<HttpHeader>,
+        body: String,
+    ) -> Self {
+        let (path, query_params) = split_path_query(&path_and_query);
+
+        Self {
+            method,
+            path,
+            protocol,
+            headers,
+            query_params,
+            body,
+        }
+    }
+}
+
 pub fn parse_request(request: &str) -> KagomeRequest {
     let (head, body) = split_request(request);
     let mut lines = head.lines();

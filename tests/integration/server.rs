@@ -102,6 +102,42 @@ fn routes_echo_for_any_http_method() {
     assert!(response.ends_with("\"body\":\"hello\"}"));
 }
 
+#[test]
+fn rejects_request_body_larger_than_ten_mebibytes() {
+    let body = "a".repeat(kagome::http_server::MAX_REQUEST_BODY_BYTES + 1);
+    let response = send_request(&format!(
+        "POST /echo HTTP/1.1\r\nhost: example.com\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"));
+    assert!(response.ends_with("request body exceeds 10485760 bytes"));
+}
+
+#[test]
+fn rejects_conflicting_content_length_headers() {
+    let response = send_request(
+        "POST /echo HTTP/1.1\r\nhost: example.com\r\ncontent-length: 1\r\ncontent-length: 2\r\n\r\nxx",
+    );
+
+    assert!(
+        response.starts_with("HTTP/1.1 400 Bad Request\r\n"),
+        "{response}"
+    );
+}
+
+#[test]
+fn normalizes_transfer_encoding_with_content_length() {
+    let response = send_request(
+        "POST /echo HTTP/1.1\r\nhost: example.com\r\ntransfer-encoding: chunked\r\ncontent-length: 4\r\n\r\n0\r\n\r\n",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+    assert!(response.contains("\"name\":\"transfer-encoding\",\"value\":\"chunked\""));
+    assert!(!response.contains("\"name\":\"content-length\""));
+    assert!(response.ends_with("\"body\":\"\"}"));
+}
+
 fn read_response(reader: &mut BufReader<TcpStream>) -> String {
     let mut response = String::new();
     let mut content_length = 0;

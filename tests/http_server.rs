@@ -1,6 +1,6 @@
-use std::{io, net::TcpListener, time::Instant};
+use std::io;
 
-use kagome::http_server::{DEFAULT_WORKERS, is_client_disconnect, serve_listener_with_workers};
+use kagome::http_server::{DEFAULT_WORKERS, MAX_REQUEST_BODY_BYTES, is_client_disconnect};
 
 #[test]
 fn server_default_workers_is_four() {
@@ -8,21 +8,8 @@ fn server_default_workers_is_four() {
 }
 
 #[test]
-fn server_workers_stop_when_listener_closes() {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind listener");
-    listener
-        .set_nonblocking(true)
-        .expect("failed to set listener nonblocking");
-    let started_waiting = Instant::now();
-    let result = serve_listener_with_workers(listener, 2);
-
-    assert_eq!(
-        result
-            .expect_err("server should stop on nonblocking accept")
-            .kind(),
-        io::ErrorKind::WouldBlock
-    );
-    assert!(started_waiting.elapsed().as_secs() < 1);
+fn server_limits_request_bodies_to_ten_mebibytes() {
+    assert_eq!(MAX_REQUEST_BODY_BYTES, 10 * 1024 * 1024);
 }
 
 #[test]

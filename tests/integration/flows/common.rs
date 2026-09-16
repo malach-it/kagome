@@ -100,7 +100,7 @@ fn returns_token_cors_preflight_response() {
     assert!(response.contains("access-control-allow-origin: *\r\n"));
     assert!(response.contains("access-control-allow-methods: POST, OPTIONS\r\n"));
     assert!(response.contains("access-control-allow-headers: content-type, authorization\r\n"));
-    assert!(response.contains("content-length: 0\r\n"));
+    assert!(!response.contains("content-length:"));
 }
 
 #[test]
