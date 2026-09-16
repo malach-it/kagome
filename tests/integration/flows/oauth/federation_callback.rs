@@ -95,6 +95,9 @@ fn signs_federated_resource_owner_profile_in_id_token() {
     .expect("federated ID token should have a valid signature")
     .claims;
 
+    assert_eq!(payload.iss, "http://localhost:4000");
+    assert_eq!(payload.sub, "federated-user");
+    assert_eq!(payload.aud, "federated_client");
     assert_eq!(payload.username, "federated-user");
     assert_eq!(payload.profile["username"], "federated-user");
     assert_eq!(payload.profile["sub"], "ignored-user");

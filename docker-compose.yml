@@ -18,6 +18,26 @@ services:
       retries: 3
       start_period: 5s
 
+  agent-chat:
+    image: python:3.13-slim
+    init: true
+    depends_on:
+      kagome:
+        condition: service_healthy
+    environment:
+      KAGOME_SERVER_TARGET: ${KAGOME_SERVER_TARGET:-http://kagome:4000}
+      KAGOME_PUBLIC_HOST: ${KAGOME_PUBLIC_HOST:-agent-chat.local:4000}
+      KAGOME_REDIRECT_URI: ${KAGOME_REDIRECT_URI:-https://client.example.com/callback}
+      KAGOME_USERNAME: ${KAGOME_USERNAME:-username}
+      KAGOME_PASSWORD: ${KAGOME_PASSWORD:-password}
+      KAGOME_TIMEOUT: ${KAGOME_TIMEOUT:-5}
+    working_dir: /scripts
+    volumes:
+      - ./scripts:/scripts:ro
+    command: python agent_chat.py
+    profiles:
+      - tools
+
   k6-client-credentials:
     image: grafana/k6:latest
     depends_on:

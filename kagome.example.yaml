@@ -71,3 +71,20 @@ clients:
               target: sub
               id_token: false
               credential: [UniversityDegreeCredential]
+  - client_id: agent_chat
+    public: agent-chat.local:4000
+    password_file: kagome.htpasswd.example
+    client_secret: unused_by_public_code_chain
+    redirect_uris:
+      - https://client.example.com/callback
+    supported_grant_types:
+      - authorization_code
+      - code_chain
+      - implicit
+    supported_response_types:
+      - code
+      - id_token
+    scopes:
+      - openid
+    require_wallet_binding: false
+    qr_code: false

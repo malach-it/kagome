@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{
     config::{Config, DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS},
     errors::OAuthError,
-    resources::{crypto, crypto::EncryptedArtifact, id_token, pkce::CodeChallenge},
+    resources::{crypto, crypto::EncryptedArtifact, pkce::CodeChallenge},
 };
 
 pub const AUTHORIZATION_CODE_TTL_SECONDS: u64 = DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS;
@@ -278,23 +278,19 @@ pub fn decode_cose_payload(
         .map_err(|_| invalid_authorization_code("authorization_code claims are invalid"))
 }
 
-/// Validates a client-bound code chain and returns its wallet-binding public key, if any.
+/// Validates a client-bound code chain and returns its explicit wallet-binding public key, if any.
 ///
-/// A directly carried JWK takes precedence; otherwise a valid embedded ID token supplies the key.
+/// ID-token signing keys represent issuer identity and are never reused as holder proof keys.
 ///
 /// # Errors
 ///
-/// Returns an OAuth error when the code chain, client binding, or embedded ID token is invalid.
+/// Returns an OAuth error when the code chain or client binding is invalid.
 pub fn validated_id_token_public_jwk(
     authorization_code: &str,
     client_id: &str,
 ) -> Result<Option<serde_json::Value>, OAuthError> {
     let payload = validate_request_authorization_code(authorization_code, Some(client_id))?;
-    match (payload.id_token_public_jwk, payload.id_token) {
-        (Some(public_jwk), _) => Ok(Some(public_jwk)),
-        (None, Some(id_token)) => id_token::validated_public_jwk(&id_token).map(Some),
-        (None, None) => Ok(None),
-    }
+    Ok(payload.id_token_public_jwk)
 }
 
 /// Validates a code chain and returns its authenticated usernames in oldest-to-newest order.

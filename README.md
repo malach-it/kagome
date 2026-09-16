@@ -106,16 +106,17 @@ cannot authenticate local resource owners. The committed
 `kagome.htpasswd.example` contains the example users; create the ignored local
 file with `htpasswd -B kagome.htpasswd username`. The
 optional per-client `require_wallet_binding` flag requires wallet presentation
-and credential-proof signatures to verify with the public key from the ID token
-carried by the incoming authorization `code`. Its default is `false`. The
-optional per-client `qr_code` flag changes successful SIOPv2, OpenID4VP, and
-pre-authorized-code wallet redirects into an HTML page containing an inline QR
-code, an `open in wallet` button, and a copyable URL. The button opens the exact
-deep link that would otherwise be returned in the `Location` header in a
-390-by-844 popup, with a normal link fallback when JavaScript is disabled. Because
-signed request URLs can exceed standard QR capacity, the QR contains a random,
-five-minute issuer relay URL that redirects to the same deep link and remains
-usable for retries until it expires. Its default is `false`. The
+and credential-proof signatures to verify with the holder public key explicitly
+bound into the incoming authorization `code` during wallet authentication.
+ID-token issuer signing keys are not treated as holder proof keys. Its default
+is `false`. The optional per-client `qr_code` flag changes successful SIOPv2,
+OpenID4VP, and pre-authorized-code wallet redirects into an HTML page containing
+an inline QR code, an `open in wallet` button, and a copyable URL. The button
+opens the exact deep link that would otherwise be returned in the `Location`
+header in a 390-by-844 popup, with a normal link fallback when JavaScript is
+disabled. Because signed request URLs can exceed standard QR capacity, the QR
+contains a random, five-minute issuer relay URL that redirects to the same deep
+link and remains usable for retries until it expires. Its default is `false`. The
 optional per-client `federated_server` block configures the upstream OAuth
 client, its authorization and token endpoints, and identity endpoints. Each
 identity endpoint is called once with the upstream bearer token. Its non-empty
@@ -200,7 +201,9 @@ keys and external authenticated data, so an artifact cannot be substituted in
 another protocol context. Server-generated credentials and ID tokens use
 separate centralized Ed25519 signing identities; request objects retain their
 centralized ES256 identity for wallet interoperability. All public keys are
-published by the JWKS endpoint.
+published by the JWKS endpoint. ID tokens carry issuer, subject, and audience
+claims; code-chain validation requires Kagome's configured ID-token signing key
+and binds the audience to the authenticated client.
 
 The issued JWT VC is signed with Ed25519 and bound through its `cnf` claim to
 the demonstration holder key used by the presentation profile. This proof of
@@ -208,6 +211,27 @@ concept does not require a proof in the Credential Request and does not support
 a nonce endpoint, deferred issuance, request or response encryption, batch
 issuance, or notifications. The embedded keys and fixed transaction code are
 development fixtures and must be replaced for deployment.
+
+## Agent chat code-chain example
+
+The agent chat example obtains a server-signed ID token and authorization code
+through the hybrid `code id_token` response, using the configured dynamic public
+client identifier `username:password@agent-chat.local:4000`. It then uses the
+normalized `username@agent-chat.local:4000` client identifier, the ID token, and
+the hybrid code to start a code chain without a client secret. The trusted
+ID-token signature and audience authenticate the public client. Each agent
+handoff extends the preceding authorization-code chain before the receiving
+agent handles its message.
+
+Run the example against the Docker Compose server with:
+
+```bash
+docker compose --profile tools run --rm agent-chat
+```
+
+The defaults match `kagome.example.yaml`. They can be overridden with
+`KAGOME_SERVER_TARGET`, `KAGOME_PUBLIC_HOST`, `KAGOME_REDIRECT_URI`,
+`KAGOME_USERNAME`, `KAGOME_PASSWORD`, and `KAGOME_TIMEOUT`.
 
 ## OpenID for Verifiable Presentations
 

@@ -4,10 +4,14 @@ use super::*;
 // - representation: form | JSON (success exercises both parser branches)
 // - generated artifacts: COSE_Encrypt0 authorization code | optional access token
 // - client_id: valid | missing | invalid
-// - client_secret: valid | missing | invalid
-// - id_token: valid asymmetric | missing | malformed | symmetric algorithm |
-//   missing JWK | invalid JWK | invalid signature | invalid claims | missing iat |
-//   missing exp | expired | future iat | exp before iat
+// - client_secret: valid | missing | invalid for configured clients; omitted for a dynamic public
+//   client authenticated by the trusted ID token (covered by the hybrid-flow integration test)
+// - validated client context: present (absence is unreachable through the handler because
+//   client validation precedes ID-token validation; covered by the resource unit test)
+// - id_token: valid configured signature and standard claims | missing | malformed |
+//   wrong algorithm or configured key | invalid signature or claim shape |
+//   missing/invalid issuer, subject, audience, client binding, iat, or exp |
+//   expired | future iat | exp before iat
 // - previous authorization_code: missing | valid below maximum depth | valid at maximum depth |
 //   exceeding maximum depth | invalid | issued to another client
 // - chained authorization_code exchange: absent | valid | invalid
@@ -44,8 +48,12 @@ fn returns_authorization_code_for_valid_code_chain_request() {
     let response = send_form_token_request(&body);
     let authorization_code = json_string_field(&response, "authorization_code")
         .expect("token response should include authorization_code");
+    let payload = kagome::resources::authorization_code::decode_cose_payload(&authorization_code)
+        .expect("authorization code should contain valid authenticated claims");
 
     assert!(!authorization_code.is_empty());
+    assert!(payload.id_token.is_some());
+    assert_eq!(payload.id_token_public_jwk, None);
 }
 
 #[test]
@@ -223,8 +231,19 @@ fn returns_oauth_error_for_invalid_code_chain_id_token() {
 }
 
 #[test]
-fn returns_oauth_error_for_code_chain_id_token_without_jwk() {
-    assert_code_chain_id_token_error(&id_token_without_jwk(), "id_token header must include jwk");
+fn rejects_code_chain_id_token_signed_by_untrusted_key() {
+    assert_code_chain_id_token_error(
+        &id_token_signed_by_untrusted_key(),
+        "id_token signing key is invalid",
+    );
+}
+
+#[test]
+fn rejects_code_chain_id_token_with_embedded_jwk() {
+    assert_code_chain_id_token_error(
+        &id_token_with_embedded_jwk(),
+        "id_token header must not include jwk",
+    );
 }
 
 #[test]
@@ -246,12 +265,54 @@ fn returns_oauth_error_for_symmetric_code_chain_id_token() {
     )
     .unwrap();
 
-    assert_code_chain_id_token_error(&token, "id_token algorithm must be asymmetric");
+    assert_code_chain_id_token_error(&token, "id_token algorithm is invalid");
 }
 
 #[test]
-fn returns_oauth_error_for_code_chain_id_token_with_invalid_jwk() {
-    assert_code_chain_id_token_error(&id_token_with_invalid_jwk(), "id_token jwk must be valid");
+fn rejects_code_chain_id_token_without_issuer() {
+    assert_code_chain_id_token_error(&id_token_without_claim("iss"), "id_token iss is required");
+}
+
+#[test]
+fn rejects_code_chain_id_token_from_another_issuer() {
+    assert_code_chain_id_token_error(
+        &id_token_with_claim("iss", "https://other.example.com"),
+        "id_token issuer is invalid",
+    );
+}
+
+#[test]
+fn rejects_code_chain_id_token_without_subject() {
+    assert_code_chain_id_token_error(&id_token_without_claim("sub"), "id_token sub is required");
+}
+
+#[test]
+fn rejects_code_chain_id_token_with_subject_mismatch() {
+    assert_code_chain_id_token_error(
+        &id_token_with_claim("sub", "other-user"),
+        "id_token subject is invalid",
+    );
+}
+
+#[test]
+fn rejects_code_chain_id_token_without_audience() {
+    assert_code_chain_id_token_error(&id_token_without_claim("aud"), "id_token aud is required");
+}
+
+#[test]
+fn rejects_code_chain_id_token_for_another_audience() {
+    assert_code_chain_id_token_error(
+        &id_token_with_claim("aud", "other-client"),
+        "id_token audience is invalid",
+    );
+}
+
+#[test]
+fn rejects_code_chain_id_token_with_client_id_mismatch() {
+    assert_code_chain_id_token_error(
+        &id_token_with_claim("client_id", "other-client"),
+        "id_token client_id is invalid",
+    );
 }
 
 #[test]

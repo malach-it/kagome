@@ -78,7 +78,7 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
-    assert_eq!(config.clients.len(), 1);
+    assert_eq!(config.clients.len(), 2);
     assert_eq!(config.presentation_definitions.len(), 1);
     assert_eq!(
         config.presentation_definitions[0].input_descriptor_id(),
@@ -133,6 +133,25 @@ fn example_configuration_matches_server_defaults() {
         federated_server.endpoints[0].claims[0].credential,
         ["UniversityDegreeCredential"]
     );
+    assert_eq!(config.clients[1].client_id, "agent_chat");
+    assert_eq!(
+        config.clients[1].public.as_deref(),
+        Some("agent-chat.local:4000")
+    );
+    assert_eq!(
+        config.clients[1].supported_grant_types,
+        [
+            GrantType::AuthorizationCode,
+            GrantType::CodeChain,
+            GrantType::Implicit
+        ]
+    );
+    assert_eq!(
+        config.clients[1].supported_response_types,
+        [ResponseType::Code, ResponseType::IdToken]
+    );
+    assert_eq!(config.clients[1].scopes, ["openid"]);
+    assert!(config.clients[1].federated_server.is_none());
 }
 
 #[test]

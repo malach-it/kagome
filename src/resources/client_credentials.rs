@@ -208,6 +208,11 @@ pub fn client_id_resource_owner_credentials(client_id: &str) -> bool {
     resource_owner_credentials(client_id).is_some()
 }
 
+/// Reports whether a client ID uses the supported `username@host` public-client syntax.
+pub fn public_client_identifier(client_id: &str) -> bool {
+    public_client_username(client_id).is_some()
+}
+
 /// Returns whether the configured client requires wallet-key binding.
 ///
 /// Unknown client IDs return `false`.

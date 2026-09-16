@@ -10,9 +10,6 @@ const PKCE_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 pub(super) use super::super::server::send_request;
 
-const ID_TOKEN_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
-const OTHER_ID_TOKEN_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt\nbha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt\nWvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7\n-----END PRIVATE KEY-----\n";
-
 pub(super) fn assert_unsupported_grant_type_response(response: &str) {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: application/json\r\n"));
@@ -81,7 +78,10 @@ fn assert_invalid_id_token_response_with_description(response: &str, description
     assert!(response.contains("content-type: application/json\r\n"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"error\":\"invalid_grant\""));
-    assert!(response.contains(&format!("\"error_description\":\"{description}\"")));
+    assert!(
+        response.contains(&format!("\"error_description\":\"{description}\"")),
+        "unexpected response: {response}"
+    );
 }
 
 fn assert_invalid_authorization_code_response(response: &str) {
@@ -119,108 +119,138 @@ fn json_string_field(response: &str, field: &str) -> Option<String> {
 }
 
 fn valid_id_token() -> String {
-    let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(
-        ID_TOKEN_PRIVATE_KEY,
-        Some(jwk()),
-        Some(now),
-        Some(now + 3600),
-    )
+    valid_id_token_for_client("client_id")
 }
 
-fn id_token_without_jwk() -> String {
+fn valid_id_token_for_client(client_id: &str) -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(ID_TOKEN_PRIVATE_KEY, None, Some(now), Some(now + 3600))
-}
-
-fn id_token_with_invalid_jwk() -> String {
-    let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(
-        ID_TOKEN_PRIVATE_KEY,
-        Some(invalid_jwk()),
-        Some(now),
-        Some(now + 3600),
-    )
+    sign_id_token(serde_json::json!({
+        "iss": "http://localhost:4000",
+        "sub": "username",
+        "aud": client_id,
+        "client_id": client_id,
+        "username": "username",
+        "profile": {"username": "username"},
+        "iat": now,
+        "exp": now + 3600,
+    }))
 }
 
 fn id_token_with_invalid_signature() -> String {
-    let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(
-        OTHER_ID_TOKEN_PRIVATE_KEY,
-        Some(jwk()),
-        Some(now),
-        Some(now + 3600),
-    )
+    corrupt_signature(&valid_id_token())
 }
 
-fn id_token_with_invalid_claims() -> String {
-    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
-    header.jwk = Some(jwk());
+fn corrupt_signature(token: &str) -> String {
+    let (signed, signature) = token.rsplit_once('.').unwrap();
+    let replacement = if signature.starts_with('A') { 'B' } else { 'A' };
+    format!("{signed}.{replacement}{}", &signature[1..])
+}
 
-    jsonwebtoken::encode(
-        &header,
-        &serde_json::json!({"iat": "now", "exp": "later"}),
-        &jsonwebtoken::EncodingKey::from_ec_pem(ID_TOKEN_PRIVATE_KEY).unwrap(),
+fn id_token_signed_by_untrusted_key() -> String {
+    kagome::resources::crypto::sign_jwt(
+        &valid_id_token_claims(),
+        kagome::resources::crypto::SigningArtifact::Credential,
     )
     .unwrap()
 }
 
+fn id_token_with_embedded_jwk() -> String {
+    const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIDt2IW+OSTJfZcs+QLnyHa+IoZthF8Pbf7sBWYsElCKk\n-----END PRIVATE KEY-----\n";
+
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::EdDSA);
+    header.kid = Some(
+        kagome::resources::crypto::SigningArtifact::IdToken
+            .key_id()
+            .to_owned(),
+    );
+    header.jwk = Some(
+        serde_json::from_value(serde_json::json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g"
+        }))
+        .unwrap(),
+    );
+    jsonwebtoken::encode(
+        &header,
+        &valid_id_token_claims(),
+        &jsonwebtoken::EncodingKey::from_ed_pem(PRIVATE_KEY).unwrap(),
+    )
+    .unwrap()
+}
+
+fn id_token_without_claim(claim: &str) -> String {
+    let mut claims = valid_id_token_claims();
+    claims.as_object_mut().unwrap().remove(claim);
+    sign_id_token(claims)
+}
+
+fn id_token_with_claim(claim: &str, value: &str) -> String {
+    let mut claims = valid_id_token_claims();
+    claims[claim] = serde_json::json!(value);
+    sign_id_token(claims)
+}
+
+fn id_token_with_invalid_claims() -> String {
+    let mut claims = valid_id_token_claims();
+    claims["iat"] = serde_json::json!("now");
+    sign_id_token(claims)
+}
+
 fn id_token_without_iat() -> String {
-    let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(ID_TOKEN_PRIVATE_KEY, Some(jwk()), None, Some(now + 3600))
+    let mut claims = valid_id_token_claims();
+    claims.as_object_mut().unwrap().remove("iat");
+    sign_id_token(claims)
 }
 
 fn id_token_without_exp() -> String {
-    let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(ID_TOKEN_PRIVATE_KEY, Some(jwk()), Some(now), None)
+    let mut claims = valid_id_token_claims();
+    claims.as_object_mut().unwrap().remove("exp");
+    sign_id_token(claims)
 }
 
 fn expired_id_token() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(
-        ID_TOKEN_PRIVATE_KEY,
-        Some(jwk()),
-        Some(now - 7200),
-        Some(now - 3600),
-    )
+    let mut claims = valid_id_token_claims();
+    claims["iat"] = serde_json::json!(now - 7200);
+    claims["exp"] = serde_json::json!(now - 3600);
+    sign_id_token(claims)
 }
 
 fn future_id_token() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(
-        ID_TOKEN_PRIVATE_KEY,
-        Some(jwk()),
-        Some(now + 3600),
-        Some(now + 7200),
-    )
+    let mut claims = valid_id_token_claims();
+    claims["iat"] = serde_json::json!(now + 3600);
+    claims["exp"] = serde_json::json!(now + 7200);
+    sign_id_token(claims)
 }
 
 fn id_token_expiring_before_iat() -> String {
     let now = jsonwebtoken::get_current_timestamp();
-    encode_id_token(ID_TOKEN_PRIVATE_KEY, Some(jwk()), Some(now), Some(now - 1))
+    let mut claims = valid_id_token_claims();
+    claims["iat"] = serde_json::json!(now);
+    claims["exp"] = serde_json::json!(now - 1);
+    sign_id_token(claims)
 }
 
-fn encode_id_token(
-    private_key: &[u8],
-    jwk: Option<jsonwebtoken::jwk::Jwk>,
-    iat: Option<u64>,
-    exp: Option<u64>,
-) -> String {
-    #[derive(serde::Serialize)]
-    struct Claims {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        iat: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        exp: Option<u64>,
-    }
+fn valid_id_token_claims() -> serde_json::Value {
+    let now = jsonwebtoken::get_current_timestamp();
+    serde_json::json!({
+        "iss": "http://localhost:4000",
+        "sub": "username",
+        "aud": "client_id",
+        "client_id": "client_id",
+        "username": "username",
+        "profile": {"username": "username"},
+        "iat": now,
+        "exp": now + 3600,
+    })
+}
 
-    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
-    header.jwk = jwk;
-
-    jsonwebtoken::encode(
-        &header,
-        &Claims { iat, exp },
-        &jsonwebtoken::EncodingKey::from_ec_pem(private_key).unwrap(),
+fn sign_id_token(claims: serde_json::Value) -> String {
+    kagome::resources::crypto::sign_jwt(
+        &claims,
+        kagome::resources::crypto::SigningArtifact::IdToken,
     )
     .unwrap()
 }
@@ -241,6 +271,7 @@ fn authorization_code_for_client_id_and_challenge(
         authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
         client_id: String,
         id_token: String,
+        id_token_public_jwk: serde_json::Value,
         code_challenge: Option<kagome::resources::pkce::CodeChallenge>,
     }
 
@@ -255,6 +286,10 @@ fn authorization_code_for_client_id_and_challenge(
 
         fn id_token(&self) -> Option<&str> {
             Some(&self.id_token)
+        }
+
+        fn id_token_public_jwk(&self) -> Option<&serde_json::Value> {
+            Some(&self.id_token_public_jwk)
         }
 
         fn code_challenge(&self) -> Option<&kagome::resources::pkce::CodeChallenge> {
@@ -272,7 +307,8 @@ fn authorization_code_for_client_id_and_challenge(
     let request = TestAuthorizationCodeRequest {
         authorization_code: None,
         client_id: client_id.to_owned(),
-        id_token: valid_id_token(),
+        id_token: valid_id_token_for_client(client_id),
+        id_token_public_jwk: wallet_binding_jwk(),
         code_challenge: code_challenge.map(|value| kagome::resources::pkce::CodeChallenge {
             value: value.to_owned(),
         }),
@@ -285,22 +321,11 @@ fn authorization_code_for_client_id_and_challenge(
         .value
 }
 
-fn jwk() -> jsonwebtoken::jwk::Jwk {
-    serde_json::from_value(serde_json::json!({
+fn wallet_binding_jwk() -> serde_json::Value {
+    serde_json::json!({
         "kty": "EC",
         "crv": "P-256",
         "x": "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI",
         "y": "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8"
-    }))
-    .unwrap()
-}
-
-fn invalid_jwk() -> jsonwebtoken::jwk::Jwk {
-    serde_json::from_value(serde_json::json!({
-        "kty": "EC",
-        "crv": "P-256",
-        "x": "not-base64",
-        "y": "not-base64"
-    }))
-    .unwrap()
+    })
 }

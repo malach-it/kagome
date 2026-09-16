@@ -518,11 +518,41 @@ impl ResponseLog for AuthorizeLoginRequest<'_> {
             "federated_redirect"
         } else if self.response.federated_access_token.is_some() {
             "federation_callback"
+        } else if self.response.authorization_code.is_some()
+            || self.response.id_token.is_some()
+            || self.response.access_token.is_some()
+        {
+            "authorization"
         } else {
             "not_implemented"
         };
 
-        log_authorize_success(flow, &[("request.method", "GET".to_owned())]);
+        log_authorize_success(
+            flow,
+            &[
+                ("request.method", "GET".to_owned()),
+                (
+                    "request.response_type",
+                    optional_str(self.response_type.as_deref()),
+                ),
+                (
+                    "request.client_id",
+                    optional_str(self.response.client_id.as_deref()),
+                ),
+                (
+                    "response.code",
+                    artifact_status(self.response.authorization_code.as_ref()),
+                ),
+                (
+                    "response.id_token",
+                    artifact_status(self.response.id_token.as_ref()),
+                ),
+                (
+                    "response.access_token",
+                    artifact_status(self.response.access_token.as_ref()),
+                ),
+            ],
+        );
     }
 }
 

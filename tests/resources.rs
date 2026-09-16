@@ -1223,8 +1223,9 @@ mod resources {
     }
 
     mod id_token {
-        const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
-        const OTHER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVW2Jp8GefPD2+UXt\nbha/i609CuG2sBUhr+ReRUGWptKhRANCAAR9nFOOpv0YEl1qdoEHe49769dxqWQt\nWvq6iQSd17Nm4ihLYZLKTGl3qy/RD0wJx46+TzAkr+D+BtB2Ru1D/Bz7\n-----END PRIVATE KEY-----\n";
+        use std::sync::Once;
+
+        static INITIALIZE_CONFIG: Once = Once::new();
 
         #[test]
         fn validates_id_token() {
@@ -1234,7 +1235,10 @@ mod resources {
             let token_response = kagome::resources::id_token::validate(token_response).unwrap();
 
             assert_eq!(token_response.response.id_token, Some(id_token));
-            assert_eq!(token_response.response.client_id, None);
+            assert_eq!(
+                token_response.response.client_id.as_deref(),
+                Some("client_id")
+            );
         }
 
         #[test]
@@ -1245,6 +1249,17 @@ mod resources {
 
             assert_eq!(error.error, "invalid_grant");
             assert_eq!(error.error_description, "id_token is required");
+        }
+
+        #[test]
+        fn returns_oauth_error_without_validated_client_context() {
+            let id_token = valid_id_token();
+            let request = token_request(Some(&id_token));
+            let token_response = kagome::handlers::token::CodeChainRequest::empty(&request);
+            let error = kagome::resources::id_token::validate(token_response).unwrap_err();
+
+            assert_eq!(error.error, "invalid_client");
+            assert_eq!(error.error_description, "client_id is required");
         }
 
         #[test]
@@ -1280,30 +1295,30 @@ mod resources {
                 kagome::resources::id_token::validate(code_chain_request(&request)).unwrap_err();
 
             assert_eq!(error.error, "invalid_grant");
-            assert_eq!(
-                error.error_description,
-                "id_token algorithm must be asymmetric"
-            );
+            assert_eq!(error.error_description, "id_token algorithm is invalid");
         }
 
         #[test]
-        fn returns_oauth_error_for_id_token_without_jwk_header() {
-            let request = token_request(Some(&id_token_without_jwk_header()));
+        fn returns_oauth_error_for_id_token_signed_by_untrusted_key() {
+            let request = token_request(Some(&id_token_signed_by_untrusted_key()));
             let token_response = code_chain_request(&request);
             let error = kagome::resources::id_token::validate(token_response).unwrap_err();
 
             assert_eq!(error.error, "invalid_grant");
-            assert_eq!(error.error_description, "id_token header must include jwk");
+            assert_eq!(error.error_description, "id_token signing key is invalid");
         }
 
         #[test]
-        fn returns_oauth_error_for_id_token_with_invalid_jwk_header() {
-            let request = token_request(Some(&id_token_with_invalid_jwk_header()));
+        fn returns_oauth_error_for_id_token_from_another_issuer() {
+            let request = token_request(Some(&id_token_with_claim(
+                "iss",
+                "https://other.example.com",
+            )));
             let token_response = code_chain_request(&request);
             let error = kagome::resources::id_token::validate(token_response).unwrap_err();
 
             assert_eq!(error.error, "invalid_grant");
-            assert_eq!(error.error_description, "id_token jwk must be valid");
+            assert_eq!(error.error_description, "id_token issuer is invalid");
         }
 
         #[test]
@@ -1372,7 +1387,9 @@ mod resources {
         fn code_chain_request(
             request: &kagome::unit::KagomeRequest,
         ) -> kagome::handlers::token::CodeChainRequest<'_> {
-            kagome::handlers::token::CodeChainRequest::empty(request)
+            let mut request = kagome::handlers::token::CodeChainRequest::empty(request);
+            request.response.client_id = Some("client_id".to_owned());
+            request
         }
 
         fn token_request(id_token: Option<&str>) -> kagome::unit::KagomeRequest {
@@ -1399,97 +1416,88 @@ mod resources {
         }
 
         fn valid_id_token() -> String {
-            let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now), Some(now + 3600))
+            sign_id_token(valid_id_token_claims())
         }
 
-        fn id_token_without_jwk_header() -> String {
-            let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(PRIVATE_KEY, None, Some(now), Some(now + 3600))
-        }
-
-        fn id_token_with_invalid_jwk_header() -> String {
-            let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(
-                PRIVATE_KEY,
-                Some(invalid_jwk()),
-                Some(now),
-                Some(now + 3600),
+        fn id_token_signed_by_untrusted_key() -> String {
+            kagome::resources::crypto::sign_jwt(
+                &valid_id_token_claims(),
+                kagome::resources::crypto::SigningArtifact::Credential,
             )
+            .unwrap()
         }
 
         fn id_token_signed_with_different_key() -> String {
-            let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(OTHER_PRIVATE_KEY, Some(jwk()), Some(now), Some(now + 3600))
+            let token = valid_id_token();
+            let (signed, signature) = token.rsplit_once('.').unwrap();
+            let replacement = if signature.starts_with('A') { 'B' } else { 'A' };
+            format!("{signed}.{replacement}{}", &signature[1..])
         }
 
         fn id_token_without_iat() -> String {
-            let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(PRIVATE_KEY, Some(jwk()), None, Some(now + 3600))
+            let mut claims = valid_id_token_claims();
+            claims.as_object_mut().unwrap().remove("iat");
+            sign_id_token(claims)
         }
 
         fn id_token_without_exp() -> String {
-            let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now), None)
+            let mut claims = valid_id_token_claims();
+            claims.as_object_mut().unwrap().remove("exp");
+            sign_id_token(claims)
         }
 
         fn expired_id_token() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now - 7200), Some(now - 3600))
+            let mut claims = valid_id_token_claims();
+            claims["iat"] = serde_json::json!(now - 7200);
+            claims["exp"] = serde_json::json!(now - 3600);
+            sign_id_token(claims)
         }
 
         fn future_iat_id_token() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now + 3600), Some(now + 7200))
+            let mut claims = valid_id_token_claims();
+            claims["iat"] = serde_json::json!(now + 3600);
+            claims["exp"] = serde_json::json!(now + 7200);
+            sign_id_token(claims)
         }
 
         fn exp_before_iat_id_token() -> String {
             let now = jsonwebtoken::get_current_timestamp();
-            encode_id_token(PRIVATE_KEY, Some(jwk()), Some(now), Some(now - 1))
+            let mut claims = valid_id_token_claims();
+            claims["iat"] = serde_json::json!(now);
+            claims["exp"] = serde_json::json!(now - 1);
+            sign_id_token(claims)
         }
 
-        fn encode_id_token(
-            private_key: &[u8],
-            jwk: Option<jsonwebtoken::jwk::Jwk>,
-            iat: Option<u64>,
-            exp: Option<u64>,
-        ) -> String {
-            #[derive(serde::Serialize)]
-            struct Claims {
-                #[serde(skip_serializing_if = "Option::is_none")]
-                iat: Option<u64>,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                exp: Option<u64>,
-            }
+        fn id_token_with_claim(name: &str, value: &str) -> String {
+            let mut claims = valid_id_token_claims();
+            claims[name] = serde_json::json!(value);
+            sign_id_token(claims)
+        }
 
-            let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
-            header.jwk = jwk;
+        fn valid_id_token_claims() -> serde_json::Value {
+            INITIALIZE_CONFIG.call_once(|| {
+                kagome::config::Config::initialize().expect("test configuration should load");
+            });
+            let now = jsonwebtoken::get_current_timestamp();
+            serde_json::json!({
+                "iss": kagome::config::Config::global().server.issuer,
+                "sub": "username",
+                "aud": "client_id",
+                "client_id": "client_id",
+                "username": "username",
+                "profile": {"username": "username"},
+                "iat": now,
+                "exp": now + 3600,
+            })
+        }
 
-            jsonwebtoken::encode(
-                &header,
-                &Claims { iat, exp },
-                &jsonwebtoken::EncodingKey::from_ec_pem(private_key).unwrap(),
+        fn sign_id_token(claims: serde_json::Value) -> String {
+            kagome::resources::crypto::sign_jwt(
+                &claims,
+                kagome::resources::crypto::SigningArtifact::IdToken,
             )
-            .unwrap()
-        }
-
-        fn jwk() -> jsonwebtoken::jwk::Jwk {
-            serde_json::from_value(serde_json::json!({
-                "kty": "EC",
-                "crv": "P-256",
-                "x": "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI",
-                "y": "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8"
-            }))
-            .unwrap()
-        }
-
-        fn invalid_jwk() -> jsonwebtoken::jwk::Jwk {
-            serde_json::from_value(serde_json::json!({
-                "kty": "EC",
-                "crv": "P-256",
-                "x": "not-base64",
-                "y": "not-base64"
-            }))
             .unwrap()
         }
     }

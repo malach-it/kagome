@@ -924,6 +924,7 @@ fn wallet_bound_access_token(id_token: &str) -> String {
 
 struct AuthorizationCodeWithIdToken {
     id_token: String,
+    id_token_public_jwk: Value,
     authorization_code: Option<kagome::resources::authorization_code::AuthorizationCode>,
 }
 
@@ -940,6 +941,10 @@ impl kagome::resources::authorization_code::Generate for AuthorizationCodeWithId
         Some(&self.id_token)
     }
 
+    fn id_token_public_jwk(&self) -> Option<&Value> {
+        Some(&self.id_token_public_jwk)
+    }
+
     fn add_authorization_code(
         &mut self,
         authorization_code: kagome::resources::authorization_code::AuthorizationCode,
@@ -949,8 +954,14 @@ impl kagome::resources::authorization_code::Generate for AuthorizationCodeWithId
 }
 
 fn authorization_code_with_id_token(id_token: &str) -> String {
+    let id_token_public_jwk = jsonwebtoken::decode_header(id_token)
+        .unwrap()
+        .jwk
+        .map(|jwk| serde_json::to_value(jwk).unwrap())
+        .unwrap();
     kagome::resources::authorization_code::generate(AuthorizationCodeWithIdToken {
         id_token: id_token.to_owned(),
+        id_token_public_jwk,
         authorization_code: None,
     })
     .unwrap()

@@ -182,6 +182,9 @@ fn redirects_to_client_redirect_uri_with_id_token_for_post_authorize_id_token_re
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://client.example.com/callback#id_token="));
     assert_eq!(expires_in, "3600");
+    assert_eq!(payload.iss, "http://localhost:4000");
+    assert_eq!(payload.sub, "username");
+    assert_eq!(payload.aud, "client_id");
     assert_eq!(payload.client_id, "client_id");
     assert_eq!(payload.username, "username");
     assert_eq!(payload.profile["username"], "username");
@@ -328,6 +331,25 @@ fn redirects_to_client_redirect_uri_with_code_and_id_token_for_get_authorize_cod
     assert!(response.contains("#id_token="));
     assert_eq!(token_payload.client_id, "other_username@example.com");
     assert_eq!(token_payload.username, "other_username");
+}
+
+#[test]
+fn public_client_uses_hybrid_id_token_and_code_to_start_code_chain_without_secret() {
+    let authorize_response = send_authorize_request(&format!(
+        "response_type=code+id_token&client_id=other_username%3Aother_password%40example.com&redirect_uri={}&scope=openid",
+        valid_redirect_uri()
+    ));
+    let code = redirect_code(&authorize_response).expect("hybrid response should include code");
+    let id_token = redirect_fragment_parameter(&authorize_response, "id_token")
+        .expect("hybrid response should include id_token");
+    let response = send_form_token_request(&format!(
+        "client_id=other_username%40example.com&grant_type=code_chain&id_token={}&authorization_code={}&scope=openid",
+        encode_form_value(&id_token),
+        encode_form_value(&code)
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("\"authorization_code\":\""));
 }
 
 #[test]
@@ -1086,6 +1108,18 @@ fn redirect_fragment_parameter(response: &str, name: &str) -> Option<String> {
     query_parameter(fragment, name)
 }
 
+fn encode_form_value(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
 fn decode_access_token_payload(
     access_token: &str,
 ) -> kagome::resources::access_token::AccessTokenClaims {
@@ -1108,6 +1142,9 @@ fn decode_id_token_payload(id_token: &str) -> IdTokenPayload {
 
 #[derive(serde::Deserialize)]
 struct IdTokenPayload {
+    iss: String,
+    sub: String,
+    aud: String,
     client_id: String,
     username: String,
     profile: std::collections::BTreeMap<String, String>,

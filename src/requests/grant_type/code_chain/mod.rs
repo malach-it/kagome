@@ -108,6 +108,16 @@ impl<'a> client_credentials::Validate for CodeChainRequest<'a> {
         self.client_secret.as_deref()
     }
 
+    fn require_client_secret(&self) -> bool {
+        self.client_id
+            .as_deref()
+            .is_none_or(|client_id| !client_credentials::public_client_identifier(client_id))
+    }
+
+    fn valid_unregistered_client_id(&self, client_id: &str) -> bool {
+        client_credentials::public_client_identifier(client_id)
+    }
+
     fn requested_grant_types(&self) -> &[GrantType] {
         &self.grant_types
     }
@@ -156,6 +166,10 @@ impl<'a> authorization_code::Generate for CodeChainRequest<'a> {
 impl<'a> id_token::Validate for CodeChainRequest<'a> {
     fn request_id_token(&self) -> Option<&str> {
         self.id_token.as_deref()
+    }
+
+    fn validated_client_id(&self) -> Option<&str> {
+        self.response.client_id.as_deref()
     }
 
     fn add_id_token(&mut self, id_token: &str) {

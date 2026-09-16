@@ -1,5 +1,5 @@
 use jsonwebtoken::{
-    AlgorithmFamily, DecodingKey, Validation, decode, decode_header,
+    Validation, decode, decode_header,
     errors::{Error as JwtError, ErrorKind},
     get_current_timestamp,
 };
@@ -26,6 +26,9 @@ pub struct IdToken {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IdTokenJwtPayload {
+    pub iss: String,
+    pub sub: String,
+    pub aud: String,
     pub client_id: String,
     pub username: String,
     pub profile: ResourceOwnerProfile,
@@ -33,8 +36,21 @@ pub struct IdTokenJwtPayload {
     pub exp: u64,
 }
 
+#[derive(Debug, Deserialize)]
+struct ValidatedIdTokenClaims {
+    iss: Option<String>,
+    sub: Option<String>,
+    aud: Option<String>,
+    client_id: String,
+    username: String,
+    profile: ResourceOwnerProfile,
+    iat: Option<u64>,
+    exp: Option<u64>,
+}
+
 pub trait Validate {
     fn request_id_token(&self) -> Option<&str>;
+    fn validated_client_id(&self) -> Option<&str>;
     fn add_id_token(&mut self, id_token: &str);
 }
 
@@ -60,12 +76,16 @@ pub trait Generate {
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let client_id = request
         .client_id()
-        .ok_or_else(OAuthError::missing_client_id)?;
-    let username = request.username().ok_or_else(OAuthError::unauthenticated)?;
+        .ok_or_else(OAuthError::missing_client_id)?
+        .to_owned();
+    let username = request
+        .username()
+        .ok_or_else(OAuthError::unauthenticated)?
+        .to_owned();
     let profile = request
         .resource_owner_profile()
         .cloned()
-        .unwrap_or_else(|| ResourceOwner::from_username(username.to_owned()).profile);
+        .unwrap_or_else(|| ResourceOwner::from_username(username.clone()).profile);
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OAuthError::invalid_token_response("id_token generation failed"))?
@@ -74,8 +94,11 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .checked_add(Config::token_ttls().id_token_ttl)
         .ok_or_else(|| OAuthError::invalid_token_response("ID token lifetime is too large"))?;
     let payload = IdTokenJwtPayload {
-        client_id: client_id.to_owned(),
-        username: username.to_owned(),
+        iss: Config::global().server.issuer.clone(),
+        sub: username.clone(),
+        aud: client_id.clone(),
+        client_id,
+        username,
         profile,
         iat,
         exp,
@@ -91,71 +114,69 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
-/// Verifies an asymmetric, JWK-bearing ID token and records its encoded value.
+/// Verifies a Kagome-issued, client-bound ID token and records its encoded value.
 ///
-/// Requires a JWT with an embedded non-HMAC public JWK, valid signature, required expiration, and
-/// coherent issuance time. Successful validation stores the original encoded token.
+/// Requires the configured ID-token algorithm, key identifier and signing key, standard issuer,
+/// subject and audience claims, and coherent issuance/expiration times. Successful validation
+/// stores the original encoded token.
 ///
 /// # Errors
 ///
-/// Returns `missing_id_token` when absent and `invalid_id_token` for malformed, symmetric,
-/// unsigned, expired, future-issued, or otherwise invalid tokens.
+/// Returns `missing_id_token` when absent and `invalid_id_token` for missing validation context,
+/// malformed or untrusted tokens, claim mismatches, expiration, or invalid time relationships.
 pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
     let id_token = token_request
         .request_id_token()
         .map(str::to_owned)
         .ok_or_else(OAuthError::missing_id_token)?;
 
-    validate_jwt(&id_token)?;
+    let client_id = token_request
+        .validated_client_id()
+        .ok_or_else(OAuthError::missing_client_id)?;
+    validate_jwt(&id_token, client_id)?;
 
     token_request.add_id_token(&id_token);
     Ok(token_request)
 }
 
-#[derive(Debug, Deserialize)]
-struct IdTokenClaims {
-    iat: Option<u64>,
-    exp: Option<u64>,
-}
-
-/// Verifies an ID token and returns its trusted embedded public JWK.
-///
-/// The returned JSON key has passed the same signature, algorithm, issuance-time, and expiration
-/// checks as [`validate`].
-///
-/// # Errors
-///
-/// Returns `invalid_id_token` when token validation or JWK serialization fails.
-pub fn validated_public_jwk(id_token: &str) -> Result<serde_json::Value, OAuthError> {
-    let jwk = validate_jwt(id_token)?;
-    serde_json::to_value(jwk).map_err(|_| invalid_id_token("id_token jwk must be valid"))
-}
-
-fn validate_jwt(id_token: &str) -> Result<jsonwebtoken::jwk::Jwk, OAuthError> {
+fn validate_jwt(id_token: &str, client_id: &str) -> Result<IdTokenJwtPayload, OAuthError> {
     let header = decode_header(id_token).map_err(|_| invalid_id_token("id_token must be a jwt"))?;
-    if header.alg.family() == AlgorithmFamily::Hmac {
-        return Err(invalid_id_token("id_token algorithm must be asymmetric"));
+    if header.alg != SigningArtifact::IdToken.algorithm() {
+        return Err(invalid_id_token("id_token algorithm is invalid"));
     }
-    let jwk = header
-        .jwk
-        .ok_or_else(|| invalid_id_token("id_token header must include jwk"))?;
-    let decoding_key =
-        DecodingKey::from_jwk(&jwk).map_err(|_| invalid_id_token("id_token jwk must be valid"))?;
-    let mut validation = Validation::new(header.alg);
-    validation.set_required_spec_claims(&["exp"]);
-    validation.validate_aud = false;
+    if header.kid.as_deref() != Some(SigningArtifact::IdToken.key_id()) {
+        return Err(invalid_id_token("id_token signing key is invalid"));
+    }
+    if header.jwk.is_some() {
+        return Err(invalid_id_token("id_token header must not include jwk"));
+    }
+    let decoding_key = SigningArtifact::IdToken
+        .decoding_key()
+        .map_err(|_| invalid_id_token("id_token signing key is invalid"))?;
+    let mut validation = Validation::new(SigningArtifact::IdToken.algorithm());
+    validation.set_required_spec_claims(&["exp", "iss", "sub", "aud"]);
+    validation.set_issuer(&[Config::global().server.issuer.as_str()]);
+    validation.set_audience(&[client_id]);
 
-    let token_data = decode::<IdTokenClaims>(id_token, &decoding_key, &validation)
+    let token_data = decode::<ValidatedIdTokenClaims>(id_token, &decoding_key, &validation)
         .map_err(invalid_decode_error)?;
     let now = get_current_timestamp();
-    let iat = token_data
-        .claims
+    let claims = token_data.claims;
+    let iat = claims
         .iat
         .ok_or_else(|| invalid_id_token("id_token iat is required"))?;
-    let exp = token_data
-        .claims
+    let exp = claims
         .exp
         .ok_or_else(|| invalid_id_token("id_token exp is required"))?;
+    let iss = claims
+        .iss
+        .ok_or_else(|| invalid_id_token("id_token iss is required"))?;
+    let sub = claims
+        .sub
+        .ok_or_else(|| invalid_id_token("id_token sub is required"))?;
+    let aud = claims
+        .aud
+        .ok_or_else(|| invalid_id_token("id_token aud is required"))?;
 
     if iat > now + validation.leeway {
         return Err(invalid_id_token("id_token iat must not be in the future"));
@@ -165,16 +186,34 @@ fn validate_jwt(id_token: &str) -> Result<jsonwebtoken::jwk::Jwk, OAuthError> {
         return Err(invalid_id_token("id_token exp must be after iat"));
     }
 
-    Ok(jwk)
+    if sub != claims.username {
+        return Err(invalid_id_token("id_token subject is invalid"));
+    }
+    if claims.client_id != client_id {
+        return Err(invalid_id_token("id_token client_id is invalid"));
+    }
+    Ok(IdTokenJwtPayload {
+        iss,
+        sub,
+        aud,
+        client_id: claims.client_id,
+        username: claims.username,
+        profile: claims.profile,
+        iat,
+        exp,
+    })
 }
 
 fn invalid_decode_error(error: JwtError) -> OAuthError {
     match error.kind() {
         ErrorKind::InvalidSignature => invalid_id_token("id_token signature is invalid"),
         ErrorKind::ExpiredSignature => invalid_id_token("id_token is expired"),
-        ErrorKind::MissingRequiredClaim(claim) if claim == "exp" => {
-            invalid_id_token("id_token exp is required")
+        ErrorKind::MissingRequiredClaim(claim) => {
+            invalid_id_token(&format!("id_token {claim} is required"))
         }
+        ErrorKind::InvalidIssuer => invalid_id_token("id_token issuer is invalid"),
+        ErrorKind::InvalidAudience => invalid_id_token("id_token audience is invalid"),
+        ErrorKind::InvalidAlgorithm => invalid_id_token("id_token algorithm is invalid"),
         _ => invalid_id_token("id_token claims are invalid"),
     }
 }
