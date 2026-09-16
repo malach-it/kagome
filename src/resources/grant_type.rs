@@ -50,6 +50,10 @@ impl GrantType {
     }
 }
 
+/// Parses supported space-delimited grant names until the first unsupported value.
+///
+/// The returned order matches the input. Parsing deliberately stops at the first unknown value,
+/// so callers can identify only the supported prefix without producing an error.
 pub fn parse_supported(grant_type: &str) -> Vec<GrantType> {
     grant_type
         .split_whitespace()
@@ -74,6 +78,14 @@ pub trait Validate {
     fn add_grant_type(&mut self, grant_type: &GrantType);
 }
 
+/// Selects and stores the supported grant type requested by a token request.
+///
+/// Only the first space-delimited value is selected and added as typed response state.
+///
+/// # Errors
+///
+/// Returns `unsupported_grant_type` when the parameter is absent or its first value is not
+/// supported by the token endpoint.
 pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
     let grant_type = parse(token_request.request_grant_type())?;
     token_request.add_grant_type(&grant_type);

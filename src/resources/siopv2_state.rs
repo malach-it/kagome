@@ -52,6 +52,16 @@ pub trait Validate {
     fn add_siop_state_claims(&mut self, claims: SiopStateClaims);
 }
 
+/// Encrypts downstream authorization parameters into fresh, short-lived SIOPv2 state.
+///
+/// Requires the downstream response type and captures the complete authorization transaction with
+/// the configured verifier issuer, a fresh nonce, and a five-minute lifetime. The encrypted state
+/// and its claims are added to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` for missing response type, clock/randomness failure, or
+/// serialization/encryption failure.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let iat = now().map_err(|_| OAuthError::invalid_token_response("state generation failed"))?;
     let authorization = request.authorization_parameters();
@@ -76,6 +86,16 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Authenticates SIOPv2 state and restores its validated authorization transaction.
+///
+/// Enforces artifact authentication, nonce syntax, exact configured verifier and response-type
+/// consistency, required downstream client and redirect URI, and a valid five-minute lifetime.
+/// Successful validation adds the restored claims to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when state is missing, malformed, unauthenticated, expired, or
+/// internally inconsistent.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let state = request
         .request_state()

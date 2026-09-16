@@ -50,6 +50,16 @@ pub trait Validate {
     fn add_next_response_types(&mut self, _response_types: Vec<ResponseType>) {}
 }
 
+/// Parses, orders, and stores a supported authorization response-type sequence.
+///
+/// The complete ordered sequence and its tail are added to request state so handlers can process
+/// chained response stages without reparsing the HTTP parameter. Terminal response types are
+/// required to appear only in supported final positions.
+///
+/// # Errors
+///
+/// Returns `unsupported_response_type` for a missing, empty, or unknown value and
+/// `invalid_final_response_type` for an invalid response-type combination or order.
 pub fn validate<T: Validate>(mut authorize_request: T) -> Result<T, OAuthError> {
     let response_types = parse(authorize_request.request_response_type())?;
     let next_response_types = response_types.iter().skip(1).copied().collect();

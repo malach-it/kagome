@@ -8,10 +8,28 @@ pub trait Validate {
     fn validated_client_id(&self) -> Option<&str>;
 }
 
+/// Validates requested scopes against the validated client's global configuration.
+///
+/// Delegates to [`validate_with_clients`] using the configured client set. No scope is optional and
+/// leaves the request unchanged.
+///
+/// # Errors
+///
+/// Returns the client or scope error produced by [`validate_with_clients`].
 pub fn validate<T: Validate>(request: T) -> Result<T, OAuthError> {
     validate_with_clients(request, &Config::global().clients)
 }
 
+/// Validates requested scopes against an explicit client set.
+///
+/// Requires validated client state when a scope was supplied. Exact client IDs and configured
+/// public-host client IDs are supported, and every space-delimited scope must occur in that
+/// client's allowlist. This action does not mutate request state.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when scope validation lacks prerequisite client state,
+/// `invalid_client_id` for an unknown client, and `invalid_scope` for empty or unauthorized scope.
 pub fn validate_with_clients<T: Validate>(
     request: T,
     clients: &[ClientConfig],

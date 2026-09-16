@@ -74,6 +74,17 @@ pub trait Validate {
     fn add_validated_presentation(&mut self, presentation: ValidatedPresentation);
 }
 
+/// Verifies the holder, credential, wallet binding, and requested presentation claims.
+///
+/// Requires presentation state and submission validation. It verifies the asymmetric VP signature,
+/// optional ID-token key binding, nonce, audience and time claims, exactly one embedded issuer-signed
+/// credential, the requested definition, and holder-to-subject binding. The trusted subject and
+/// credential issuer are added to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for missing prerequisites or any malformed, unsupported, untrusted,
+/// stale, wrongly addressed, definition-mismatched, or incorrectly bound VP or VC.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let vp_token = request
         .request_vp_token()

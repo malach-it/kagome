@@ -58,6 +58,15 @@ pub trait Validate {
     fn mark_presentation_submission_validated(&mut self);
 }
 
+/// Requires a form URL-encoded OpenID4VP direct-post response.
+///
+/// Parameters on the media type are accepted and its name is compared case-insensitively. This
+/// action validates the HTTP representation without changing request state.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when `Content-Type` is absent or is not
+/// `application/x-www-form-urlencoded`.
 pub fn validate_encoding<T: ValidateEncoding>(request: T) -> Result<T, OAuthError> {
     let media_type = request
         .request_content_type()
@@ -75,6 +84,16 @@ pub fn validate_encoding<T: ValidateEncoding>(request: T) -> Result<T, OAuthErro
     Ok(request)
 }
 
+/// Validates an allowlisted negative wallet response that contains no success artifacts.
+///
+/// The response must contain a supported wallet error and must not mix that error with a VP token
+/// or presentation submission. A valid error value is added to response state for downstream
+/// redirection.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for a missing or unsupported error or for mixed success and error
+/// fields.
 pub fn validate_wallet_error<T: ValidateWalletError>(mut request: T) -> Result<T, OAuthError> {
     let error = request
         .request_wallet_error()
@@ -99,6 +118,16 @@ pub fn validate_wallet_error<T: ValidateWalletError>(mut request: T) -> Result<T
     Ok(request)
 }
 
+/// Validates that the submitted VP/VC descriptor mapping satisfies the restored request state.
+///
+/// Requires presentation state to be validated first. It accepts the standard definition-bound
+/// mapping or the supported credential-bound mapping, each with exactly one VP/VC descriptor, then
+/// marks the submission validated for presentation verification.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for missing prerequisite state, malformed JSON, empty identifiers,
+/// multiple descriptors, or definition, descriptor, format, or JSON-path mismatches.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let encoded_submission = request
         .request_presentation_submission()

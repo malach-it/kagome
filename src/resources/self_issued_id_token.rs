@@ -64,6 +64,15 @@ pub trait Validate {
     fn add_validated_id_token(&mut self, id_token: ValidatedSelfIssuedIdToken);
 }
 
+/// Requires a form URL-encoded SIOPv2 direct-post response.
+///
+/// Parameters on the media type are accepted and its name is compared case-insensitively. This
+/// action validates the HTTP representation without changing request state.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when `Content-Type` is absent or is not
+/// `application/x-www-form-urlencoded`.
 pub fn validate_encoding<T: ValidateEncoding>(request: T) -> Result<T, OAuthError> {
     let media_type = request
         .request_content_type()
@@ -81,6 +90,15 @@ pub fn validate_encoding<T: ValidateEncoding>(request: T) -> Result<T, OAuthErro
     Ok(request)
 }
 
+/// Validates an allowlisted negative wallet response that contains no ID token.
+///
+/// A supported wallet error may carry an optional description but cannot be mixed with a success
+/// ID token. The validated error is added to response state for downstream redirection.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when the error is missing, unsupported, or accompanied by an ID
+/// token.
 pub fn validate_wallet_error<T: ValidateWalletError>(mut request: T) -> Result<T, OAuthError> {
     let error = request
         .request_wallet_error()
@@ -102,6 +120,16 @@ pub fn validate_wallet_error<T: ValidateWalletError>(mut request: T) -> Result<T
     Ok(request)
 }
 
+/// Verifies a self-issued ID token against restored SIOPv2 state and stores its wallet key.
+///
+/// Requires SIOPv2 state to be validated first. The token must use ES256 and a P-256 `did:key` or
+/// thumbprint-bound `sub_jwk`; signature, issuer/subject, callback audience, nonce, issuance time,
+/// and expiration are verified before the subject and public key are stored.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for missing prerequisite fields or any malformed, unsupported,
+/// untrusted, wrongly addressed, stale, or incorrectly bound self-issued token.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let token = request
         .request_id_token()
@@ -230,6 +258,15 @@ fn audience_contains(audience: &Value, expected: &str) -> bool {
             .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(expected)))
 }
 
+/// Decodes a canonical raw P-256 or JWK-JCS `did:key` subject into a public JWK.
+///
+/// Supports the P-256 public-key multicodec and canonical JWK-JCS public-key multicodec. The
+/// returned JWK contains only the normalized public EC parameters.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for invalid multibase/multicodec data, non-P-256 material,
+/// non-canonical JWK-JCS, or invalid curve coordinates.
 pub(crate) fn did_key_jwk(subject: &str) -> Result<Value, OAuthError> {
     let multibase = subject
         .strip_prefix("did:key:z")

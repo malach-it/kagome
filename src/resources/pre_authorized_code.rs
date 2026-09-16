@@ -65,6 +65,16 @@ pub trait Validate {
     fn add_pre_authorized_code_claims(&mut self, claims: PreAuthorizedCodeClaims);
 }
 
+/// Generates an encrypted credential grant bound to identity and optional wallet key.
+///
+/// Captures all configured credential IDs and the selected credential profile. When an
+/// authorization code is present, its client-bound ID-token key supplies wallet binding and marks
+/// the wallet authenticated.
+///
+/// # Errors
+///
+/// Returns an OAuth error for missing required identity/client state, an invalid binding code,
+/// required binding without a key, time failure, serialization, or encryption.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let iat = now("pre-authorized code generation failed")?;
     let subject = match (request.subject(), request.require_subject()) {
@@ -115,6 +125,14 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Validates a pre-authorized code, optional transaction code, lifetime, and binding claims.
+///
+/// Successful validation stores [`PreAuthorizedCodeClaims`] for token issuance.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for a missing code and `invalid_grant` for a bad transaction code or
+/// an invalid, expired, or internally inconsistent encrypted grant.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let code = request
         .request_pre_authorized_code()

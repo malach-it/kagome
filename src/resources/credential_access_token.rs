@@ -57,6 +57,15 @@ pub trait Validate {
     fn add_credential_access_token_claims(&mut self, claims: CredentialAccessTokenClaims);
 }
 
+/// Issues an encrypted bearer token authorizing configured credentials for one subject.
+///
+/// Carries the authorized configuration IDs, credential-specific profile, optional wallet key,
+/// binding policy, and one-hour lifetime, then adds [`CredentialAccessToken`] state.
+///
+/// # Errors
+///
+/// Returns an OAuth error when configurations or subject are missing, time is unavailable, or
+/// serialization/encryption fails.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let credential_configuration_ids = request.credential_configuration_ids();
     if credential_configuration_ids.is_empty() {
@@ -93,6 +102,15 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Authenticates a credential bearer token and stores its validated authorization claims.
+///
+/// Enforces artifact separation, CBOR structure, lifetime, public-JWK shape, and required binding
+/// key consistency.
+///
+/// # Errors
+///
+/// Returns `invalid_token` when the bearer token is absent, invalid, expired, or internally
+/// inconsistent.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let access_token = request
         .request_access_token()

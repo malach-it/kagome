@@ -42,10 +42,27 @@ pub trait Validate {
     fn add_client_credentials(&mut self, client_credentials: ClientCredentials);
 }
 
+/// Validates client identity, credentials, redirect URI, and capabilities against global config.
+///
+/// This is the production wrapper around [`validate_with_clients`].
+///
+/// # Errors
+///
+/// Returns the client, request, or authorization error produced by client validation.
 pub fn validate<T: Validate>(request: T) -> Result<T, OAuthError> {
     validate_with_clients(request, &Config::global().clients)
 }
 
+/// Applies client validation against an explicit client set and stores validated credentials.
+///
+/// Resolves exact and configured public-host clients, conditionally validates secret and redirect
+/// URI, checks grants/responses and their association, disables local POST authentication for
+/// federated clients, and extracts supported credentials embedded in public client IDs.
+///
+/// # Errors
+///
+/// Returns an OAuth error for missing/invalid credentials or redirect URI, unknown clients,
+/// unsupported capabilities, or a prohibited federated-client POST.
 pub fn validate_with_clients<T: Validate>(
     mut request: T,
     clients: &[ClientConfig],
@@ -184,10 +201,16 @@ pub fn validate_with_clients<T: Validate>(
     Ok(request)
 }
 
+/// Reports whether a client ID uses the supported `username:password@host` syntax.
+///
+/// This is a syntax check only and does not authenticate the extracted credentials.
 pub fn client_id_resource_owner_credentials(client_id: &str) -> bool {
     resource_owner_credentials(client_id).is_some()
 }
 
+/// Returns whether the configured client requires wallet-key binding.
+///
+/// Unknown client IDs return `false`.
 pub fn requires_wallet_binding(client_id: &str) -> bool {
     Config::global()
         .client(client_id)

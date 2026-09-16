@@ -9,6 +9,14 @@ pub trait Validate {
     fn add_credential_issuer(&mut self, credential_issuer: String);
 }
 
+/// Stores the configured server issuer as the trusted credential issuer.
+///
+/// Request headers are deliberately ignored so an attacker cannot redefine issuer identity.
+///
+/// # Errors
+///
+/// The current implementation is infallible; the `Result` shape keeps it composable in resource
+/// pipelines.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     // Request headers are attacker-controlled and must not define issuer identity.
     request.add_credential_issuer(Config::global().server.issuer.clone());
@@ -22,6 +30,15 @@ pub trait ValidateConfiguration {
     fn add_credential_configuration(&mut self, credential: CredentialConfig);
 }
 
+/// Selects a configured credential that the validated bearer token authorizes.
+///
+/// Requires JSON content type and `credential_identifier`, resolves its [`CredentialConfig`],
+/// checks the access-token allowlist, and stores the selected configuration.
+///
+/// # Errors
+///
+/// Returns an OAuth credential or access-token error for invalid representation, missing/unknown
+/// identifier, or insufficient token authorization.
 pub fn validate_configuration<T: ValidateConfiguration>(mut request: T) -> Result<T, OAuthError> {
     let media_type = request
         .request_content_type()

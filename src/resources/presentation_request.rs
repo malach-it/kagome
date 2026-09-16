@@ -35,6 +35,16 @@ pub trait Generate {
     fn add_signed_presentation_request(&mut self, request: SignedPresentationRequest);
 }
 
+/// Signs an OpenID4VP direct-post request from validated verifier and presentation state.
+///
+/// Requires verifier and generated presentation-state data. It binds the definition, nonce,
+/// client identity, response endpoint, supported VP algorithms, and state lifetime into a signed
+/// request object, then stores that object and its redirect URI.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when prerequisite state is missing or request-object signing
+/// fails.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let verifier = request
         .verifier()

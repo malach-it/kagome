@@ -81,6 +81,10 @@
 
 - Keep each protocol resource module focused on one domain concept and colocate
   its typed value, constants, validation or generation traits, and operations.
+- Document every resource action with Rustdoc that explains its purpose,
+  required input or previously validated state, state added or changed on
+  success, and possible error outcomes. Keep this documentation beside the
+  action instead of maintaining a separate resource-action catalog.
 - Define reusable operations as generic functions over capability traits. They
   should take an owned mutable request, return `Result<T, OAuthError>`, and add
   validated or generated state through the trait before returning the request.

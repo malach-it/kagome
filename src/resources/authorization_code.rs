@@ -78,6 +78,14 @@ pub trait Validate {
     fn add_authorization_code(&mut self, authorization_code: &str);
 }
 
+/// Requires a valid authorization code chain and records the code as validated state.
+///
+/// Validation authenticates every nested code and enforces encoded/plaintext size, lifetime,
+/// configured chain depth, and optional client binding.
+///
+/// # Errors
+///
+/// Returns an OAuth error when the code is absent or any code or claim in its chain is invalid.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let authorization_code = request
         .request_authorization_code()
@@ -96,6 +104,13 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Validates and records an authorization code when present, otherwise leaves the request unchanged.
+///
+/// Present values receive the same chain, lifetime, size, depth, and client checks as [`validate`].
+///
+/// # Errors
+///
+/// Returns an OAuth error only when a supplied code is invalid.
 pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let Some(authorization_code) = request.request_authorization_code().map(str::to_owned) else {
         return Ok(request);
@@ -113,6 +128,16 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Generates an expiring encrypted code carrying identity, PKCE, wallet, and continuation state.
+///
+/// Required identity fields are controlled by [`Generate::require_id_token`] and
+/// [`Generate::require_username`]. A previous code is authenticated before it is linked, and the
+/// new code is added to the request.
+///
+/// # Errors
+///
+/// Returns an OAuth error for missing required state, an excessive chain, invalid time/lifetime,
+/// oversized claims, serialization failure, or encryption failure.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let client_id = request
         .client_id()
@@ -238,6 +263,12 @@ fn encode_cose_encrypt0(payload: &AuthorizationCodeCosePayload) -> Result<String
     )
 }
 
+/// Authenticates and decodes one code payload without validating time, client, or nested-chain rules.
+///
+/// # Errors
+///
+/// Returns `invalid_grant` when encoded/plaintext limits, COSE authentication, or CBOR decoding
+/// fail.
 pub fn decode_cose_payload(
     authorization_code: &str,
 ) -> Result<AuthorizationCodeCosePayload, OAuthError> {
@@ -247,6 +278,13 @@ pub fn decode_cose_payload(
         .map_err(|_| invalid_authorization_code("authorization_code claims are invalid"))
 }
 
+/// Validates a client-bound code chain and returns its wallet-binding public key, if any.
+///
+/// A directly carried JWK takes precedence; otherwise a valid embedded ID token supplies the key.
+///
+/// # Errors
+///
+/// Returns an OAuth error when the code chain, client binding, or embedded ID token is invalid.
 pub fn validated_id_token_public_jwk(
     authorization_code: &str,
     client_id: &str,
@@ -259,6 +297,13 @@ pub fn validated_id_token_public_jwk(
     }
 }
 
+/// Validates a code chain and returns its authenticated usernames in oldest-to-newest order.
+///
+/// Absence of a code produces an empty list.
+///
+/// # Errors
+///
+/// Returns an OAuth error when the code chain or optional client binding is invalid.
 pub fn chain_usernames(
     authorization_code: Option<&str>,
     client_id: Option<&str>,

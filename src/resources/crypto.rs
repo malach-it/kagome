@@ -19,6 +19,14 @@ impl SigningArtifact {
     }
 }
 
+/// Signs serializable claims with the key and algorithm assigned to a signing artifact domain.
+///
+/// The key manager supplies the private key, `alg`, and `kid` for Credential, ID-token, or
+/// RequestObject artifacts.
+///
+/// # Errors
+///
+/// Returns the JWT library error produced by claim serialization or signing.
 pub fn sign_jwt<T: Serialize>(
     claims: &T,
     artifact: SigningArtifact,
@@ -34,6 +42,14 @@ pub struct CoseEncrypt0Errors {
     pub decryption_failed: &'static str,
 }
 
+/// Encrypts plaintext as base64url COSE_Encrypt0 using an artifact-specific key and AAD.
+///
+/// A fresh AES-GCM nonce and domain-separated key/AAD prevent ciphertext substitution between
+/// protocol contexts.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when randomness, encryption, or COSE serialization fails.
 pub fn encode_cose_encrypt0(
     plaintext: &[u8],
     artifact: EncryptedArtifact,
@@ -59,6 +75,15 @@ pub fn encode_cose_encrypt0(
     Ok(URL_SAFE_NO_PAD.encode(cose_bytes))
 }
 
+/// Authenticates and decrypts COSE_Encrypt0 for the expected artifact domain.
+///
+/// The caller supplies descriptions for malformed COSE, missing nonce/ciphertext, and failed
+/// decryption so higher-level resources can map them to their protocol domain.
+///
+/// # Errors
+///
+/// Returns an OAuth error when base64url/COSE parsing, required fields, artifact authentication, or
+/// AES-GCM decryption fails.
 pub fn decode_cose_encrypt0(
     encoded_cose: &str,
     artifact: EncryptedArtifact,

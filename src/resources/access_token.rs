@@ -42,6 +42,15 @@ pub trait Generate {
     }
 }
 
+/// Issues an encrypted OAuth bearer token for the validated client and optional owner.
+///
+/// Requires a client ID, carries an optional username, applies the configured lifetime, and adds
+/// the generated [`AccessToken`] to the request.
+///
+/// # Errors
+///
+/// Returns an OAuth error when client state is missing, the clock or lifetime is invalid, or the
+/// claims cannot be serialized and encrypted.
 pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     let client_id = token_request
         .client_id()
@@ -76,6 +85,12 @@ pub fn generate<T: Generate>(mut token_request: T) -> Result<T, OAuthError> {
     Ok(token_request)
 }
 
+/// Authenticates, decrypts, and decodes access-token claims without enforcing their lifetime.
+///
+/// # Errors
+///
+/// Returns `invalid_token` when the value is not a valid AccessToken COSE artifact or its CBOR
+/// claims cannot be decoded. Callers that accept the claims must enforce `iat` and `exp`.
 pub fn decode_cose_payload(access_token: &str) -> Result<AccessTokenClaims, OAuthError> {
     let plaintext = crypto::decode_cose_encrypt0(
         access_token,

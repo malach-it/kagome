@@ -26,6 +26,15 @@ pub struct WalletAuthorizationRelay {
     pub uri: String,
 }
 
+/// Stores a large wallet URI behind a random, five-minute issuer relay URL.
+///
+/// Expired entries are pruned before insertion. The bounded in-memory relay retains at most 1,024
+/// entries and evicts the earliest-expiring entry when full. Successful storage returns both the
+/// opaque identifier and the issuer-local relay URI.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when random generation, time lookup, or relay locking fails.
 pub fn store(uri: &str) -> Result<WalletAuthorizationRelay, OAuthError> {
     let mut identifier = [0_u8; 32];
     SystemRandom::new().fill(&mut identifier).map_err(|_| {
@@ -64,6 +73,15 @@ pub fn store(uri: &str) -> Result<WalletAuthorizationRelay, OAuthError> {
     })
 }
 
+/// Resolves a non-consuming wallet relay identifier while it remains unexpired.
+///
+/// Expired entries are pruned first. A successful lookup clones the stored wallet URI but leaves
+/// the relay reusable until its five-minute expiration.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when the identifier is absent or empty, the relay is unavailable, or
+/// the entry is unknown or expired.
 pub fn resolve(identifier: Option<&str>) -> Result<String, OAuthError> {
     let identifier = identifier
         .filter(|identifier| !identifier.is_empty())

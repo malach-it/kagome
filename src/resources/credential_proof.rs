@@ -50,6 +50,16 @@ pub trait Validate {
     fn add_validated_credential_proof(&mut self, proof: ValidatedCredentialProof);
 }
 
+/// Validates an optional holder JWT proof and enforces it when wallet binding is required.
+///
+/// Accepts an asymmetric embedded JWK or P-256 `did:key`, verifies signature, issuer/subject,
+/// audience, and freshness, and—when available—requires the signature to match the ID-token key.
+/// A valid proof adds [`ValidatedCredentialProof`] state.
+///
+/// # Errors
+///
+/// Returns `invalid_credential_request` for a required missing proof or malformed, untrusted,
+/// stale, wrongly addressed, or incorrectly bound JWT proof.
 pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let Some(proof) = request.request_proof() else {
         if request.require_wallet_binding() {

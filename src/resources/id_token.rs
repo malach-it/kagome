@@ -47,6 +47,16 @@ pub trait Generate {
     fn add_generated_id_token(&mut self, id_token: IdToken);
 }
 
+/// Signs an ID token for the authenticated resource owner and selected profile.
+///
+/// Requires client and username state. It uses the accumulated resource-owner profile when
+/// available, otherwise creates the minimal username profile, then stores the signed token and
+/// configured lifetime.
+///
+/// # Errors
+///
+/// Returns an OAuth error for missing client or authenticated owner state, invalid system time or
+/// lifetime, or signing failure.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let client_id = request
         .client_id()
@@ -81,6 +91,15 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Verifies an asymmetric, JWK-bearing ID token and records its encoded value.
+///
+/// Requires a JWT with an embedded non-HMAC public JWK, valid signature, required expiration, and
+/// coherent issuance time. Successful validation stores the original encoded token.
+///
+/// # Errors
+///
+/// Returns `missing_id_token` when absent and `invalid_id_token` for malformed, symmetric,
+/// unsigned, expired, future-issued, or otherwise invalid tokens.
 pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
     let id_token = token_request
         .request_id_token()
@@ -99,6 +118,14 @@ struct IdTokenClaims {
     exp: Option<u64>,
 }
 
+/// Verifies an ID token and returns its trusted embedded public JWK.
+///
+/// The returned JSON key has passed the same signature, algorithm, issuance-time, and expiration
+/// checks as [`validate`].
+///
+/// # Errors
+///
+/// Returns `invalid_id_token` when token validation or JWK serialization fails.
 pub fn validated_public_jwk(id_token: &str) -> Result<serde_json::Value, OAuthError> {
     let jwk = validate_jwt(id_token)?;
     serde_json::to_value(jwk).map_err(|_| invalid_id_token("id_token jwk must be valid"))

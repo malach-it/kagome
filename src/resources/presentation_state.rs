@@ -61,6 +61,17 @@ pub trait Validate {
     fn add_presentation_state_claims(&mut self, claims: PresentationStateClaims);
 }
 
+/// Generates encrypted presentation state from validated policy, client, issuer, and verifier data.
+///
+/// Requires a selected definition and validated verifier, credential issuer, authorization client,
+/// and redirect URI. It optionally carries authorization state, PKCE, and the ID-token public key
+/// from an authorization code, then stores an encrypted five-minute transaction artifact.
+///
+/// # Errors
+///
+/// Returns an OAuth error for missing prerequisite state, invalid definition structure or
+/// authorization code, required wallet binding without a key, clock/randomness failure, or
+/// serialization/encryption failure.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let presentation_definition = request.presentation_definition().ok_or_else(|| {
         OAuthError::invalid_token_response("presentation definition must be selected")
@@ -124,6 +135,16 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Authenticates presentation state and restores its validated transaction claims.
+///
+/// The encrypted artifact must contain well-formed identifiers and optional PKCE/JWK values, match
+/// the verifier-derived client ID and current configured presentation definition, and have a valid
+/// five-minute lifetime. Validated claims are added to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when state is absent, malformed, unauthenticated, expired,
+/// inconsistent, or no longer matches configuration.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let state = request
         .request_state()

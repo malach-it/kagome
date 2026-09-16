@@ -93,6 +93,16 @@ pub trait Generate {
     fn add_verifiable_credential(&mut self, credential: VerifiableCredential);
 }
 
+/// Signs the selected credential and binds it to the authenticated holder and profile.
+///
+/// Requires configuration, trusted issuer, and subject; creates identifiers and time claims,
+/// applies credential-specific subject attributes and the holder confirmation key, and stores a
+/// signed [`VerifiableCredential`].
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` for missing prerequisite state, clock/date/identifier failure,
+/// or credential signing failure.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let credential_configuration = request.credential_configuration().ok_or_else(|| {
         OAuthError::invalid_token_response("credential configuration is required")

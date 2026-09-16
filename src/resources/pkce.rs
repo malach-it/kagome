@@ -23,6 +23,14 @@ pub trait Verify {
     fn validated_authorization_code(&self) -> Option<&str>;
 }
 
+/// Validates an optional S256 challenge pair and stores the typed challenge.
+///
+/// Challenge and method may both be absent. When present, they must appear together, the method
+/// must be `S256`, and the challenge must be a 43-character unpadded base64url value.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for incomplete, unsupported, or malformed PKCE parameters.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     match (
         request.request_code_challenge().map(str::to_owned),
@@ -50,6 +58,17 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     }
 }
 
+/// Verifies a code verifier against the challenge in a validated authorization code.
+///
+/// Requires the authorization code to have been validated first. Codes without a challenge need
+/// no verifier; otherwise the verifier syntax and its constant-time S256 comparison are enforced.
+/// This action validates state without mutating it.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when prerequisite code state is absent, an authorization-code
+/// error when it cannot be decoded, or `invalid_grant` for a missing, malformed, or mismatched
+/// verifier.
 pub fn verify<T: Verify>(request: T) -> Result<T, OAuthError> {
     let authorization_code = request.validated_authorization_code().ok_or_else(|| {
         OAuthError::invalid_token_response("authorization_code must be validated before PKCE")
@@ -77,6 +96,9 @@ pub fn verify<T: Verify>(request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Reports whether a value has the required unpadded S256 base64url challenge syntax.
+///
+/// Valid values contain exactly 43 ASCII letters, digits, hyphens, or underscores.
 pub fn valid_code_challenge(value: &str) -> bool {
     value.len() == 43
         && value

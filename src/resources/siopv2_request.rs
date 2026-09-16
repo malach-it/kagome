@@ -41,6 +41,15 @@ pub trait Generate {
     fn add_signed_siop_request(&mut self, request: SignedSiopRequest);
 }
 
+/// Signs a SIOPv2 direct-post request from generated SIOP state.
+///
+/// Requires generated state and binds its verifier, nonce, lifetime, and encrypted transaction to
+/// an ES256 self-issued-ID request. The signed request object, client ID, and state-bearing response
+/// URI are added to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when state is absent or request-object signing fails.
 pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let state = request
         .siop_state()
@@ -74,10 +83,17 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Constructs the verifier's SIOPv2 response endpoint URI.
+///
+/// The caller must provide a normalized verifier base URI; this helper appends
+/// [`RESPONSE_PATH`] without modifying the base.
 pub fn response_uri(verifier: &str) -> String {
     format!("{verifier}{RESPONSE_PATH}")
 }
 
+/// Constructs a SIOPv2 response URI carrying percent-encoded transaction state.
+///
+/// State is encoded as a single query parameter using the RFC 3986 unreserved character set.
 pub fn response_uri_with_state(verifier: &str, state: &str) -> String {
     format!("{}?state={}", response_uri(verifier), percent_encode(state))
 }

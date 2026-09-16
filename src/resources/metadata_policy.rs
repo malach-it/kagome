@@ -24,6 +24,16 @@ pub trait Validate {
     fn add_metadata_policy(&mut self, _metadata_policy: MetadataPolicy) {}
 }
 
+/// Parses optional metadata policy and enforces its authorization-code identity constraints.
+///
+/// Absence is accepted without changing state. A string policy is retained as supplied; a
+/// username `superset_of` policy requires every listed identity to occur in the validated
+/// authorization-code chain. A valid policy is added to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_metadata_policy` for invalid JSON or shape, and a username-policy error when
+/// the authorization-code chain is missing, invalid, or does not contain the required identities.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let Some(metadata_policy) = request.request_metadata_policy() else {
         return Ok(request);

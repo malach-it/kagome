@@ -100,6 +100,15 @@ pub trait FetchIdentity: resource_owner::Populate {
     fn federation_client_id(&self) -> Option<&str>;
 }
 
+/// Starts upstream authentication using the validated downstream client's configuration.
+///
+/// Resolves the federated server assigned to the validated client, preserves the downstream
+/// request in encrypted state, and adds the upstream authorization endpoint and parameters.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when client or federation configuration is missing, or an
+/// OAuth error when the state cannot be timestamped or encrypted.
 pub fn authorize<T: Authorize>(request: T) -> Result<T, OAuthError> {
     let config = Config::global();
     let federated_server = configuration(&request).ok_or_else(|| {
@@ -109,6 +118,15 @@ pub fn authorize<T: Authorize>(request: T) -> Result<T, OAuthError> {
     authorize_with_server(request, federated_server, &config.server.issuer)
 }
 
+/// Creates an upstream authorization redirect with encrypted original-request state.
+///
+/// Requires a validated downstream client ID. The generated five-minute state binds that client
+/// to the original request and the configured callback URI; the resulting redirect parameters are
+/// added to the request.
+///
+/// # Errors
+///
+/// Returns an OAuth error when the client ID is absent or state creation fails.
 pub fn authorize_with_server<T: Authorize>(
     mut request: T,
     federated_server: &FederatedServerConfig,
@@ -134,12 +152,25 @@ pub fn authorize_with_server<T: Authorize>(
     Ok(request)
 }
 
+/// Returns the federated-server configuration selected by the validated client ID.
+///
+/// Returns `None` when the request has no validated client or that client is not federation
+/// enabled. This lookup does not mutate request state.
 pub fn configuration<T: Authorize>(request: &T) -> Option<&'static FederatedServerConfig> {
     let client_id = request.validated_client_id()?;
 
     configured_federated_server(client_id)
 }
 
+/// Requires exactly one valid upstream authorization code or error response.
+///
+/// A non-empty code is copied into validated callback state. An upstream error is converted into
+/// an OAuth grant failure and never stored.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for missing, empty, or conflicting callback fields and
+/// `invalid_grant` when the upstream server reports an error.
 pub fn validate_callback<T: ValidateCallback>(mut request: T) -> Result<T, OAuthError> {
     match (
         request.request_authorization_code(),
@@ -171,6 +202,16 @@ pub fn validate_callback<T: ValidateCallback>(mut request: T) -> Result<T, OAuth
     }
 }
 
+/// Authenticates callback state and revalidates its client and redirect destination.
+///
+/// Decrypts the state, requires its embedded client ID to agree with the preserved request, and
+/// checks the preserved redirect URI against the client's current allowlist before adding the
+/// state to the callback request.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when state is missing, invalid, expired, refers to an unknown or
+/// non-federated client, or contains an untrusted redirect destination.
 pub fn validate_callback_state<T: ValidateCallbackState>(mut request: T) -> Result<T, OAuthError> {
     let encoded_state = request
         .request_state()
@@ -198,6 +239,15 @@ pub fn validate_callback_state<T: ValidateCallbackState>(mut request: T) -> Resu
     Ok(request)
 }
 
+/// Decrypts unexpired federation state for a client that remains federation-enabled.
+///
+/// This lower-level operation authenticates the artifact, validates its lifetime, and checks the
+/// current federation configuration. It does not perform callback redirect-URI allowlist checks.
+///
+/// # Errors
+///
+/// Returns `invalid_request` for malformed, unauthenticated, expired, or no-longer-configured
+/// federation state.
 pub fn decrypt_state(encoded: &str) -> Result<FederationState, OAuthError> {
     let state = decode_state(encoded, current_timestamp()?)?;
     configured_federated_server(&state.client_id)
@@ -206,6 +256,15 @@ pub fn decrypt_state(encoded: &str) -> Result<FederationState, OAuthError> {
     Ok(state)
 }
 
+/// Exchanges the upstream code using the federated server selected by validated client state.
+///
+/// Resolves configuration from the validated federation client and adds the returned bearer token
+/// to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when validated federation state or server configuration is
+/// absent, and `invalid_grant` when the exchange fails or returns an invalid token response.
 pub fn request_access_token<T: ExchangeToken>(request: T) -> Result<T, OAuthError> {
     let client_id = request.federation_client_id().ok_or_else(|| {
         OAuthError::invalid_token_response("validated federation state is required")
@@ -217,6 +276,15 @@ pub fn request_access_token<T: ExchangeToken>(request: T) -> Result<T, OAuthErro
     request_access_token_with_server(request, server, &Config::global().server.issuer)
 }
 
+/// Exchanges the upstream code against an explicit token-endpoint configuration.
+///
+/// Sends the validated authorization code, configured client credentials, and this server's
+/// callback URI to the upstream token endpoint, then stores its non-empty access token.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when the code is absent and `invalid_grant` for transport,
+/// decoding, or empty-token failures.
 pub fn request_access_token_with_server<T: ExchangeToken>(
     mut request: T,
     server: &FederatedServerConfig,
@@ -255,6 +323,15 @@ pub fn request_access_token_with_server<T: ExchangeToken>(
     Ok(request)
 }
 
+/// Fetches identity using the federated server selected by validated client state.
+///
+/// Resolves configuration from the validated federation client and populates an authenticated
+/// resource owner from all configured identity endpoints.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when federation state or configuration is missing, and
+/// `invalid_grant` when upstream identity retrieval or mapping fails.
 pub fn fetch_identity<T: FetchIdentity>(request: T) -> Result<T, OAuthError> {
     let client_id = request.federation_client_id().ok_or_else(|| {
         OAuthError::invalid_token_response("validated federation state is required")
@@ -266,6 +343,16 @@ pub fn fetch_identity<T: FetchIdentity>(request: T) -> Result<T, OAuthError> {
     fetch_identity_with_server(request, server)
 }
 
+/// Fetches configured upstream claims and populates an authenticated resource owner.
+///
+/// Requires a federated access token. Every configured endpoint and claim mapping must succeed;
+/// mapped attributes retain their ID-token and credential exposure policies. The resulting
+/// resource owner is marked authenticated and added to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_token_response` when the access token is absent and `invalid_grant` for HTTP,
+/// response, required-claim, or unusable-profile failures.
 pub fn fetch_identity_with_server<T: FetchIdentity>(
     mut request: T,
     server: &FederatedServerConfig,

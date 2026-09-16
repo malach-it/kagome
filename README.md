@@ -3,6 +3,10 @@
 Proof of concept of OAuth 2.0 and satellite specifications implementation in
 Rust
 
+The [identity flow graphs](docs/flows/README.md) document handler pipelines and
+terminal HTTP outcomes. Resource actions document their purpose, prerequisites,
+state effects, and failure boundaries inline through Rustdoc.
+
 ## Server configuration
 
 Copy the example configuration before starting Kagome:

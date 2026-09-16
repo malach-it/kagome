@@ -96,6 +96,15 @@ pub trait Validate: Populate {
     }
 }
 
+/// Requires valid local resource-owner credentials and populates authenticated owner state.
+///
+/// Resolves the username from client-bound identity or request credentials, verifies it against
+/// the client's password file, and adds a resource owner with `authenticated` set to `true`.
+///
+/// # Errors
+///
+/// Returns `unauthenticated` when no usable identity is supplied, or the applicable client,
+/// username, password-presence, or password-verification OAuth error.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let Some(resource_owner) = validate_resource_owner(&request)? else {
         return Err(OAuthError::unauthenticated());
@@ -105,6 +114,16 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
+/// Populates a local owner when credentials are complete while allowing their absence.
+///
+/// A request with no credentials, or with a recognized username but no password, remains
+/// unchanged and unauthenticated. Complete valid credentials add the same authenticated resource
+/// owner as [`validate`]. Supplied invalid credentials are never ignored.
+///
+/// # Errors
+///
+/// Returns client, username, or invalid-password errors for supplied credentials that fail
+/// validation; missing credentials and a missing password are accepted.
 pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let resource_owner = match validate_resource_owner(&request) {
         Ok(resource_owner) => resource_owner,
@@ -165,6 +184,10 @@ fn verify_password(passwords: &str, username: &str, password: &str) -> bool {
     })
 }
 
+/// Reports whether a username appears in the client's configured password file.
+///
+/// Returns `false` when the client has no password-file configuration. No password hash is read or
+/// verified by this lookup.
 pub fn configured_username(client_id: &str, username: &str) -> bool {
     Config::global()
         .client_password_file(client_id)

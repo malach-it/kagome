@@ -8,6 +8,15 @@ pub trait Select {
     fn add_presentation_definition(&mut self, definition: PresentationDefinitionConfig);
 }
 
+/// Selects exactly one configured presentation definition from the requested scopes.
+///
+/// Scope values are matched against configured presentation-definition identifiers. With no
+/// scope, the sole configured definition is selected when exactly one exists. The selected typed
+/// configuration is added to the request.
+///
+/// # Errors
+///
+/// Returns `invalid_request` when selection is missing or ambiguous.
 pub fn select<T: Select>(mut request: T) -> Result<T, OAuthError> {
     let configured = &Config::global().presentation_definitions;
     let requested_identifiers: Vec<_> = request
