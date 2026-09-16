@@ -88,7 +88,7 @@ fn returns_oauth_error_for_missing_password_grant_username() {
         "client_id=client_id&client_secret=client_secret&grant_type=password&password=password",
     );
 
-    assert_invalid_grant_response(&response, "username is required");
+    assert_invalid_grant_response(&response, "resource owner is unauthenticated");
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn returns_oauth_error_when_password_grant_omits_resource_owner_credentials() {
         "client_id=client_id&client_secret=client_secret&grant_type=password",
     );
 
-    assert_invalid_grant_response(&response, "username is required");
+    assert_invalid_grant_response(&response, "resource owner is unauthenticated");
 }
 
 #[test]

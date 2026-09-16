@@ -5,6 +5,7 @@ use crate::{
     resources::{
         credential_access_token::{self, CredentialAccessTokenClaims},
         credential_issuer, credential_proof,
+        resource_owner::ResourceOwnerProfile,
         verifiable_credential::{self, VerifiableCredential},
     },
     unit::{KagomeRequest, parse_request_json_parameter, parse_request_parameter, request_header},
@@ -26,6 +27,7 @@ pub struct CredentialResponse {
     pub authorized_credential_configuration_id: Option<String>,
     pub credential_configuration_id: Option<String>,
     pub subject: Option<String>,
+    pub credential_profile: ResourceOwnerProfile,
     pub holder_jwk: Option<serde_json::Value>,
     pub id_token_public_jwk: Option<serde_json::Value>,
     pub require_wallet_binding: bool,
@@ -73,6 +75,7 @@ impl credential_access_token::Validate for CredentialRequest<'_> {
         self.response.authorized_credential_configuration_id =
             Some(claims.credential_configuration_id);
         self.response.subject = Some(claims.subject);
+        self.response.credential_profile = claims.credential_profile;
         self.response.id_token_public_jwk = claims.id_token_public_jwk;
         self.response.require_wallet_binding = claims.require_wallet_binding;
     }
@@ -105,6 +108,10 @@ impl verifiable_credential::Generate for CredentialRequest<'_> {
 
     fn subject(&self) -> Option<&str> {
         self.response.subject.as_deref()
+    }
+
+    fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
+        Some(&self.response.credential_profile)
     }
 
     fn holder_jwk(&self) -> Option<&serde_json::Value> {

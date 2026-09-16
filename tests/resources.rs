@@ -248,6 +248,8 @@ mod resources {
                     claims: vec![kagome::config::FederatedIdentityClaimConfig {
                         claim: "sub".to_owned(),
                         target: "username".to_owned(),
+                        id_token: false,
+                        credential: false,
                     }],
                 }],
             };

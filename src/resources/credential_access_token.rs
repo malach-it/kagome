@@ -5,7 +5,10 @@ use serde_json::Value;
 
 use crate::{
     errors::OAuthError,
-    resources::crypto::{self, CoseEncrypt0Errors, EncryptedArtifact},
+    resources::{
+        crypto::{self, CoseEncrypt0Errors, EncryptedArtifact},
+        resource_owner::ResourceOwnerProfile,
+    },
 };
 
 pub const TTL_SECONDS: u64 = 3600;
@@ -26,6 +29,8 @@ pub struct CredentialAccessToken {
 pub struct CredentialAccessTokenClaims {
     pub credential_configuration_id: String,
     pub subject: String,
+    #[serde(default)]
+    pub credential_profile: ResourceOwnerProfile,
     pub id_token_public_jwk: Option<Value>,
     pub require_wallet_binding: bool,
     pub iat: u64,
@@ -35,6 +40,9 @@ pub struct CredentialAccessTokenClaims {
 pub trait Generate {
     fn credential_configuration_id(&self) -> Option<&str>;
     fn subject(&self) -> Option<&str>;
+    fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
+        None
+    }
     fn id_token_public_jwk(&self) -> Option<&Value> {
         None
     }
@@ -63,6 +71,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let claims = CredentialAccessTokenClaims {
         credential_configuration_id: credential_configuration_id.to_owned(),
         subject: subject.to_owned(),
+        credential_profile: request.credential_profile().cloned().unwrap_or_default(),
         id_token_public_jwk: request.id_token_public_jwk().cloned(),
         require_wallet_binding: request.require_wallet_binding(),
         iat,

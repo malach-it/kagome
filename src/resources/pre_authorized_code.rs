@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::errors::OAuthError;
+use crate::{errors::OAuthError, resources::resource_owner::ResourceOwnerProfile};
 
 use super::{
     authorization_code, credential_issuer::CREDENTIAL_CONFIGURATION_ID, crypto,
@@ -24,6 +24,8 @@ pub const TTL_SECONDS: u64 = 300;
 pub struct PreAuthorizedCodeClaims {
     pub credential_configuration_id: String,
     pub subject: String,
+    #[serde(default)]
+    pub credential_profile: ResourceOwnerProfile,
     pub id_token_public_jwk: Option<Value>,
     pub require_wallet_binding: bool,
     pub iat: u64,
@@ -49,6 +51,10 @@ pub trait Generate {
         None
     }
 
+    fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
+        None
+    }
+
     fn require_subject(&self) -> bool {
         false
     }
@@ -64,7 +70,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let iat = now("pre-authorized code generation failed")?;
     let subject = match (request.subject(), request.require_subject()) {
         (Some(subject), _) => subject.to_owned(),
-        (None, true) => return Err(OAuthError::missing_username()),
+        (None, true) => return Err(OAuthError::unauthenticated()),
         (None, false) => "did:example:alice".to_owned(),
     };
     let id_token_public_jwk = match (request.authorization_code(), request.client_id()) {
@@ -87,6 +93,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let claims = PreAuthorizedCodeClaims {
         credential_configuration_id: CREDENTIAL_CONFIGURATION_ID.to_owned(),
         subject,
+        credential_profile: request.credential_profile().cloned().unwrap_or_default(),
         id_token_public_jwk,
         require_wallet_binding,
         iat,

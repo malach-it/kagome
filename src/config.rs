@@ -200,6 +200,12 @@ pub struct FederatedIdentityClaimConfig {
     /// Resource-owner attribute populated from the claim.
     #[schemars(length(min = 1))]
     pub target: String,
+    /// Include the attribute in generated ID tokens.
+    #[serde(default)]
+    pub id_token: bool,
+    /// Include the attribute in generated verifiable credentials.
+    #[serde(default)]
+    pub credential: bool,
 }
 
 impl Config {
@@ -563,6 +569,16 @@ impl Config {
                                 path: path.to_owned(),
                                 message: format!(
                                     "clients[{index}].federated_server.endpoints[{endpoint_index}].claims[{claim_index}].target must not be empty"
+                                ),
+                            });
+                        }
+                        if identity_claim.credential
+                            && matches!(identity_claim.target.as_str(), "id" | "degree")
+                        {
+                            return Err(ConfigError::Validation {
+                                path: path.to_owned(),
+                                message: format!(
+                                    "clients[{index}].federated_server.endpoints[{endpoint_index}].claims[{claim_index}].target is reserved for credential subjects"
                                 ),
                             });
                         }

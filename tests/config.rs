@@ -98,6 +98,8 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(federated_server.endpoints[0].claims.len(), 1);
     assert_eq!(federated_server.endpoints[0].claims[0].claim, "sub");
     assert_eq!(federated_server.endpoints[0].claims[0].target, "sub");
+    assert!(!federated_server.endpoints[0].claims[0].id_token);
+    assert!(!federated_server.endpoints[0].claims[0].credential);
 }
 
 #[test]
@@ -252,6 +254,8 @@ fn json_schema_describes_configuration_constraints() {
     assert_eq!(identity_endpoint["properties"]["endpoint"]["format"], "uri");
     assert_eq!(identity_claim["properties"]["claim"]["minLength"], 1);
     assert_eq!(identity_claim["properties"]["target"]["minLength"], 1);
+    assert_eq!(identity_claim["properties"]["id_token"]["default"], false);
+    assert_eq!(identity_claim["properties"]["credential"]["default"], false);
     assert_eq!(
         identity_claim["required"],
         serde_json::json!(["claim", "target"])
@@ -1024,7 +1028,7 @@ fn rejects_empty_federated_identity_endpoints() {
 #[test]
 fn loads_multiple_claims_for_one_federated_identity_endpoint() {
     let file = ConfigFile::new(&federated_configuration_yaml(
-        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username\n            - claim: profile.username\n              target: display_name",
+        "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username\n              id_token: true\n              credential: false\n            - claim: profile.username\n              target: display_name",
     ));
 
     let config = Config::load_from_path(file.path())
@@ -1038,8 +1042,12 @@ fn loads_multiple_claims_for_one_federated_identity_endpoint() {
 
     assert_eq!(claims.len(), 2);
     assert_eq!(claims[0].claim, "sub");
+    assert!(claims[0].id_token);
+    assert!(!claims[0].credential);
     assert_eq!(claims[1].claim, "profile.username");
     assert_eq!(claims[1].target, "display_name");
+    assert!(!claims[1].id_token);
+    assert!(!claims[1].credential);
 }
 
 #[test]
@@ -1127,6 +1135,23 @@ fn rejects_empty_federated_identity_target() {
             "clients[0].federated_server.endpoints[0].claims[0].target must not be empty"
         )
     );
+}
+
+#[test]
+fn rejects_reserved_credential_subject_targets() {
+    for target in ["id", "degree"] {
+        let file = ConfigFile::new(&federated_configuration_yaml(&format!(
+            "endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: {target}\n              credential: true"
+        )));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("reserved credential subject target should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(error.to_string().contains(
+            "clients[0].federated_server.endpoints[0].claims[0].target is reserved for credential subjects"
+        ));
+    }
 }
 
 struct ConfigFile {

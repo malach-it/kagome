@@ -51,9 +51,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let client_id = request
         .client_id()
         .ok_or_else(OAuthError::missing_client_id)?;
-    let username = request
-        .username()
-        .ok_or_else(OAuthError::missing_username)?;
+    let username = request.username().ok_or_else(OAuthError::unauthenticated)?;
     let profile = request
         .resource_owner_profile()
         .cloned()

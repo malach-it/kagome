@@ -9,7 +9,7 @@ use super::*;
 // - identity endpoint: multiple valid string claims | rejected request |
 //   malformed response | missing or non-string claim
 // - resource owner identifier: username | sub fallback | missing
-// - ID token profile: all mapped resource-owner attributes are signed
+// - artifact inclusion: claim selected for ID token only | credential only | both
 // - identity error response: error_description | message | error | HTTP status fallback
 // - error destination: validated redirect URI with error, description, and optional
 //   client state | local JSON error when callback state is missing or invalid
@@ -65,6 +65,64 @@ fn signs_federated_resource_owner_profile_in_id_token() {
     assert_eq!(payload.username, "federated-user");
     assert_eq!(payload.profile["username"], "federated-user");
     assert_eq!(payload.profile["sub"], "ignored-user");
+    assert!(!payload.profile.contains_key("display_name"));
+}
+
+#[test]
+fn includes_selected_federated_attributes_in_credential_subject() {
+    const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
+    const CONFIGURATION_ID: &str = "UniversityDegreeCredential";
+    let state = federation_state_for(
+        "response_type=urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
+    );
+    let callback = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+    let offer = redirect_parameter(&callback, "credential_offer");
+    let offer: serde_json::Value = serde_json::from_str(&offer).unwrap();
+    let pre_authorized_code = offer["grants"][GRANT_TYPE]["pre-authorized_code"]
+        .as_str()
+        .unwrap();
+    let token_body =
+        format!("grant_type={GRANT_TYPE}&pre-authorized_code={pre_authorized_code}&tx_code=493536");
+    let token_response = send_request(&format!(
+        "POST /token HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{token_body}",
+        token_body.len()
+    ));
+    let access_token = json_response_body(&token_response)["access_token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let credential_body =
+        serde_json::json!({"credential_identifier": CONFIGURATION_ID}).to_string();
+    let credential_response = send_request(&format!(
+        "POST /credential HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/json\r\nauthorization: Bearer {access_token}\r\ncontent-length: {}\r\n\r\n{credential_body}",
+        credential_body.len()
+    ));
+    let credential = json_response_body(&credential_response)["credential"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::EdDSA);
+    validation.validate_aud = false;
+    let claims = jsonwebtoken::decode::<serde_json::Value>(
+        &credential,
+        &kagome::resources::crypto::SigningArtifact::Credential
+            .decoding_key()
+            .unwrap(),
+        &validation,
+    )
+    .unwrap()
+    .claims;
+
+    for subject in [
+        &claims["credentialSubject"][CONFIGURATION_ID],
+        &claims["vc"]["credentialSubject"],
+    ] {
+        assert_eq!(subject["username"], "federated-user");
+        assert_eq!(subject["display_name"], "federated-user");
+        assert!(subject.get("sub").is_none());
+    }
 }
 
 #[test]
@@ -375,6 +433,27 @@ fn authorization_code_from_response(response: &str) -> String {
         })
         .expect("downstream authorization response should contain a code")
         .to_owned()
+}
+
+fn redirect_parameter(response: &str, name: &str) -> String {
+    response
+        .lines()
+        .find_map(|line| line.strip_prefix("location: "))
+        .and_then(|location| location.split_once('?'))
+        .map(|(_, query)| query)
+        .and_then(|query| {
+            query.split('&').find_map(|parameter| {
+                parameter
+                    .split_once('=')
+                    .filter(|(parameter_name, _)| *parameter_name == name)
+                    .map(|(_, value)| decode_form_value(value))
+            })
+        })
+        .expect("redirect response should contain parameter")
+}
+
+fn json_response_body(response: &str) -> serde_json::Value {
+    serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
 }
 
 fn assert_callback_error(response: &str, error: &str, description: &str) {

@@ -12,12 +12,16 @@ pub type ResourceOwnerProfile = BTreeMap<String, String>;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ResourceOwner {
     pub username: String,
+    pub authenticated: bool,
     pub profile: ResourceOwnerProfile,
+    pub credential_profile: ResourceOwnerProfile,
 }
 
 #[derive(Debug, Default)]
 pub struct ResourceOwnerAttributes {
-    profile: ResourceOwnerProfile,
+    attributes: ResourceOwnerProfile,
+    id_token_profile: ResourceOwnerProfile,
+    credential_profile: ResourceOwnerProfile,
 }
 
 impl ResourceOwner {
@@ -25,26 +29,50 @@ impl ResourceOwner {
         let mut profile = ResourceOwnerProfile::new();
         profile.insert("username".to_owned(), username.clone());
 
-        Self { username, profile }
+        Self {
+            username,
+            authenticated: true,
+            profile,
+            credential_profile: ResourceOwnerProfile::new(),
+        }
     }
 
     pub fn from_attributes(attributes: ResourceOwnerAttributes) -> Option<Self> {
         let username = attributes
-            .profile
+            .attributes
             .get("username")
-            .or_else(|| attributes.profile.get("sub"))?
+            .or_else(|| attributes.attributes.get("sub"))?
             .to_owned();
 
         Some(Self {
             username,
-            profile: attributes.profile,
+            authenticated: true,
+            profile: attributes.id_token_profile,
+            credential_profile: attributes.credential_profile,
         })
     }
 }
 
 impl ResourceOwnerAttributes {
-    pub fn add(&mut self, target: &str, value: String) {
-        self.profile.insert(target.to_owned(), value);
+    pub fn add(
+        &mut self,
+        target: &str,
+        value: String,
+        include_in_id_token: bool,
+        include_in_credential: bool,
+    ) {
+        self.attributes.insert(target.to_owned(), value.clone());
+        if include_in_id_token {
+            self.id_token_profile
+                .insert(target.to_owned(), value.clone());
+        } else {
+            self.id_token_profile.remove(target);
+        }
+        if include_in_credential {
+            self.credential_profile.insert(target.to_owned(), value);
+        } else {
+            self.credential_profile.remove(target);
+        }
     }
 }
 
@@ -63,7 +91,7 @@ pub trait Validate: Populate {
 
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let Some(resource_owner) = validate_resource_owner(&request)? else {
-        return Err(OAuthError::missing_username());
+        return Err(OAuthError::unauthenticated());
     };
 
     request.add_resource_owner(resource_owner);
@@ -96,7 +124,7 @@ fn validate_resource_owner<T: Validate>(request: &T) -> Result<Option<ResourceOw
     let username = request
         .client_id_username()
         .or_else(|| request.request_username())
-        .ok_or_else(OAuthError::missing_username)?;
+        .ok_or_else(OAuthError::unauthenticated)?;
 
     let client_id = request
         .client_id()
@@ -161,15 +189,21 @@ mod tests {
 
     #[test]
     fn builds_resource_owner_from_attributes() {
-        let resource_owner = ResourceOwner::from_attributes(ResourceOwnerAttributes {
-            profile: [("username".to_owned(), "username".to_owned())]
-                .into_iter()
-                .collect(),
-        })
-        .expect("resource owner attributes should be complete");
+        let mut attributes = ResourceOwnerAttributes::default();
+        attributes.add("username", "username".to_owned(), true, false);
+        attributes.add("display_name", "display name".to_owned(), false, true);
+        let resource_owner = ResourceOwner::from_attributes(attributes)
+            .expect("resource owner attributes should be complete");
 
         assert_eq!(resource_owner.username, "username");
+        assert!(resource_owner.authenticated);
         assert_eq!(resource_owner.profile["username"], "username");
+        assert!(!resource_owner.profile.contains_key("display_name"));
+        assert_eq!(
+            resource_owner.credential_profile["display_name"],
+            "display name"
+        );
+        assert!(!resource_owner.credential_profile.contains_key("username"));
     }
 
     #[test]
@@ -178,15 +212,31 @@ mod tests {
     }
 
     #[test]
+    fn uses_last_artifact_selection_for_duplicate_attributes() {
+        let mut attributes = ResourceOwnerAttributes::default();
+        attributes.add("username", "first".to_owned(), true, true);
+        attributes.add("username", "second".to_owned(), false, false);
+        let resource_owner = ResourceOwner::from_attributes(attributes)
+            .expect("resource owner attributes should be complete");
+
+        assert_eq!(resource_owner.username, "second");
+        assert!(resource_owner.profile.is_empty());
+        assert!(resource_owner.credential_profile.is_empty());
+    }
+
+    #[test]
     fn uses_subject_as_resource_owner_username_fallback() {
         let resource_owner = ResourceOwner::from_attributes(ResourceOwnerAttributes {
-            profile: [("sub".to_owned(), "subject".to_owned())]
+            attributes: [("sub".to_owned(), "subject".to_owned())]
                 .into_iter()
                 .collect(),
+            ..ResourceOwnerAttributes::default()
         })
         .expect("subject should identify the resource owner");
 
         assert_eq!(resource_owner.username, "subject");
-        assert_eq!(resource_owner.profile["sub"], "subject");
+        assert!(resource_owner.authenticated);
+        assert!(resource_owner.profile.is_empty());
+        assert!(resource_owner.credential_profile.is_empty());
     }
 }

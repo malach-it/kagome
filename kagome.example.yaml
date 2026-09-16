@@ -42,3 +42,5 @@ clients:
           claims:
             - claim: sub
               target: sub
+              id_token: false
+              credential: false

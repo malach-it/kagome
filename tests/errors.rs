@@ -123,6 +123,16 @@ fn returns_missing_id_token_oauth_response() {
 }
 
 #[test]
+fn returns_unauthenticated_resource_owner_oauth_response() {
+    let response = kagome::errors::OAuthError::unauthenticated().to_response();
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("\"error_description\":\"resource owner is unauthenticated\""));
+}
+
+#[test]
 fn escapes_oauth_error_response_json() {
     let response = kagome::errors::OAuthError {
         error: "invalid_grant".to_owned(),

@@ -208,11 +208,22 @@ fn start_server() -> String {
     federated_server.token_endpoint = token_endpoint;
     federated_server.endpoints[0].endpoint = identity_endpoint;
     federated_server.endpoints[0].claims[0].target = "sub".to_owned();
+    federated_server.endpoints[0].claims[0].id_token = true;
     federated_server.endpoints[0]
         .claims
         .push(kagome::config::FederatedIdentityClaimConfig {
             claim: "profile.username".to_owned(),
             target: "username".to_owned(),
+            id_token: true,
+            credential: true,
+        });
+    federated_server.endpoints[0]
+        .claims
+        .push(kagome::config::FederatedIdentityClaimConfig {
+            claim: "profile.username".to_owned(),
+            target: "display_name".to_owned(),
+            id_token: false,
+            credential: true,
         });
     config.clients.push(kagome::config::ClientConfig {
         client_id: "configured_client".to_owned(),

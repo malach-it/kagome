@@ -4,6 +4,7 @@ use crate::{
     resources::{
         credential_access_token::{self, CredentialAccessToken},
         pre_authorized_code::{self, PreAuthorizedCodeClaims},
+        resource_owner::ResourceOwnerProfile,
     },
     unit::{KagomeRequest, parse_request_parameter},
 };
@@ -20,6 +21,7 @@ pub struct PreAuthorizedCodeRequest<'a> {
 pub struct PreAuthorizedCodeResponse {
     pub credential_configuration_id: Option<String>,
     pub subject: Option<String>,
+    pub credential_profile: ResourceOwnerProfile,
     pub id_token_public_jwk: Option<serde_json::Value>,
     pub require_wallet_binding: bool,
     pub access_token: Option<CredentialAccessToken>,
@@ -76,6 +78,7 @@ impl pre_authorized_code::Validate for PreAuthorizedCodeRequest<'_> {
     fn add_pre_authorized_code_claims(&mut self, claims: PreAuthorizedCodeClaims) {
         self.response.credential_configuration_id = Some(claims.credential_configuration_id);
         self.response.subject = Some(claims.subject);
+        self.response.credential_profile = claims.credential_profile;
         self.response.id_token_public_jwk = claims.id_token_public_jwk;
         self.response.require_wallet_binding = claims.require_wallet_binding;
     }
@@ -88,6 +91,10 @@ impl credential_access_token::Generate for PreAuthorizedCodeRequest<'_> {
 
     fn subject(&self) -> Option<&str> {
         self.response.subject.as_deref()
+    }
+
+    fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
+        Some(&self.response.credential_profile)
     }
 
     fn id_token_public_jwk(&self) -> Option<&serde_json::Value> {

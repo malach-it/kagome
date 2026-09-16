@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
@@ -29,6 +30,8 @@ pub struct AuthorizationCodeCosePayload {
     pub client_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_token_public_jwk: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,6 +49,10 @@ pub trait Generate {
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode);
 
     fn code_challenge(&self) -> Option<&CodeChallenge> {
+        None
+    }
+
+    fn id_token_public_jwk(&self) -> Option<&Value> {
         None
     }
 
@@ -117,9 +124,10 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     };
     let username = match (request.username(), request.require_username()) {
         (Some(username), _) => Some(username.to_owned()),
-        (None, true) => return Err(OAuthError::missing_username()),
+        (None, true) => return Err(OAuthError::unauthenticated()),
         (None, false) => None,
     };
+    let id_token_public_jwk = request.id_token_public_jwk().cloned();
     let previous_code = request.previous_authorization_code().map(str::to_owned);
     if let Some(previous_code) = previous_code.as_deref()
         && validated_code_chain(previous_code, Some(client_id))?.len()
@@ -142,6 +150,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     let payload = AuthorizationCodeCosePayload {
         client_id: client_id.to_owned(),
         id_token,
+        id_token_public_jwk,
         username,
         previous_code,
         code_challenge,
@@ -243,11 +252,11 @@ pub fn validated_id_token_public_jwk(
     client_id: &str,
 ) -> Result<Option<serde_json::Value>, OAuthError> {
     let payload = validate_request_authorization_code(authorization_code, Some(client_id))?;
-    payload
-        .id_token
-        .as_deref()
-        .map(id_token::validated_public_jwk)
-        .transpose()
+    match (payload.id_token_public_jwk, payload.id_token) {
+        (Some(public_jwk), _) => Ok(Some(public_jwk)),
+        (None, Some(id_token)) => id_token::validated_public_jwk(&id_token).map(Some),
+        (None, None) => Ok(None),
+    }
 }
 
 pub fn chain_usernames(

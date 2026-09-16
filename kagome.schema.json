@@ -134,6 +134,16 @@
           "type": "string",
           "minLength": 1
         },
+        "credential": {
+          "description": "Include the attribute in generated verifiable credentials.",
+          "type": "boolean",
+          "default": false
+        },
+        "id_token": {
+          "description": "Include the attribute in generated ID tokens.",
+          "type": "boolean",
+          "default": false
+        },
         "target": {
           "description": "Resource-owner attribute populated from the claim.",
           "type": "string",

@@ -22,7 +22,11 @@ flowchart TD
     code -- invalid, oversized, or excessive depth --> failure
     code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> failure
-    policy -- ok --> response[Generate selected authorize response]
+    policy -- ok --> response_type_branch{Pre-authorized code?}
+    response_type_branch -- yes --> continuation_code["authorization_code::generate"]
+    continuation_code -- error --> failure
+    continuation_code -- ok --> authorize_redirect["`**HTTP 302** /authorize continuation`"]
+    response_type_branch -- no --> response[Generate selected authorize response]
     response -- error --> failure
     response -- ok --> identity_success["`**HTTP 302** requested OAuth response`"]
     failure[Error response] --> destination{Trusted client redirect URI available?}

@@ -25,6 +25,7 @@ const JWK_JCS_PUB_MULTICODEC_PREFIX: &[u8] = &[0xd1, 0xd6, 0x03];
 #[derive(Debug)]
 pub struct ValidatedSelfIssuedIdToken {
     pub subject: String,
+    pub public_jwk: Value,
 }
 
 #[derive(Debug)]
@@ -118,7 +119,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     }
 
     let unverified_claims = decode_unverified_claims(token)?;
-    let key = subject_key(&unverified_claims, header.kid.as_deref())?;
+    let (key, public_jwk) = subject_key(&unverified_claims, header.kid.as_deref())?;
     let mut validation = Validation::new(Algorithm::ES256);
     validation.set_required_spec_claims(&["exp"]);
     validation.validate_aud = false;
@@ -130,6 +131,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     validate_claims(&claims, state, &expected_audience)?;
     request.add_validated_id_token(ValidatedSelfIssuedIdToken {
         subject: claims.sub,
+        public_jwk,
     });
     Ok(request)
 }
@@ -150,7 +152,10 @@ fn decode_unverified_claims(token: &str) -> Result<SelfIssuedClaims, OAuthError>
     serde_json::from_slice(&payload).map_err(|_| invalid("id_token claims are invalid"))
 }
 
-fn subject_key(claims: &SelfIssuedClaims, key_id: Option<&str>) -> Result<DecodingKey, OAuthError> {
+fn subject_key(
+    claims: &SelfIssuedClaims,
+    key_id: Option<&str>,
+) -> Result<(DecodingKey, Value), OAuthError> {
     if claims.sub.starts_with("did:key:") {
         if claims.sub_jwk.is_some() {
             return Err(invalid("did:key id_token must not include sub_jwk"));
@@ -164,7 +169,12 @@ fn subject_key(claims: &SelfIssuedClaims, key_id: Option<&str>) -> Result<Decodi
             return Err(invalid("id_token kid must identify the subject key"));
         }
 
-        return did_key_decoding_key(&claims.sub);
+        let jwk = did_key_jwk(&claims.sub)?;
+        let (x, y) = p256_jwk_coordinates(&jwk)
+            .map_err(|_| invalid("id_token did:key contains an invalid P-256 key"))?;
+        let key = DecodingKey::from_ec_components(&x, &y)
+            .map_err(|_| invalid("id_token did:key contains an invalid P-256 key"))?;
+        return Ok((key, jwk));
     }
 
     let jwk = claims
@@ -177,7 +187,17 @@ fn subject_key(claims: &SelfIssuedClaims, key_id: Option<&str>) -> Result<Decodi
         return Err(invalid("id_token subject does not match sub_jwk"));
     }
 
-    DecodingKey::from_ec_components(&x, &y).map_err(|_| invalid("id_token sub_jwk is invalid"))
+    let key = DecodingKey::from_ec_components(&x, &y)
+        .map_err(|_| invalid("id_token sub_jwk is invalid"))?;
+    Ok((
+        key,
+        json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": x,
+            "y": y
+        }),
+    ))
 }
 
 fn validate_claims(
@@ -208,15 +228,6 @@ fn audience_contains(audience: &Value, expected: &str) -> bool {
         || audience
             .as_array()
             .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(expected)))
-}
-
-fn did_key_decoding_key(subject: &str) -> Result<DecodingKey, OAuthError> {
-    let jwk = did_key_jwk(subject)?;
-    let (x, y) = p256_jwk_coordinates(&jwk)
-        .map_err(|_| invalid("id_token did:key contains an invalid P-256 key"))?;
-
-    DecodingKey::from_ec_components(&x, &y)
-        .map_err(|_| invalid("id_token did:key contains an invalid P-256 key"))
 }
 
 pub(crate) fn did_key_jwk(subject: &str) -> Result<Value, OAuthError> {

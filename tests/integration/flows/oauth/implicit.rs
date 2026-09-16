@@ -115,7 +115,7 @@ fn returns_oauth_error_for_invalid_implicit_redirect_uri() {
 fn returns_oauth_error_for_missing_implicit_username() {
     let response = send_implicit_post(valid_implicit_query(), "password=password");
 
-    assert_html_error(&response, "username is required");
+    assert_html_error(&response, "resource owner is unauthenticated");
 }
 
 #[test]

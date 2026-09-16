@@ -757,6 +757,7 @@ fn expired_code() -> String {
     let claims = kagome::resources::pre_authorized_code::PreAuthorizedCodeClaims {
         credential_configuration_id: CONFIGURATION_ID.to_owned(),
         subject: "did:example:alice".to_owned(),
+        credential_profile: Default::default(),
         id_token_public_jwk: None,
         require_wallet_binding: false,
         iat: 1,
@@ -775,6 +776,7 @@ fn expired_credential_access_token() -> String {
     let claims = kagome::resources::credential_access_token::CredentialAccessTokenClaims {
         credential_configuration_id: CONFIGURATION_ID.to_owned(),
         subject: "did:example:alice".to_owned(),
+        credential_profile: Default::default(),
         id_token_public_jwk: None,
         require_wallet_binding: false,
         iat: 1,

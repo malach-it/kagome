@@ -29,8 +29,9 @@ the issued credential subject and `cnf.jwk` to the wallet's DID and public key;
 the proof audience must be the credential issuer and its `iat` must be recent.
 Requests without a proof retain the access-token subject fallback.
 For an authorize client configured with `require_wallet_binding: true`, the
-incoming authorization code must carry a valid ID token with an asymmetric
-public JWK. Kagome carries that JWK through the encrypted pre-authorized code
+incoming authorization code must carry a validated asymmetric public JWK,
+either directly from a SIOPv2 continuation or from a valid ID token. Kagome
+carries that JWK through the encrypted pre-authorized code
 and signed credential access token, requires an issuance proof, and verifies
 the proof signature against both its declared wallet key and the ID-token key.
 

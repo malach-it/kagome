@@ -25,6 +25,7 @@ use crate::{
     },
     unit::{KagomeRequest, parse_query_parameter},
 };
+use serde_json::Value;
 
 use super::{client_id_username, response_type_query, valid_authorize_client_id};
 
@@ -58,6 +59,9 @@ pub struct AuthorizeLoginResponse {
     pub previous_authorization_code: Option<String>,
     pub username: Option<String>,
     pub resource_owner_profile: Option<resource_owner::ResourceOwnerProfile>,
+    pub credential_profile: Option<resource_owner::ResourceOwnerProfile>,
+    pub authenticated: bool,
+    pub siop_public_jwk: Option<Value>,
     pub metadata_policy: Option<MetadataPolicy>,
     pub code_challenge: Option<CodeChallenge>,
     pub response_types: Vec<ResponseType>,
@@ -138,6 +142,8 @@ impl<'a> AuthorizeLoginRequest<'a> {
         let parameters = state.authorization;
         let mut response = AuthorizeLoginResponse::empty();
         response.username = Some(id_token.subject);
+        response.authenticated = true;
+        response.siop_public_jwk = Some(id_token.public_jwk);
         response.siop_authenticated = true;
 
         Ok(Self {
@@ -157,7 +163,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
     }
 
     pub fn has_resource_owner(&self) -> bool {
-        self.response.username.is_some()
+        self.response.authenticated
     }
 
     pub fn to_response(&self) -> Result<String, OAuthError> {
@@ -204,6 +210,22 @@ impl<'a> AuthorizeLoginRequest<'a> {
             );
 
             return self.wallet_authorization_response(client_id, &authorization_uri);
+        }
+
+        if self.is_siop_pre_authorized_code_continuation()
+            && let Some(authorization_code) = self.response.authorization_code.as_ref()
+        {
+            let response_type =
+                response_type_query(&self.response.response_types).ok_or_else(|| {
+                    OAuthError::invalid_token_response(
+                        "authorize continuation requires response_type",
+                    )
+                })?;
+            return Ok(authorize_redirect_response(
+                &self.restored_query_parameters(),
+                &response_type,
+                authorization_code,
+            ));
         }
 
         if let (Some(authorization_code), Some(id_token), Some(access_token)) = (
@@ -341,6 +363,14 @@ impl<'a> AuthorizeLoginRequest<'a> {
         self.response.client_id.as_deref()
     }
 
+    pub fn is_siop_pre_authorized_code_continuation(&self) -> bool {
+        self.response.siop_authenticated
+            && matches!(
+                self.response.response_types.as_slice(),
+                [ResponseType::PreAuthorizedCode]
+            )
+    }
+
     fn restored_query_parameters(&self) -> Vec<(String, String)> {
         [
             ("response_type", self.response_type.as_ref()),
@@ -371,6 +401,9 @@ impl AuthorizeLoginResponse {
             previous_authorization_code: None,
             username: None,
             resource_owner_profile: None,
+            credential_profile: None,
+            authenticated: false,
+            siop_public_jwk: None,
             metadata_policy: None,
             code_challenge: None,
             response_types: Vec::new(),
@@ -553,6 +586,7 @@ impl<'a> client_credentials::Validate for AuthorizeLoginRequest<'a> {
     ) {
         if let Some(username) = client_credentials.authenticated_username {
             self.response.username = Some(username);
+            self.response.authenticated = true;
         }
         self.response.client_id = Some(client_credentials.client_id);
         self.response.client_secret = client_credentials.client_secret;
@@ -586,7 +620,9 @@ impl<'a> metadata_policy::Validate for AuthorizeLoginRequest<'a> {
 impl resource_owner::Populate for AuthorizeLoginRequest<'_> {
     fn add_resource_owner(&mut self, resource_owner: resource_owner::ResourceOwner) {
         self.response.username = Some(resource_owner.username);
+        self.response.authenticated = resource_owner.authenticated;
         self.response.resource_owner_profile = Some(resource_owner.profile);
+        self.response.credential_profile = Some(resource_owner.credential_profile);
     }
 }
 
@@ -635,12 +671,18 @@ impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
         None
     }
 
+    fn id_token_public_jwk(&self) -> Option<&Value> {
+        self.response.siop_public_jwk.as_ref()
+    }
+
     fn code_challenge(&self) -> Option<&CodeChallenge> {
         self.response.code_challenge.as_ref()
     }
 
     fn username(&self) -> Option<&str> {
-        self.response.username.as_deref()
+        (!self.is_siop_pre_authorized_code_continuation())
+            .then_some(self.response.username.as_deref())
+            .flatten()
     }
 
     fn add_authorization_code(&mut self, authorization_code: AuthorizationCode) {
@@ -652,7 +694,7 @@ impl<'a> authorization_code::Generate for AuthorizeLoginRequest<'a> {
     }
 
     fn require_username(&self) -> bool {
-        true
+        !self.is_siop_pre_authorized_code_continuation()
     }
 }
 
@@ -726,6 +768,10 @@ impl pre_authorized_code::Generate for AuthorizeLoginRequest<'_> {
 
     fn require_subject(&self) -> bool {
         true
+    }
+
+    fn credential_profile(&self) -> Option<&resource_owner::ResourceOwnerProfile> {
+        self.response.credential_profile.as_ref()
     }
 
     fn add_pre_authorized_code(&mut self, pre_authorized_code: String) {

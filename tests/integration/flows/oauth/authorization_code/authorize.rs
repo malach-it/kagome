@@ -938,7 +938,7 @@ fn returns_oauth_error_for_missing_authorize_username() {
 
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
     assert!(response.contains("content-type: text/html\r\n"));
-    assert!(response.contains("<p role=\"alert\">username is required</p>"));
+    assert!(response.contains("<p role=\"alert\">resource owner is unauthenticated</p>"));
 }
 
 #[test]

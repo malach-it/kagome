@@ -7,7 +7,10 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     errors::OAuthError,
-    resources::crypto::{self, SigningArtifact},
+    resources::{
+        crypto::{self, SigningArtifact},
+        resource_owner::ResourceOwnerProfile,
+    },
 };
 
 use super::credential_issuer::CREDENTIAL_TYPE;
@@ -63,6 +66,8 @@ struct VerifiableCredentialClaims<'a> {
 struct CredentialSubject<'a> {
     id: &'a str,
     degree: Degree,
+    #[serde(flatten)]
+    profile: &'a ResourceOwnerProfile,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,6 +90,9 @@ pub trait Generate {
     fn holder_jwk(&self) -> Option<&Value> {
         None
     }
+    fn credential_profile(&self) -> Option<&ResourceOwnerProfile> {
+        None
+    }
     fn add_verifiable_credential(&mut self, credential: VerifiableCredential);
 }
 
@@ -104,12 +112,15 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?
         .format(&Rfc3339)
         .map_err(|_| OAuthError::invalid_token_response("credential generation failed"))?;
+    let empty_profile = ResourceOwnerProfile::new();
+    let credential_profile = request.credential_profile().unwrap_or(&empty_profile);
     let credential_subject = CredentialSubject {
         id: subject,
         degree: Degree {
             degree_type: "BachelorDegree",
             name: "Bachelor of Science and Arts",
         },
+        profile: credential_profile,
     };
     let claims = JwtVcClaims {
         iss: issuer,

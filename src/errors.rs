@@ -24,7 +24,7 @@ pub enum OAuthErrorCode {
     InvalidClientSecret,
     MissingClientSecret,
     InvalidUsername,
-    MissingUsername,
+    Unauthenticated,
     InvalidPassword,
     MissingPassword,
     InvalidRedirectUri,
@@ -159,11 +159,11 @@ impl OAuthError {
         )
     }
 
-    pub fn missing_username() -> Self {
+    pub fn unauthenticated() -> Self {
         Self::new(
-            OAuthErrorCode::MissingUsername,
+            OAuthErrorCode::Unauthenticated,
             "invalid_grant",
-            "username is required",
+            "resource owner is unauthenticated",
         )
     }
 

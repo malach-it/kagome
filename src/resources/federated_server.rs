@@ -311,7 +311,12 @@ pub fn fetch_identity_with_server<T: FetchIdentity>(
                     OAuthError::invalid_grant("federated identity claim is missing or invalid")
                 })?;
 
-            resource_owner_attributes.add(&identity_claim_config.target, value.to_owned());
+            resource_owner_attributes.add(
+                &identity_claim_config.target,
+                value.to_owned(),
+                identity_claim_config.id_token,
+                identity_claim_config.credential,
+            );
         }
     }
 

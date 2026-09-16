@@ -21,14 +21,15 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - OAuth authorization attributes: valid response type(s), client, redirect URI,
 //   client state, and optional code | missing/invalid value for each
 // - authorization request error format: every direct failure renders HTML
-// - wallet binding policy: SIOPv2-authenticated continuation does not require it
+// - wallet binding policy: SIOPv2 pre-authorized-code continuation carries the
+//   validated wallet key through an encrypted authorization code
 // - PKCE: absent | valid S256 parameters preserved in state | unsupported method
 // - verifier origin: configured issuer | unrelated or missing Host (equivalent)
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
 // - authorization request delivery: redirect | QR-code HTML with matching deep link
 // - authenticated continuation delivery: redirect even when the client enables QR
-//   pages; pre-authorized offer | OpenID4VP request
+//   pages; pre-authorized code returns through /authorize | OpenID4VP request
 // - response media type: form (case-insensitive, parameters allowed) | missing |
 //   unsupported
 // - state source: callback query | form body; value valid | missing | invalid |
@@ -328,7 +329,7 @@ fn uses_siop_request_response_types_for_authorize_continuation() {
 }
 
 #[test]
-fn does_not_require_wallet_binding_for_siopv2_continuation() {
+fn redirects_wallet_bound_preauthorized_continuation_to_authorize() {
     let fixture = authorization_request_for_client(
         "urn:ietf:params:oauth:response-type:pre-authorized_code",
         "wallet_bound_client",
@@ -340,15 +341,24 @@ fn does_not_require_wallet_binding_for_siopv2_continuation() {
     let response = submit(&fixture, &token, None);
 
     assert!(
-        response.starts_with(
-            "HTTP/1.1 302 Found\r\nlocation: https://wallet-bound.example.com/callback?credential_offer="
-        ),
+        response.starts_with("HTTP/1.1 302 Found\r\nlocation: /authorize?"),
         "{response}"
     );
+    let parameters = redirect_parameters(&response);
+    assert_eq!(
+        parameters["response_type"],
+        "urn:ietf:params:oauth:response-type:pre-authorized_code"
+    );
+    let code = parameters["code"].as_str().unwrap();
+    let payload = kagome::resources::authorization_code::decode_cose_payload(code).unwrap();
+    let public_jwk = payload.id_token_public_jwk.unwrap();
+    assert_eq!(public_jwk["x"], X);
+    assert_eq!(public_jwk["y"], Y);
+    assert!(payload.username.is_none());
 }
 
 #[test]
-fn redirects_qr_client_preauthorized_offer_after_siopv2_response() {
+fn redirects_qr_client_preauthorized_continuation_to_authorize() {
     let fixture =
         qr_authorization_request("urn:ietf:params:oauth:response-type:pre-authorized_code");
     let did = did_key();
@@ -356,11 +366,12 @@ fn redirects_qr_client_preauthorized_offer_after_siopv2_response() {
     let response = submit(&fixture, &token, None);
 
     assert!(
-        response.starts_with(
-            "HTTP/1.1 302 Found\r\nlocation: https://qr.example.com/callback?credential_offer="
-        ),
+        response.starts_with("HTTP/1.1 302 Found\r\nlocation: /authorize?"),
         "{response}"
     );
+    let parameters = redirect_parameters(&response);
+    assert_eq!(parameters["client_id"], "qr_client");
+    assert!(parameters["code"].as_str().is_some());
     assert!(!response.contains("<svg"), "{response}");
 }
 

@@ -42,6 +42,8 @@ clients:
           claims:
             - claim: sub
               target: sub
+              id_token: false
+              credential: false
 ```
 
 Set `KAGOME_CONFIG` to load a different file. Startup fails with a descriptive
@@ -84,9 +86,11 @@ optional per-client `federated_server` block configures the upstream OAuth
 client, its authorization and token endpoints, and identity endpoints. Each
 identity endpoint is called once with the upstream bearer token. Its non-empty
 `claims` list maps dot-separated JSON claim paths to arbitrary resource-owner
-profile attributes. A `username` or `sub` target identifies the resource owner;
-the complete profile is included as a signed `profile` claim in generated ID
-tokens. Clients without this block continue to use local authentication.
+profile attributes. A `username` or `sub` target identifies the resource owner.
+Set a claim's `id_token` flag to include the mapped attribute in the signed
+ID-token `profile`, and set `credential` to include it in issued verifiable
+credential subjects. Both flags default to `false`. Clients without this block
+continue to use local authentication.
 Each client must explicitly opt into protocol capabilities through
 `supported_grant_types` and `supported_response_types`; omitted or empty lists
 deny every corresponding type. Every type in a combined request must be

@@ -53,6 +53,8 @@ pub struct AuthorizeCodeResponse {
     pub redirect_uri: Option<String>,
     pub username: Option<String>,
     pub resource_owner_profile: Option<resource_owner::ResourceOwnerProfile>,
+    pub credential_profile: Option<resource_owner::ResourceOwnerProfile>,
+    pub authenticated: bool,
     pub metadata_policy: Option<MetadataPolicy>,
     pub code_challenge: Option<CodeChallenge>,
     pub response_types: Vec<ResponseType>,
@@ -214,6 +216,8 @@ impl AuthorizeCodeResponse {
             redirect_uri: None,
             username: None,
             resource_owner_profile: None,
+            credential_profile: None,
+            authenticated: false,
             metadata_policy: None,
             code_challenge: None,
             response_types: Vec::new(),
@@ -271,6 +275,7 @@ impl<'a> client_credentials::Validate for AuthorizeCodeRequest<'a> {
     ) {
         if let Some(username) = client_credentials.authenticated_username {
             self.response.username = Some(username);
+            self.response.authenticated = true;
         }
         self.response.client_id = Some(client_credentials.client_id);
         self.response.client_secret = client_credentials.client_secret;
@@ -304,7 +309,9 @@ impl<'a> metadata_policy::Validate for AuthorizeCodeRequest<'a> {
 impl resource_owner::Populate for AuthorizeCodeRequest<'_> {
     fn add_resource_owner(&mut self, resource_owner: resource_owner::ResourceOwner) {
         self.response.username = Some(resource_owner.username);
+        self.response.authenticated = resource_owner.authenticated;
         self.response.resource_owner_profile = Some(resource_owner.profile);
+        self.response.credential_profile = Some(resource_owner.credential_profile);
     }
 }
 
@@ -442,6 +449,10 @@ impl pre_authorized_code::Generate for AuthorizeCodeRequest<'_> {
 
     fn require_subject(&self) -> bool {
         true
+    }
+
+    fn credential_profile(&self) -> Option<&resource_owner::ResourceOwnerProfile> {
+        self.response.credential_profile.as_ref()
     }
 
     fn add_pre_authorized_code(&mut self, pre_authorized_code: String) {
