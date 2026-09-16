@@ -7,13 +7,14 @@ flowchart TD
     client -- ok --> scope["scope::validate"]
     scope -- error --> authorize_error
     scope -- ok --> method{GET or POST?}
-    method -- GET --> owner_optional["resource_owner::validate_optional"]
+    method -- GET --> authentication{Authenticated or federated?}
+    authentication -- unauthenticated local --> owner_optional["resource_owner::validate_optional"]
     owner_optional -- error --> authorize_error
-    owner_optional -- absent --> federation{federated_server configured?}
-    federation -- yes --> federate["federated_server::authorize"]
+    owner_optional -- absent --> not_implemented["`**HTTP 501** local authentication not implemented`"]
+    authentication -- unauthenticated federated --> federate["federated_server::authorize"]
     federate -- error --> authorize_error
     federate -- ok --> federated_redirect["`**HTTP 302** federated authorize endpoint`"]
-    federation -- no --> not_implemented["`**HTTP 501** local authentication not implemented`"]
+    authentication -- authenticated --> generate
     owner_optional -- present --> generate
     method -- POST --> owner["resource_owner::validate"]
     owner -- error --> authorize_error

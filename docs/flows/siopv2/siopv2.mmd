@@ -21,8 +21,14 @@ flowchart TD
     id_token -- error --> response_error
     id_token -- ok --> continuation[Run common authorize resource pipeline]
     continuation -- error --> response_error
-    continuation -- non-pre-authorized code --> identity_success["`**HTTP 302** requested OAuth response`"]
-    continuation -- pre-authorized code --> continuation_code["authorization_code::generate"]
+    continuation --> federated{Federated client?}
+    federated -- yes --> federation_code["authorization_code::generate"]
+    federation_code -- error --> response_error
+    federation_code -- ok --> federated_authorize["federated_server::authorize"]
+    federated_authorize -- error --> response_error
+    federated_authorize -- ok --> federation_redirect["`**HTTP 302** upstream authorization redirect with encrypted original request and wallet-bound code`"]
+    federated -- no, non-pre-authorized code --> identity_success["`**HTTP 302** requested OAuth response`"]
+    federated -- no, pre-authorized code --> continuation_code["authorization_code::generate"]
     continuation_code -- error --> response_error
     continuation_code -- ok --> authorize_redirect["`**HTTP 302** /authorize continuation`"]
     response_error[Error response] --> destination{Trusted client redirect URI available?}

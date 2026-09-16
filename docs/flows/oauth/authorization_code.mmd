@@ -13,14 +13,16 @@ flowchart TD
     previous -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> authorize_error
     policy -- ok --> method{GET or POST?}
-    method -- GET --> owner_optional["resource_owner::validate_optional"]
+    method -- GET --> local_auth{Local resource-owner validation needed?}
+    local_auth -- unauthenticated local --> owner_optional["resource_owner::validate_optional"]
     owner_optional -- error --> authorize_error
-    owner_optional -- absent --> federation{federated_server configured?}
-    federation -- yes --> federate["federated_server::authorize"]
+    owner_optional -- absent or present --> authentication{Authenticated or federated?}
+    local_auth -- authenticated or federated --> authentication
+    authentication -- unauthenticated federated --> federate["federated_server::authorize"]
     federate -- error --> authorize_error
     federate -- ok --> federated_redirect["`**HTTP 302** federated authorize endpoint`"]
-    federation -- no --> not_implemented["`**HTTP 501** local authentication not implemented`"]
-    owner_optional -- present --> issue
+    authentication -- unauthenticated local --> not_implemented["`**HTTP 501** local authentication not implemented`"]
+    authentication -- authenticated --> issue
     method -- POST --> owner["resource_owner::validate"]
     owner -- error --> authorize_error
     owner -- ok --> issue["authorization_code::generate"]

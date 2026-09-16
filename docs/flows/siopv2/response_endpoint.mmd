@@ -24,7 +24,13 @@ flowchart TD
     code -- invalid, oversized, or excessive depth --> failure
     code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> failure
-    policy -- ok --> response_type_branch{Pre-authorized code?}
+    policy -- ok --> federation{Federated client?}
+    federation -- yes --> federation_code["authorization_code::generate"]
+    federation_code -- error --> failure
+    federation_code -- ok --> federated_authorize["federated_server::authorize"]
+    federated_authorize -- error --> failure
+    federated_authorize -- ok --> federation_redirect["`**HTTP 302** upstream authorization redirect with encrypted original request and wallet-bound code`"]
+    federation -- no --> response_type_branch{Pre-authorized code?}
     response_type_branch -- yes --> continuation_code["authorization_code::generate"]
     continuation_code -- error --> failure
     continuation_code -- ok --> authorize_redirect["`**HTTP 302** /authorize continuation`"]

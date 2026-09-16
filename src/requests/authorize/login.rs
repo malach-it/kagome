@@ -173,6 +173,15 @@ impl<'a> AuthorizeLoginRequest<'a> {
     }
 
     pub fn to_response(&self) -> Result<String, OAuthError> {
+        if let Some(authorization) = self.response.federated_authorization.as_ref() {
+            return Ok(federated_authorize_redirect_response(
+                &authorization.authorize_endpoint,
+                &authorization.client_id,
+                &authorization.redirect_uri,
+                &authorization.state,
+            ));
+        }
+
         if let Some(state) = self.response.presentation_state.as_ref() {
             let redirect_uri = self.response.redirect_uri.as_deref().ok_or_else(|| {
                 OAuthError::invalid_token_response("authorize response requires redirect_uri")
@@ -198,6 +207,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
             return self.wallet_authorization_response(
                 &state.claims.authorization_client_id,
                 &authorization_uri,
+                state.claims.id_token_public_jwk.is_some(),
             );
         }
 
@@ -215,7 +225,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 pre_authorized_code,
             );
 
-            return self.wallet_authorization_response(client_id, &authorization_uri);
+            return self.wallet_authorization_response(client_id, &authorization_uri, false);
         }
 
         if self.is_siop_pre_authorized_code_continuation()
@@ -317,15 +327,6 @@ impl<'a> AuthorizeLoginRequest<'a> {
         }
 
         let Some(authorization_code) = self.response.authorization_code.as_ref() else {
-            if let Some(authorization) = self.response.federated_authorization.as_ref() {
-                return Ok(federated_authorize_redirect_response(
-                    &authorization.authorize_endpoint,
-                    &authorization.client_id,
-                    &authorization.redirect_uri,
-                    &authorization.state,
-                ));
-            }
-
             return Ok(not_implemented_response());
         };
 
@@ -357,8 +358,9 @@ impl<'a> AuthorizeLoginRequest<'a> {
         &self,
         client_id: &str,
         authorization_uri: &str,
+        wallet_bound: bool,
     ) -> Result<String, OAuthError> {
-        if self.response.siop_authenticated || self.response.wallet_authenticated {
+        if self.response.siop_authenticated || self.response.wallet_authenticated || wallet_bound {
             return Ok(wallet_authorization_redirect_response(authorization_uri));
         }
 
@@ -531,7 +533,12 @@ impl federated_server::Authorize for AuthorizeLoginRequest<'_> {
             client_id: self.client_id.clone(),
             redirect_uri: self.redirect_uri.clone(),
             state: self.state.clone(),
-            authorization_code: self.authorization_code.clone(),
+            authorization_code: self
+                .response
+                .authorization_code
+                .as_ref()
+                .map(|code| code.value.clone())
+                .or_else(|| self.authorization_code.clone()),
             metadata_policy: self.metadata_policy.clone(),
             scope: self.scope.clone(),
             code_challenge: self.code_challenge.clone(),

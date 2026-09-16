@@ -4,6 +4,8 @@ use super::*;
 // - method: GET | unsupported
 // - authenticated state: valid | missing | invalid
 // - restored scope: omitted | authorized (unauthorized values cannot enter authenticated state)
+// - presentation continuation: authenticated owner proceeds without a second
+//   upstream federation redirect
 // - authorization response: code | upstream error | code and error | neither
 // - values: non-empty | empty
 // - token endpoint: valid token | rejected request | malformed response
@@ -44,6 +46,21 @@ fn accepts_authorized_scope_restored_from_federation_state() {
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://client.example.com/callback?code="));
+}
+
+#[test]
+fn continues_authenticated_presentation_without_repeating_federation() {
+    let state = federation_state_for(
+        "response_type=vp_token&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&scope=credential_presentation",
+    );
+    let response = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={state} HTTP/1.1\r\nhost: example.com\r\n\r\n"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://client.example.com/callback?"));
+    assert!(response.contains("response_type=vp_token"));
+    assert!(!response.contains("identity.example.com/authorize"));
 }
 
 #[test]

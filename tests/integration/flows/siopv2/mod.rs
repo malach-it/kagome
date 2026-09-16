@@ -28,6 +28,8 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
 // - authorization request delivery: redirect | QR-code HTML with matching deep link
+// - client authentication: local and federated clients start SIOPv2; federated
+//   clients then authenticate upstream with the wallet-bound code preserved
 // - authenticated continuation delivery: redirect even when the client enables QR
 //   pages; pre-authorized code returns through /authorize | OpenID4VP request
 // - response media type: form (case-insensitive, parameters allowed) | missing |
@@ -157,6 +159,42 @@ fn renders_siop_authorization_request_as_qr_code_with_deep_link() {
     assert!(deep_link.contains("&response_type=id_token"));
     assert!(deep_link.contains("&response_mode=direct_post"));
     assert!(deep_link.contains("&request="));
+}
+
+#[test]
+fn federated_siop_authorization_preserves_wallet_binding_and_redirect_uri() {
+    let initial_response = send_request(
+        "GET /siopv2-request?response_type=vp_token&client_id=federated_qr_client&redirect_uri=https%3A%2F%2Ffederated-qr.example.com%2Fcallback&scope=credential_presentation HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
+    );
+    let deep_link = super::common::qr_page_deep_link(&initial_response);
+    let fixture = AuthorizationFixture {
+        body: uri_parameters(&deep_link),
+        response: initial_response,
+    };
+    let did = did_key();
+    let token = id_token(&fixture, &did, &did, None, TokenOverrides::default());
+    let federation = submit(&fixture, &token, None);
+    let federation_location = response_header(&federation, "location").unwrap();
+    assert!(
+        federation_location.starts_with("https://identity.example.com/authorize?"),
+        "{federation}"
+    );
+    let federation_parameters = uri_parameters(federation_location);
+    let federation_state = federation_parameters["state"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing federation state in {federation_location}"));
+    let response = send_request(&format!(
+        "GET /federation_callback?code=federated-code&state={federation_state} HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n"
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"), "{response}");
+    assert!(
+        response.contains("location: https://federated-qr.example.com/callback?"),
+        "{response}"
+    );
+    assert!(response.contains("response_type=vp_token"), "{response}");
+    assert!(!response.contains("error=invalid_request"), "{response}");
+    assert!(!response.contains("<svg"), "{response}");
 }
 
 #[test]

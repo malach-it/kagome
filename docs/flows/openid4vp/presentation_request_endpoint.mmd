@@ -14,7 +14,11 @@ flowchart TD
     code -- invalid, oversized, or excessive depth --> authorize_error
     code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> authorize_error
-    policy -- ok --> verifier["verifier::validate"]
+    policy -- ok --> authentication{Federated client authenticated?}
+    authentication -- no --> federate["federated_server::authorize"]
+    federate -- error --> authorize_error
+    federate -- ok --> federation_redirect["`**HTTP 302** federated authorize endpoint`"]
+    authentication -- yes or local client --> verifier["verifier::validate"]
     verifier -- error --> authorize_error
     verifier -- ok --> issuer["credential_issuer::validate"]
     issuer --> definition["presentation_definition::select"]

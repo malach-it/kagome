@@ -23,6 +23,8 @@ const ISSUER_PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2V
 // - endpoint method: supported | unsupported
 // - common authorize validation: valid client and redirect URI | missing/invalid;
 //   optional authorization code and metadata policy absent/valid | invalid
+// - client authentication: local presentation proceeds directly | unauthenticated
+//   federated client redirects through its upstream server
 // - PKCE: absent | valid S256 challenge carried in presentation state | unsupported method
 // - wallet binding policy: disabled | enabled with a code ID-token key | enabled
 //   without a code ID-token key (invalid)
@@ -151,6 +153,17 @@ fn returns_presentation_exchange_direct_post_presentation_request() {
         header.kid.as_deref(),
         Some(kagome::resources::crypto::SigningArtifact::RequestObject.key_id())
     );
+}
+
+#[test]
+fn requires_federated_authentication_before_presentation_request() {
+    let response = send_request(
+        "GET /authorize?response_type=vp_token&client_id=federated_client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&scope=credential_presentation HTTP/1.1\r\nhost: issuer.example.com\r\n\r\n",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://identity.example.com/authorize?"));
+    assert!(!response.contains("response_type=vp_token"));
 }
 
 #[test]

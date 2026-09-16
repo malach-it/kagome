@@ -18,6 +18,7 @@ use super::super::*;
 // - authorization-code chain depth: below maximum | exactly maximum | exceeding maximum
 // - generated artifacts: COSE_Encrypt0 code/access token | EdDSA ID token
 // - federation: configured redirect | local authentication not implemented
+//   Federated clients ignore local credentials until the upstream authenticates them.
 // Authorization errors always render as HTML, including when the request asks for query
 // formatting or contains a trusted redirect URI. Public client response representations
 // are covered here for code, by implicit tests for token, and by OID4VCI tests for
@@ -27,6 +28,16 @@ use super::super::*;
 fn redirects_authorize_get_request_to_federated_server() {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=federated_client&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert_federated_authorize_redirect(&response);
+}
+
+#[test]
+fn requires_federation_even_when_get_request_contains_local_credentials() {
+    let response = send_authorize_request(&format!(
+        "response_type=code&client_id=federated_client&redirect_uri={}&username=username&password=password",
         valid_redirect_uri()
     ));
 

@@ -34,51 +34,69 @@ fn is_oid4vp_authorization_request(request: &KagomeRequest) -> bool {
 }
 
 fn handle_authorization_request(request: &KagomeRequest) -> String {
-    let authorize_request = validate_authorize(AuthorizeLoginRequest::from_request(request))
+    match validate_authorize(AuthorizeLoginRequest::from_request(request))
         .and_then(pkce::validate)
         .and_then(authorization_code::validate_optional)
-        .and_then(metadata_policy::validate);
-
-    if authorize_request.as_ref().is_ok_and(|request| {
-        matches!(
-            request.response.response_types.as_slice(),
-            [ResponseType::VpToken]
-        )
-    }) {
-        return match authorize_request
-            .and_then(generate_login_response)
-            .and_then(logged_response)
-        {
-            Ok(response) => response,
-            Err(error) => {
-                log_authorize_failure(&error);
-                authorize_error_response(error)
-            }
-        };
-    }
-
-    match authorize_request.and_then(resource_owner::validate_optional) {
-        Ok(authorize_request) if authorize_request.has_resource_owner() => {
-            match generate_login_response(authorize_request).and_then(logged_response) {
-                Ok(response) => response,
-                Err(error) => {
-                    log_authorize_failure(&error);
-                    authorize_error_response(error)
-                }
-            }
-        }
-        Ok(authorize_request) => match federated_server::configuration(&authorize_request) {
-            Some(_) => federated_server::authorize(authorize_request).and_then(logged_response),
-            None => logged_response(authorize_request),
-        }
-        .unwrap_or_else(|error| {
-            log_authorize_failure(&error);
-            authorize_error_response(error)
-        }),
+        .and_then(metadata_policy::validate)
+        .and_then(validate_optional_local_resource_owner)
+        .and_then(select_authorization_request_flow)
+        .and_then(logged_response)
+    {
+        Ok(response) => response,
         Err(error) => {
             log_authorize_failure(&error);
             authorize_error_response(error)
         }
+    }
+}
+
+fn validate_optional_local_resource_owner(
+    authorize_request: AuthorizeLoginRequest<'_>,
+) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
+    let authenticated = authorize_request.has_resource_owner();
+    let federated = federated_server::configuration(&authorize_request).is_some();
+    let presentation = matches!(
+        authorize_request.response.response_types.as_slice(),
+        [ResponseType::VpToken]
+    );
+
+    match (authenticated, federated, presentation) {
+        (false, false, false) => resource_owner::validate_optional(authorize_request),
+        _ => Ok(authorize_request),
+    }
+}
+
+fn select_authorization_request_flow(
+    authorize_request: AuthorizeLoginRequest<'_>,
+) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
+    match authorization_request_flow(&authorize_request) {
+        AuthorizationRequestFlow::Generate => generate_login_response(authorize_request),
+        AuthorizationRequestFlow::Federate => federated_server::authorize(authorize_request),
+        AuthorizationRequestFlow::AwaitAuthentication => Ok(authorize_request),
+    }
+}
+
+enum AuthorizationRequestFlow {
+    Generate,
+    Federate,
+    AwaitAuthentication,
+}
+
+fn authorization_request_flow(
+    authorize_request: &AuthorizeLoginRequest<'_>,
+) -> AuthorizationRequestFlow {
+    let authenticated = authorize_request.has_resource_owner();
+    let federated = federated_server::configuration(authorize_request).is_some()
+        && authorize_request.response.federated_access_token.is_none();
+    let presentation = matches!(
+        authorize_request.response.response_types.as_slice(),
+        [ResponseType::VpToken]
+    );
+
+    match (authenticated, federated, presentation) {
+        (true, _, _) | (false, false, true) => AuthorizationRequestFlow::Generate,
+        (false, true, _) => AuthorizationRequestFlow::Federate,
+        (false, false, false) => AuthorizationRequestFlow::AwaitAuthentication,
     }
 }
 
@@ -126,17 +144,21 @@ pub fn continue_federated_authorize(
         .and_then(metadata_policy::validate)
         .and_then(federated_server::request_access_token)
         .and_then(federated_server::fetch_identity)
-        .and_then(generate_login_response)
+        .and_then(select_authorization_request_flow)
 }
 
 pub fn continue_siop_authorize(
     authorize_request: AuthorizeLoginRequest<'_>,
 ) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
     validate_siop_authorize(authorize_request).and_then(|authorize_request| {
-        if authorize_request.is_siop_pre_authorized_code_continuation() {
-            authorization_code::generate(authorize_request)
-        } else {
-            generate_login_response(authorize_request)
+        match (
+            federated_server::configuration(&authorize_request).is_some(),
+            authorize_request.is_siop_pre_authorized_code_continuation(),
+        ) {
+            (true, _) => authorization_code::generate(authorize_request)
+                .and_then(federated_server::authorize),
+            (false, true) => authorization_code::generate(authorize_request),
+            (false, false) => generate_login_response(authorize_request),
         }
     })
 }

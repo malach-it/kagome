@@ -14,8 +14,16 @@ flowchart TD
     code -- invalid, oversized, or excessive depth --> error
     code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> error
-    policy -- ok --> flow{Response pipeline?}
-    flow -- vp_token --> verifier["verifier::validate"]
+    policy -- ok --> request_flow{GET or POST pipeline?}
+    request_flow -- GET --> local_auth{Local resource-owner validation needed?}
+    local_auth -- yes --> owner_optional["resource_owner::validate_optional"]
+    owner_optional -- error --> error
+    owner_optional -- ok --> flow{Authentication and response pipeline?}
+    local_auth -- authenticated, federated, or vp_token --> flow
+    flow -- unauthenticated federated client --> federate["federated_server::authorize"]
+    federate -- error --> error
+    federate -- ok --> federated_redirect["`**HTTP 302** federated authorize endpoint`"]
+    flow -- vp_token for authenticated or local client --> verifier["verifier::validate"]
     verifier -- error --> error
     verifier -- ok --> issuer["credential_issuer::validate"]
     issuer --> definition["presentation_definition::select"]
@@ -25,15 +33,9 @@ flowchart TD
     state -- ok --> request_object["presentation_request::generate"]
     request_object -- error --> error
     request_object -- ok --> vp_success["`**HTTP 302** wallet redirect or **HTTP 200** QR relay`"]
-    flow -- OAuth GET --> owner_optional["resource_owner::validate_optional"]
-    owner_optional -- error --> error
-    owner_optional -- absent --> federation{federated_server configured?}
-    federation -- yes --> federate["federated_server::authorize"]
-    federate -- error --> error
-    federate -- ok --> federated_redirect["`**HTTP 302** federated authorize endpoint`"]
-    federation -- no --> not_implemented["`**HTTP 501** local authentication not implemented`"]
-    owner_optional -- present --> generate{Selected response type?}
-    flow -- OAuth POST --> owner["resource_owner::validate"]
+    flow -- unauthenticated local OAuth GET --> not_implemented["`**HTTP 501** local authentication not implemented`"]
+    flow -- authenticated OAuth GET --> generate{Selected response type?}
+    request_flow -- POST --> owner["resource_owner::validate"]
     owner -- error --> error
     owner -- ok --> generate
     generate -- pre-authorized_code --> pre_code["pre_authorized_code::generate"]
