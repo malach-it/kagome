@@ -47,6 +47,4 @@ flowchart TD
     access -- ok --> token_response["`**HTTP 302** access-token response`"]
     id_token -- ok --> id_response["`**HTTP 302** ID-token response`"]
     combined -- ok --> combined_response["`**HTTP 302** combined response`"]
-    error{Trusted error redirect available?}
-    error -- yes --> error_redirect["`**HTTP 302** trusted client redirect with OAuth error and optional state`"]
-    error -- no --> html_error["`**HTTP 400** HTML authorization error`"]
+    error["`**HTTP 400** HTML authorization error`"]

@@ -1,7 +1,7 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     begin[GET /siopv2-request] --> authorize[Run common authorize resource pipeline]
-    authorize -- error --> request_error["`**HTTP 400** OAuth error`"]
+    authorize -- error --> request_error["`**HTTP 400** HTML authorization error`"]
     authorize -- ok --> state["siopv2_state::generate"]
     state -- error --> request_error
     state -- ok --> request_object["siopv2_request::generate"]

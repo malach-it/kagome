@@ -75,17 +75,5 @@ impl<'a> grant_type::Validate for GrantTypeRequest<'a> {
 }
 
 fn parse_grant_types(grant_type: &str) -> Vec<GrantType> {
-    grant_type
-        .split_whitespace()
-        .map_while(|grant_type| match grant_type {
-            "authorization_code" => Some(GrantType::AuthorizationCode),
-            "client_credentials" => Some(GrantType::ClientCredentials),
-            grant_type::RESOURCE_OWNER_PASSWORD_CREDENTIALS => {
-                Some(GrantType::ResourceOwnerPasswordCredentials)
-            }
-            "code_chain" => Some(GrantType::CodeChain),
-            crate::resources::pre_authorized_code::GRANT_TYPE => Some(GrantType::PreAuthorizedCode),
-            _ => None,
-        })
-        .collect()
+    grant_type::parse_supported(grant_type)
 }

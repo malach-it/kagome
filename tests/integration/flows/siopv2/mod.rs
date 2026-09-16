@@ -20,8 +20,7 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - endpoint method: supported | unsupported
 // - OAuth authorization attributes: valid response type(s), client, redirect URI,
 //   client state, and optional code | missing/invalid value for each
-// - authorization request error format: invalid redirect URI renders HTML because
-//   it is not a trusted error destination | other validation failures render JSON
+// - authorization request error format: every direct failure renders HTML
 // - wallet binding policy: SIOPv2-authenticated continuation does not require it
 // - PKCE: absent | valid S256 parameters preserved in state | unsupported method
 // - verifier origin: configured issuer | unrelated or missing Host (equivalent)
@@ -131,13 +130,7 @@ fn rejects_non_s256_pkce_method_for_siop_authorization() {
         form_encode(CLIENT_REDIRECT_URI)
     ));
 
-    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
-    let body = json_body(&response);
-    assert_eq!(body["error"], "invalid_request");
-    assert_eq!(
-        body["error_description"],
-        "code_challenge_method must be S256"
-    );
+    assert_authorization_request_html_error(&response, "code_challenge_method must be S256");
 }
 
 #[test]
@@ -292,13 +285,16 @@ fn requires_valid_oauth_authorization_attributes() {
         form_encode(CLIENT_REDIRECT_URI)
     ));
 
-    assert_eq!(json_body(&missing)["error"], "unsupported_response_type");
-    assert_eq!(json_body(&invalid_client)["error"], "invalid_client");
-    assert_eq!(
-        json_body(&invalid_response_type)["error"],
-        "unsupported_response_type"
+    assert_authorization_request_html_error(&missing, "response_type must be one of:");
+    assert_authorization_request_html_error(&invalid_client, "client_id is invalid");
+    assert_authorization_request_html_error(
+        &invalid_response_type,
+        "response_type must be one of:",
     );
-    assert_eq!(json_body(&invalid_code)["error"], "invalid_grant");
+    assert_authorization_request_html_error(
+        &invalid_code,
+        "authorization_code must be a cose_encrypt0",
+    );
 }
 
 #[test]
@@ -990,6 +986,17 @@ fn form_encode(value: &str) -> String {
 
 fn json_body(response: &str) -> Value {
     serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+}
+
+fn assert_authorization_request_html_error(response: &str, description: &str) {
+    assert!(
+        response.starts_with("HTTP/1.1 400 Bad Request\r\n"),
+        "{response}"
+    );
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>authorization error</title>"));
+    assert!(response.contains(description));
+    assert!(!response.contains("\r\nlocation:"));
 }
 
 fn assert_error(response: &str, description: &str) {

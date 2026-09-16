@@ -17,6 +17,21 @@ fn returns_unsupported_grant_type_oauth_response() {
 }
 
 #[test]
+fn returns_unauthorized_client_oauth_response() {
+    let response = kagome::errors::OAuthError::unauthorized_client(
+        "client does not support grant_type password",
+    )
+    .to_response();
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: application/json\r\n"));
+    assert!(response.contains("\"error\":\"unauthorized_client\""));
+    assert!(
+        response.contains("\"error_description\":\"client does not support grant_type password\"")
+    );
+}
+
+#[test]
 fn returns_invalid_token_response_oauth_response() {
     let response =
         kagome::errors::OAuthError::invalid_token_response("token response requires grant_type")

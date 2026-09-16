@@ -6,6 +6,7 @@ use super::*;
 // - client_id: first configured | second configured | public username@host | missing |
 //   unconfigured
 // - client_secret: matching | missing | invalid
+// - client grant policy: supported | unsupported
 // Missing and invalid credential failures are representation-independent after parsing,
 // so each equivalent validation path is exercised once with form input.
 
@@ -65,6 +66,19 @@ fn returns_token_response_for_second_configured_client() {
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));
+}
+
+#[test]
+fn rejects_client_credentials_grant_not_supported_by_client() {
+    let response = send_form_token_request(
+        "client_id=restricted_client&client_secret=restricted_secret&grant_type=client_credentials",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"unauthorized_client\""));
+    assert!(response.contains(
+        "\"error_description\":\"client does not support grant_type client_credentials\""
+    ));
 }
 
 #[test]

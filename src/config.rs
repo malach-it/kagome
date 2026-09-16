@@ -2,7 +2,9 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     error::Error,
-    fmt, fs, io,
+    fmt, fs,
+    hash::Hash,
+    io,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -10,7 +12,10 @@ use std::{
 use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings};
 use serde::Deserialize;
 
-use crate::key_management::{KeyManagementError, KeyManager};
+use crate::{
+    key_management::{KeyManagementError, KeyManager},
+    resources::{grant_type::GrantType, response_type::ResponseType},
+};
 
 pub const CONFIG_PATH_ENV_VAR: &str = "KAGOME_CONFIG";
 pub const DEFAULT_CONFIG_PATH: &str = "kagome.yaml";
@@ -126,6 +131,14 @@ pub struct ClientConfig {
     /// Exact redirect URIs accepted for authorization responses.
     #[schemars(length(min = 1), inner(length(min = 1)))]
     pub redirect_uris: Vec<String>,
+    /// OAuth grant types this client may use.
+    #[serde(default = "empty_supported_grant_types")]
+    #[schemars(default = "empty_supported_grant_types")]
+    pub supported_grant_types: Vec<GrantType>,
+    /// OAuth response types this client may request.
+    #[serde(default = "empty_supported_response_types")]
+    #[schemars(default = "empty_supported_response_types")]
+    pub supported_response_types: Vec<ResponseType>,
     /// Require wallet proofs and presentations to be bound to the public key
     /// from the ID token carried by the incoming authorization code.
     #[serde(default)]
@@ -137,6 +150,14 @@ pub struct ClientConfig {
     pub qr_code: bool,
     /// Upstream OAuth server used to federate identities for this client.
     pub federated_server: Option<FederatedServerConfig>,
+}
+
+fn empty_supported_grant_types() -> Vec<GrantType> {
+    Vec::new()
+}
+
+fn empty_supported_response_types() -> Vec<ResponseType> {
+    Vec::new()
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -433,6 +454,18 @@ impl Config {
                     message: format!("clients[{index}].redirect_uris must not be empty"),
                 });
             }
+            validate_client_capabilities(
+                path,
+                index,
+                "supported_grant_types",
+                &client.supported_grant_types,
+            )?;
+            validate_client_capabilities(
+                path,
+                index,
+                "supported_response_types",
+                &client.supported_response_types,
+            )?;
             if client
                 .redirect_uris
                 .iter()
@@ -552,6 +585,26 @@ fn is_host(host: &str) -> bool {
         && host.bytes().all(|byte| {
             byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
         })
+}
+
+fn validate_client_capabilities<T: Eq + Hash>(
+    path: &Path,
+    client_index: usize,
+    field: &str,
+    capabilities: &[T],
+) -> Result<(), ConfigError> {
+    let mut unique = HashSet::new();
+    if capabilities
+        .iter()
+        .any(|capability| !unique.insert(capability))
+    {
+        return Err(ConfigError::Validation {
+            path: path.to_owned(),
+            message: format!("clients[{client_index}].{field} must not contain duplicates"),
+        });
+    }
+
+    Ok(())
 }
 
 fn parse_password_file(contents: &str) -> Result<ClientPasswordFile, String> {

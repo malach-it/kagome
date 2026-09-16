@@ -7,6 +7,7 @@ use super::super::*;
 // - resource owner: form credentials | client_id credentials | missing | invalid
 // - client_id: local | second local | federated | public username@host |
 //   resource-owner form | missing | unconfigured
+// - client response policy: all requested types supported | one requested type unsupported
 // - redirect_uri: matching first URI | matching alternate URI | another client's URI |
 //   missing | invalid
 // - metadata policy: missing | valid string | valid username superset | invalid |
@@ -16,9 +17,10 @@ use super::super::*;
 // - authorization-code chain depth: below maximum | exactly maximum | exceeding maximum
 // - generated artifacts: COSE_Encrypt0 code/access token | EdDSA ID token
 // - federation: configured redirect | local authentication not implemented
-// Error rendering: validated redirect | missing, invalid, or another client's redirect;
-// HTML and redirect response formats. Public client response representations are covered
-// here for code, by implicit tests for token, and by OID4VCI tests for pre-authorized_code.
+// Authorization errors always render as HTML, including when the request asks for query
+// formatting or contains a trusted redirect URI. Public client response representations
+// are covered here for code, by implicit tests for token, and by OID4VCI tests for
+// pre-authorized_code.
 
 #[test]
 fn redirects_authorize_get_request_to_federated_server() {
@@ -91,6 +93,38 @@ fn redirects_to_alternate_uri_for_second_configured_client() {
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains("location: https://configured.example.com/alternate?code="));
+}
+
+#[test]
+fn accepts_response_type_supported_by_client() {
+    let response = send_post_authorize_request(
+        "response_type=code&client_id=restricted_client&redirect_uri=https%3A%2F%2Frestricted.example.com%2Fcallback",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(response.contains("location: https://restricted.example.com/callback?code="));
+}
+
+#[test]
+fn rejects_response_type_not_supported_by_client() {
+    let response = send_authorize_request(
+        "response_type=token&client_id=restricted_client&redirect_uri=https%3A%2F%2Frestricted.example.com%2Fcallback",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">client does not support response_type token</p>"));
+}
+
+#[test]
+fn rejects_hybrid_response_when_one_type_is_not_supported_by_client() {
+    let response = send_authorize_request(
+        "response_type=code+token&client_id=restricted_client&redirect_uri=https%3A%2F%2Frestricted.example.com%2Fcallback",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<p role=\"alert\">client does not support response_type token</p>"));
 }
 
 #[test]
@@ -487,43 +521,27 @@ fn returns_oauth_error_for_authorize_get_client_id_resource_owner_credentials() 
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains(
-        "location: https://client.example.com/callback?error=invalid_grant&error_description=password%20is%20invalid\r\n"
-    ));
-    assert!(response.contains("content-length: 0\r\n"));
-    assert!(response.contains("connection: close\r\n"));
+    assert_authorize_html_error(&response, "password is invalid");
 }
 
 #[test]
-fn redirects_oauth_error_for_missing_response_type_with_client_id_resource_owner_credentials() {
+fn renders_html_error_for_missing_response_type_with_client_id_resource_owner_credentials() {
     let response = send_authorize_request(&format!(
         "client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains(
-        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token%2C%20vp_token%2C%20urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code\r\n"
-    ));
-    assert!(response.contains("content-length: 0\r\n"));
-    assert!(response.contains("connection: close\r\n"));
+    assert_authorize_html_error(&response, "response_type must be one of:");
 }
 
 #[test]
-fn redirects_oauth_error_for_invalid_final_response_type_with_client_id_resource_owner_credentials()
-{
+fn renders_html_error_for_invalid_final_response_type_with_client_id_resource_owner_credentials() {
     let response = send_authorize_request(&format!(
         "response_type=id_token+code&client_id=other_username%3Aother_password%40example.com&redirect_uri={}",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains(
-        "location: https://client.example.com/callback?error=invalid_final_response_type&error_description=invalid%20final%20response%20type\r\n"
-    ));
-    assert!(response.contains("content-length: 0\r\n"));
-    assert!(response.contains("connection: close\r\n"));
+    assert_authorize_html_error(&response, "invalid final response type");
 }
 
 #[test]
@@ -551,18 +569,16 @@ fn renders_html_error_for_query_format_with_untrusted_redirect_uri() {
 }
 
 #[test]
-fn redirects_oauth_error_for_authorize_get_client_id_resource_owner_username() {
+fn renders_html_error_for_authorize_get_client_id_resource_owner_username() {
     let response = send_authorize_request(&format!(
         "response_type=code&client_id=app%3Apassword%40example.com&redirect_uri={}",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains(
-        "location: https://client.example.com/callback?error=invalid_grant&error_description=username%20must%20be%20one%20of%3A%20username%2C%20other_username\r\n"
-    ));
-    assert!(response.contains("content-length: 0\r\n"));
-    assert!(response.contains("connection: close\r\n"));
+    assert_authorize_html_error(
+        &response,
+        "username must be one of: username, other_username",
+    );
 }
 
 #[test]
@@ -743,18 +759,13 @@ fn returns_oauth_error_for_missing_authorize_response_type() {
 }
 
 #[test]
-fn redirects_oauth_error_to_request_redirect_uri_for_query_format() {
+fn renders_html_error_for_query_format_with_trusted_redirect_uri() {
     let response = send_post_authorize_request(&format!(
         "client_id=client_id&redirect_uri={}&format=query",
         valid_redirect_uri()
     ));
 
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains(
-        "location: https://client.example.com/callback?error=unsupported_response_type&error_description=response_type%20must%20be%20one%20of%3A%20code%2C%20token%2C%20id_token%2C%20vp_token%2C%20urn%3Aietf%3Aparams%3Aoauth%3Aresponse-type%3Apre-authorized_code\r\n"
-    ));
-    assert!(response.contains("content-length: 0\r\n"));
-    assert!(response.contains("connection: close\r\n"));
+    assert_authorize_html_error(&response, "response_type must be one of:");
 }
 
 #[test]
@@ -1080,6 +1091,14 @@ fn query_parameter(query: &str, name: &str) -> Option<String> {
 
 fn valid_redirect_uri() -> &'static str {
     "https%3A%2F%2Fclient.example.com%2Fcallback"
+}
+
+fn assert_authorize_html_error(response: &str, description: &str) {
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("content-type: text/html\r\n"));
+    assert!(response.contains("<title>authorization error</title>"));
+    assert!(response.contains(description));
+    assert!(!response.contains("\r\nlocation:"));
 }
 
 fn decode_form_value(value: &str) -> String {

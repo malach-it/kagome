@@ -8,8 +8,7 @@ use super::*;
 //   invalid username | missing password | invalid password | invalid embedded credentials
 // - state: absent | present
 // - access-token artifact: opaque COSE_Encrypt0
-// - response: federated redirect | access-token fragment | not implemented | HTML error |
-//   redirect error
+// - response: federated redirect | access-token fragment | not implemented | HTML error
 //
 // `response_type=token` is fixed for this flow; missing, unsupported, and invalidly
 // ordered response types are endpoint-level cases covered by the authorize tests.
@@ -144,15 +143,12 @@ fn returns_oauth_error_for_invalid_implicit_password() {
 }
 
 #[test]
-fn redirects_error_for_invalid_implicit_client_id_credentials() {
+fn renders_html_error_for_invalid_implicit_client_id_credentials() {
     let response = send_implicit_get(
         "response_type=token&client_id=other_username%3Aapp%40example.com&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&state=opaque%20state",
     );
 
-    assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
-    assert!(response.contains(
-        "location: https://client.example.com/callback?error=invalid_grant&error_description=password%20is%20invalid&state=opaque%20state\r\n"
-    ));
+    assert_html_error(&response, "password is invalid");
 }
 
 fn send_implicit_get(query: &str) -> String {

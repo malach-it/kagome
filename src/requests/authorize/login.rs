@@ -553,6 +553,10 @@ impl<'a> client_credentials::Validate for AuthorizeLoginRequest<'a> {
         true
     }
 
+    fn requested_response_types(&self) -> &[ResponseType] {
+        &self.response.response_types
+    }
+
     fn add_client_credentials(
         &mut self,
         client_credentials: client_credentials::ClientCredentials,

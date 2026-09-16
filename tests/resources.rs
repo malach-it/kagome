@@ -5,6 +5,8 @@ fn configured_clients() -> Vec<kagome::config::ClientConfig> {
         client_secret: "client_secret".to_owned(),
         password_file: None,
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
+        supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
+        supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
         require_wallet_binding: false,
         qr_code: false,
         federated_server: None,
@@ -858,6 +860,105 @@ mod resources {
 
             assert_eq!(error.error, "invalid_client");
             assert_eq!(error.error_description, "client_id is invalid");
+        }
+
+        #[test]
+        fn rejects_grant_type_not_supported_by_client() {
+            let request = token_request(Some("client_id"));
+            let token_response = kagome::handlers::token::ClientCredentialsRequest::empty(&request);
+            let mut clients = crate::configured_clients();
+            clients[0].supported_grant_types =
+                vec![kagome::resources::grant_type::GrantType::AuthorizationCode];
+
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &clients,
+            )
+            .unwrap_err();
+
+            assert_eq!(error.error, "unauthorized_client");
+            assert_eq!(
+                error.error_description,
+                "client does not support grant_type client_credentials"
+            );
+        }
+
+        #[test]
+        fn rejects_combined_grant_when_one_type_is_not_supported_by_client() {
+            let mut request = token_request(Some("client_id"));
+            request.body = "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code".to_owned();
+            let token_response = kagome::handlers::token::CodeChainRequest::empty(&request);
+            let mut clients = crate::configured_clients();
+            clients[0].supported_grant_types =
+                vec![kagome::resources::grant_type::GrantType::CodeChain];
+
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                token_response,
+                &clients,
+            )
+            .unwrap_err();
+
+            assert_eq!(error.error, "unauthorized_client");
+            assert_eq!(
+                error.error_description,
+                "client does not support grant_type authorization_code"
+            );
+        }
+
+        #[test]
+        fn rejects_response_type_not_supported_by_client() {
+            let mut request = authorize_request(Some("https://client.example.com/callback"));
+            request
+                .query_params
+                .push(("response_type".to_owned(), "token".to_owned()));
+            let authorize_response =
+                kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
+            let authorize_response =
+                kagome::resources::response_type::validate(authorize_response).unwrap();
+            let mut clients = crate::configured_clients();
+            clients[0].supported_response_types =
+                vec![kagome::resources::response_type::ResponseType::Code];
+
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                authorize_response,
+                &clients,
+            )
+            .unwrap_err();
+
+            assert_eq!(error.error, "unauthorized_client");
+            assert_eq!(
+                error.error_description,
+                "client does not support response_type token"
+            );
+        }
+
+        #[test]
+        fn rejects_response_type_whose_grant_is_not_supported_by_client() {
+            let mut request = authorize_request(Some("https://client.example.com/callback"));
+            request
+                .query_params
+                .push(("response_type".to_owned(), "token".to_owned()));
+            let authorize_response =
+                kagome::handlers::authorize::AuthorizeCodeRequest::from_request(&request);
+            let authorize_response =
+                kagome::resources::response_type::validate(authorize_response).unwrap();
+            let mut clients = crate::configured_clients();
+            clients[0].supported_response_types =
+                vec![kagome::resources::response_type::ResponseType::Token];
+            clients[0].supported_grant_types =
+                vec![kagome::resources::grant_type::GrantType::AuthorizationCode];
+
+            let error = kagome::resources::client_credentials::validate_with_clients(
+                authorize_response,
+                &clients,
+            )
+            .unwrap_err();
+
+            assert_eq!(error.error, "unauthorized_client");
+            assert_eq!(
+                error.error_description,
+                "client does not support grant_type implicit"
+            );
         }
 
         #[test]

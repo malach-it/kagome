@@ -1,7 +1,7 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     start[GET or POST /authorize with response_type token] --> response_type["response_type::validate"]
-    response_type -- error --> authorize_error["`**HTTP 400** HTML error or **HTTP 302** trusted redirect`"]
+    response_type -- error --> authorize_error["`**HTTP 400** HTML authorization error`"]
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
     client -- ok --> method{GET or POST?}

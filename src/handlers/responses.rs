@@ -472,20 +472,6 @@ pub fn not_implemented_response() -> String {
     )
 }
 
-pub fn authorize_error_http_response(
-    validated_redirect_uri: Option<&str>,
-    query_params: &[(String, String)],
-    error: &OAuthError,
-) -> String {
-    if (error.format == "query" || query_parameter(query_params, "format") == Some("query"))
-        && let Some(redirect_uri) = validated_redirect_uri
-    {
-        return query_error_response(redirect_uri, error, query_parameter(query_params, "state"));
-    }
-
-    oauth_error_html_response(&error.error, Some(&error.error_description))
-}
-
 pub fn query_error_response(redirect_uri: &str, error: &OAuthError, state: Option<&str>) -> String {
     let location = append_query_parameter(
         &append_query_parameter(
@@ -919,13 +905,6 @@ fn set_query_parameter(query_params: &mut Vec<(String, String)>, name: &str, val
     } else {
         query_params.push((name.to_owned(), value.to_owned()));
     }
-}
-
-fn query_parameter<'a>(query_params: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    query_params
-        .iter()
-        .find(|(parameter_name, _)| parameter_name == name)
-        .map(|(_, value)| value.as_str())
 }
 
 fn percent_encode_query_value(value: &str) -> String {

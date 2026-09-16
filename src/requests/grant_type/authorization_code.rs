@@ -20,6 +20,7 @@ pub struct AuthorizationCodeRequest<'a> {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub grant_type: Option<String>,
+    pub grant_types: Vec<GrantType>,
     pub code_verifier: Option<String>,
 }
 
@@ -34,13 +35,18 @@ pub struct AuthorizationCodeResponse {
 
 impl<'a> AuthorizationCodeRequest<'a> {
     pub fn empty(request: &'a KagomeRequest) -> Self {
+        let grant_type = parse_request_parameter(request, "grant_type");
         Self {
             response: AuthorizationCodeResponse::empty(),
             request,
             code: parse_request_parameter(request, "code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
-            grant_type: parse_request_parameter(request, "grant_type"),
+            grant_types: grant_type
+                .as_deref()
+                .map(grant_type::parse_supported)
+                .unwrap_or_default(),
+            grant_type,
             code_verifier: parse_request_parameter(request, "code_verifier"),
         }
     }
@@ -61,6 +67,7 @@ impl<'a> AuthorizationCodeRequest<'a> {
                 .response
                 .grant_type
                 .map(|grant_type| grant_type.as_str().to_owned()),
+            grant_types: response.response.grant_types.clone(),
             code_verifier: parse_request_parameter(request, "code_verifier"),
         }
     }
@@ -113,6 +120,10 @@ impl<'a> client_credentials::Validate for AuthorizationCodeRequest<'a> {
 
     fn request_client_secret(&self) -> Option<&str> {
         self.client_secret.as_deref()
+    }
+
+    fn requested_grant_types(&self) -> &[GrantType] {
+        &self.grant_types
     }
 
     fn add_client_credentials(

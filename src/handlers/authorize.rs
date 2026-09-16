@@ -10,7 +10,7 @@ use crate::{
     unit::KagomeRequest,
 };
 
-use super::responses::{authorize_error_http_response, log_timestamp, logged_response};
+use super::responses::{log_timestamp, logged_response, oauth_error_html_response};
 
 pub use crate::requests::{AuthorizeCodeRequest, AuthorizeLoginRequest};
 
@@ -52,7 +52,7 @@ fn handle_authorization_request(request: &KagomeRequest) -> String {
             Ok(response) => response,
             Err(error) => {
                 log_authorize_failure(&error);
-                authorize_error_response(request, error)
+                authorize_error_response(error)
             }
         };
     }
@@ -63,7 +63,7 @@ fn handle_authorization_request(request: &KagomeRequest) -> String {
                 Ok(response) => response,
                 Err(error) => {
                     log_authorize_failure(&error);
-                    authorize_error_response(request, error)
+                    authorize_error_response(error)
                 }
             }
         }
@@ -73,11 +73,11 @@ fn handle_authorization_request(request: &KagomeRequest) -> String {
         }
         .unwrap_or_else(|error| {
             log_authorize_failure(&error);
-            authorize_error_response(request, error)
+            authorize_error_response(error)
         }),
         Err(error) => {
             log_authorize_failure(&error);
-            authorize_error_response(request, error)
+            authorize_error_response(error)
         }
     }
 }
@@ -94,7 +94,7 @@ fn handle_authentication(request: &KagomeRequest) -> String {
         Ok(response) => response,
         Err(error) => {
             log_authorize_failure(&error);
-            authorize_error_response(request, error)
+            authorize_error_response(error)
         }
     }
 }
@@ -235,28 +235,8 @@ fn log_authorize_failure(error: &OAuthError) {
     );
 }
 
-fn authorize_error_response(request: &KagomeRequest, mut error: OAuthError) -> String {
-    if request
-        .query_params
-        .iter()
-        .find(|(name, _)| name == "client_id")
-        .is_some_and(|(_, client_id)| {
-            client_credentials::client_id_resource_owner_credentials(client_id)
-        })
-    {
-        error = error.with_format("query");
-    }
-
-    let validated_redirect_uri =
-        client_credentials::validate(AuthorizeLoginRequest::from_request(request))
-            .ok()
-            .and_then(|request| request.response.redirect_uri);
-
-    authorize_error_http_response(
-        validated_redirect_uri.as_deref(),
-        &request.query_params,
-        &error,
-    )
+fn authorize_error_response(error: OAuthError) -> String {
+    oauth_error_html_response(&error.error, Some(&error.error_description))
 }
 
 fn not_found_response() -> String {

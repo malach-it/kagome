@@ -18,6 +18,7 @@ pub enum OAuthErrorCode {
     UnsupportedResponseType,
     InvalidFinalResponseType,
     UnsupportedGrantType,
+    UnauthorizedClient,
     InvalidClientId,
     MissingClientId,
     InvalidClientSecret,
@@ -107,6 +108,14 @@ impl OAuthError {
                 "grant_type must be one of: {}",
                 supported_grant_types.join(", ")
             ),
+        )
+    }
+
+    pub fn unauthorized_client(error_description: impl Into<String>) -> Self {
+        Self::new(
+            OAuthErrorCode::UnauthorizedClient,
+            "unauthorized_client",
+            error_description,
         )
     }
 

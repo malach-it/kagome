@@ -64,6 +64,9 @@ fn handle_validated_grant_type(
             ),
         )
         .and_then(logged_response),
+        [GrantType::Implicit, ..] => Err(OAuthError::unsupported_grant_type(
+            &grant_type::SUPPORTED_GRANT_TYPES,
+        )),
         [] => Err(OAuthError::invalid_token_response(
             "token response requires grant_type",
         )),

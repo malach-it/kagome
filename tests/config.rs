@@ -6,6 +6,7 @@ use std::{
 };
 
 use kagome::config::{CONFIG_PATH_ENV_VAR, Config, ConfigError};
+use kagome::resources::{grant_type::GrantType, response_type::ResponseType};
 
 static NEXT_CONFIG_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -32,6 +33,8 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.clients[0].public, None);
     assert_eq!(config.clients[0].client_secret, "client_secret");
     assert_eq!(config.clients[0].password_file, None);
+    assert!(config.clients[0].supported_grant_types.is_empty());
+    assert!(config.clients[0].supported_response_types.is_empty());
     assert_eq!(
         config.clients[0].redirect_uris,
         ["https://client.example.com/callback"]
@@ -55,6 +58,11 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.tokens.id_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
     assert_eq!(config.clients.len(), 1);
+    assert_eq!(config.clients[0].supported_grant_types, GrantType::ALL);
+    assert_eq!(
+        config.clients[0].supported_response_types,
+        ResponseType::ALL
+    );
     assert_eq!(config.clients[0].public.as_deref(), Some("localhost:4000"));
     assert!(
         config.clients[0]
@@ -131,6 +139,8 @@ fn json_schema_describes_configuration_constraints() {
     let federated_server = &schema["$defs"]["FederatedServerConfig"];
     let identity_endpoint = &schema["$defs"]["FederatedIdentityEndpointConfig"];
     let identity_target = &schema["$defs"]["FederatedIdentityTarget"];
+    let grant_type = &schema["$defs"]["GrantType"];
+    let response_type = &schema["$defs"]["ResponseType"];
     let token_ttls = &schema["$defs"]["TokenTtlsConfig"];
     let crypto = &schema["$defs"]["CryptoConfig"];
 
@@ -179,6 +189,27 @@ fn json_schema_describes_configuration_constraints() {
         serde_json::json!(["string", "null"])
     );
     assert_eq!(client["properties"]["redirect_uris"]["minItems"], 1);
+    assert_eq!(
+        grant_type["enum"],
+        serde_json::json!([
+            "authorization_code",
+            "client_credentials",
+            "code_chain",
+            "implicit",
+            "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+            "password"
+        ])
+    );
+    assert_eq!(
+        response_type["enum"],
+        serde_json::json!([
+            "code",
+            "id_token",
+            "urn:ietf:params:oauth:response-type:pre-authorized_code",
+            "token",
+            "vp_token"
+        ])
+    );
     assert!(client["properties"]["federated_server"]["anyOf"].is_array());
     assert_eq!(
         client["properties"]["require_wallet_binding"]["default"],
@@ -253,6 +284,62 @@ fn loads_per_client_qr_code_policy() {
     let config = Config::load_from_path(file.path()).expect("QR-code policy should load");
 
     assert!(config.clients[0].qr_code);
+}
+
+#[test]
+fn loads_per_client_supported_grant_and_response_types() {
+    let file = ConfigFile::new(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: [https://client.example.com/callback]\n    supported_grant_types: [authorization_code, code_chain]\n    supported_response_types: [code, id_token]\n",
+    );
+
+    let config = Config::load_from_path(file.path()).expect("client capabilities should load");
+
+    assert_eq!(
+        config.clients[0].supported_grant_types,
+        [GrantType::AuthorizationCode, GrantType::CodeChain]
+    );
+    assert_eq!(
+        config.clients[0].supported_response_types,
+        [ResponseType::Code, ResponseType::IdToken]
+    );
+}
+
+#[test]
+fn rejects_duplicate_client_capabilities() {
+    for (field, values) in [
+        (
+            "supported_grant_types",
+            "[authorization_code, authorization_code]",
+        ),
+        ("supported_response_types", "[code, code]"),
+    ] {
+        let file = ConfigFile::new(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: [https://client.example.com/callback]\n    {field}: {values}\n"
+        ));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("duplicate client capabilities should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(error.to_string().contains(&format!("clients[0].{field}")));
+    }
+}
+
+#[test]
+fn rejects_unknown_client_capabilities() {
+    for (field, value) in [
+        ("supported_grant_types", "unknown_grant"),
+        ("supported_response_types", "unknown_response"),
+    ] {
+        let file = ConfigFile::new(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nclients:\n  - client_id: client_id\n    client_secret: client_secret\n    redirect_uris: [https://client.example.com/callback]\n    {field}: [{value}]\n"
+        ));
+
+        let error =
+            Config::load_from_path(file.path()).expect_err("unknown client capability should fail");
+
+        assert!(matches!(error, ConfigError::Parse { .. }));
+    }
 }
 
 #[test]

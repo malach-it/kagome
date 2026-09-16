@@ -84,6 +84,12 @@ client, its authorization and token endpoints, and identity endpoints. Each
 identity endpoint is called with the upstream bearer token; its dot-separated
 JSON `claim` is copied into the typed `target` (`username` is currently
 supported). Clients without this block continue to use local authentication.
+Each client must explicitly opt into protocol capabilities through
+`supported_grant_types` and `supported_response_types`; omitted or empty lists
+deny every corresponding type. Every type in a combined request must be
+allowed. Authorization responses also require their associated grant:
+`code` requires `authorization_code`, `token` and `id_token` require `implicit`,
+and the pre-authorized-code response requires its pre-authorized-code grant.
 The local `kagome.yaml` is ignored by Git.
 
 `server.address` controls the listening socket, while `server.issuer` is the
@@ -101,6 +107,9 @@ callback restores an `AuthorizeLoginRequest`, exchanges a returned authorization
 code at the upstream token endpoint, fetches and maps the configured identity
 claims, and continues the authorize response flow. Local `POST /authorize`
 authentication is disabled for that client.
+Direct validation and generation failures from `/authorize` and
+`/siopv2-request` render the branded HTML authorization-error page; these
+endpoints do not return JSON error bodies.
 [`kagome.schema.json`](kagome.schema.json) provides editor validation
 and completion for the example. After changing the Rust configuration types,
 regenerate it with:

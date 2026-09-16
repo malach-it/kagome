@@ -199,6 +199,7 @@ fn start_server() -> String {
     config.clients[0].public = Some("example.com".to_owned());
     let password_file = config.clients[0].password_file.clone();
     let qr_password_file = password_file.clone();
+    let restricted_password_file = password_file.clone();
     let mut federated_server = config.clients[0]
         .federated_server
         .take()
@@ -215,6 +216,8 @@ fn start_server() -> String {
             "https://configured.example.com/callback".to_owned(),
             "https://configured.example.com/alternate".to_owned(),
         ],
+        supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
+        supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
         require_wallet_binding: false,
         qr_code: false,
         federated_server: None,
@@ -225,9 +228,23 @@ fn start_server() -> String {
         client_secret: "federated_secret".to_owned(),
         password_file: None,
         redirect_uris: vec!["https://client.example.com/callback".to_owned()],
+        supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
+        supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
         require_wallet_binding: false,
         qr_code: false,
         federated_server: Some(federated_server),
+    });
+    config.clients.push(kagome::config::ClientConfig {
+        client_id: "restricted_client".to_owned(),
+        public: None,
+        client_secret: "restricted_secret".to_owned(),
+        password_file: restricted_password_file,
+        redirect_uris: vec!["https://restricted.example.com/callback".to_owned()],
+        supported_grant_types: vec![kagome::resources::grant_type::GrantType::AuthorizationCode],
+        supported_response_types: vec![kagome::resources::response_type::ResponseType::Code],
+        require_wallet_binding: false,
+        qr_code: false,
+        federated_server: None,
     });
     config.clients.push(kagome::config::ClientConfig {
         client_id: "wallet_bound_client".to_owned(),
@@ -235,6 +252,8 @@ fn start_server() -> String {
         client_secret: "wallet_bound_secret".to_owned(),
         password_file,
         redirect_uris: vec!["https://wallet-bound.example.com/callback".to_owned()],
+        supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
+        supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
         require_wallet_binding: true,
         qr_code: false,
         federated_server: None,
@@ -245,6 +264,8 @@ fn start_server() -> String {
         client_secret: "qr_secret".to_owned(),
         password_file: qr_password_file,
         redirect_uris: vec!["https://qr.example.com/callback".to_owned()],
+        supported_grant_types: kagome::resources::grant_type::GrantType::ALL.to_vec(),
+        supported_response_types: kagome::resources::response_type::ResponseType::ALL.to_vec(),
         require_wallet_binding: false,
         qr_code: true,
         federated_server: None,

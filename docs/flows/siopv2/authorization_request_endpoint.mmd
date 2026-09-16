@@ -3,10 +3,9 @@ flowchart TD
     start[Request /siopv2-request] --> method{GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> response_type["response_type::validate"]
-    response_type -- error --> request_error["`**HTTP 400** JSON OAuth error`"]
+    response_type -- error --> request_error["`**HTTP 400** HTML authorization error`"]
     response_type -- ok --> client["client_credentials::validate"]
-    client -- invalid redirect URI --> html_error["`**HTTP 400** HTML authorization error`"]
-    client -- other error --> request_error
+    client -- error --> request_error
     client -- ok --> pkce["pkce::validate"]
     pkce -- error --> request_error
     pkce -- ok --> code["authorization_code::validate_optional"]
@@ -14,7 +13,7 @@ flowchart TD
     code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> request_error
     policy -- ok --> state["siopv2_state::generate"]
-    state -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
+    state -- error --> request_error
     state -- ok --> request_object["siopv2_request::generate"]
-    request_object -- error --> generation_error
+    request_object -- error --> request_error
     request_object -- ok --> success["`**HTTP 302** wallet redirect or **HTTP 200** QR relay`"]

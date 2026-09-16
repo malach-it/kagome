@@ -18,6 +18,7 @@ pub struct ResourceOwnerPasswordCredentialsRequest {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub grant_type: Option<String>,
+    pub grant_types: Vec<GrantType>,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -44,6 +45,7 @@ impl ResourceOwnerPasswordCredentialsRequest {
                 .response
                 .grant_type
                 .map(|grant_type| grant_type.as_str().to_owned()),
+            grant_types: response.response.grant_types.clone(),
             username: parse_request_parameter(request, "username"),
             password: parse_request_parameter(request, "password"),
         }
@@ -91,6 +93,10 @@ impl client_credentials::Validate for ResourceOwnerPasswordCredentialsRequest {
 
     fn request_client_secret(&self) -> Option<&str> {
         self.client_secret.as_deref()
+    }
+
+    fn requested_grant_types(&self) -> &[GrantType] {
+        &self.grant_types
     }
 
     fn add_client_credentials(

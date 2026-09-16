@@ -1,19 +1,34 @@
 use crate::errors::OAuthError;
+use schemars::JsonSchema;
+use serde::Deserialize;
 
 pub const PRE_AUTHORIZED_CODE: &str = "urn:ietf:params:oauth:response-type:pre-authorized_code";
 pub const SUPPORTED_RESPONSE_TYPES: [&str; 5] =
     ["code", "token", "id_token", "vp_token", PRE_AUTHORIZED_CODE];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, JsonSchema, PartialEq)]
 pub enum ResponseType {
+    #[serde(rename = "code")]
     Code,
+    #[serde(rename = "id_token")]
     IdToken,
+    #[serde(rename = "urn:ietf:params:oauth:response-type:pre-authorized_code")]
     PreAuthorizedCode,
+    #[serde(rename = "token")]
     Token,
+    #[serde(rename = "vp_token")]
     VpToken,
 }
 
 impl ResponseType {
+    pub const ALL: [Self; 5] = [
+        Self::Code,
+        Self::IdToken,
+        Self::PreAuthorizedCode,
+        Self::Token,
+        Self::VpToken,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             ResponseType::Code => "code",

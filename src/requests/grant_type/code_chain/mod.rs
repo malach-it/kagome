@@ -21,6 +21,7 @@ pub struct CodeChainRequest<'a> {
     pub authorization_code: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+    pub grant_types: Vec<GrantType>,
     id_token: Option<String>,
 }
 
@@ -36,12 +37,17 @@ pub struct CodeChainResponse {
 
 impl<'a> CodeChainRequest<'a> {
     pub fn empty(request: &'a KagomeRequest) -> Self {
+        let grant_type = parse_request_parameter(request, "grant_type");
         Self {
             response: CodeChainResponse::empty(),
             request,
             authorization_code: parse_request_parameter(request, "authorization_code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
+            grant_types: grant_type
+                .as_deref()
+                .map(crate::resources::grant_type::parse_supported)
+                .unwrap_or_default(),
             id_token: parse_request_parameter(request, "id_token"),
         }
     }
@@ -59,6 +65,7 @@ impl<'a> CodeChainRequest<'a> {
             authorization_code: parse_request_parameter(request, "authorization_code"),
             client_id: parse_request_parameter(request, "client_id"),
             client_secret: parse_request_parameter(request, "client_secret"),
+            grant_types: response.response.grant_types.clone(),
             id_token: parse_request_parameter(request, "id_token"),
         }
     }
@@ -96,6 +103,10 @@ impl<'a> client_credentials::Validate for CodeChainRequest<'a> {
 
     fn request_client_secret(&self) -> Option<&str> {
         self.client_secret.as_deref()
+    }
+
+    fn requested_grant_types(&self) -> &[GrantType] {
+        &self.grant_types
     }
 
     fn add_client_credentials(

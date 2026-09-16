@@ -1,6 +1,7 @@
 use crate::{
     config::{ClientConfig, Config},
     errors::OAuthError,
+    resources::{grant_type::GrantType, response_type::ResponseType},
 };
 
 #[derive(Debug)]
@@ -30,6 +31,12 @@ pub trait Validate {
     }
     fn require_redirect_uri(&self) -> bool {
         false
+    }
+    fn requested_grant_types(&self) -> &[GrantType] {
+        &[]
+    }
+    fn requested_response_types(&self) -> &[ResponseType] {
+        &[]
     }
     fn add_resource_owner_credentials(&mut self, _username: &str, _password: &str) {}
     fn add_client_credentials(&mut self, client_credentials: ClientCredentials);
@@ -106,12 +113,54 @@ pub fn validate_with_clients<T: Validate>(
         None
     };
 
-    if request.is_authorize_post_request()
-        && configured_client.is_some_and(|client| client.federated_server.is_some())
+    let configured_client = configured_client.ok_or_else(OAuthError::invalid_client_id)?;
+    if let Some(grant_type) = request
+        .requested_grant_types()
+        .iter()
+        .find(|grant_type| !configured_client.supported_grant_types.contains(grant_type))
     {
+        return Err(OAuthError::unauthorized_client(format!(
+            "client does not support grant_type {}",
+            grant_type.as_str()
+        )));
+    }
+    if let Some(response_type) = request
+        .requested_response_types()
+        .iter()
+        .find(|response_type| {
+            !configured_client
+                .supported_response_types
+                .contains(response_type)
+        })
+    {
+        return Err(OAuthError::unauthorized_client(format!(
+            "client does not support response_type {}",
+            response_type.as_str()
+        )));
+    }
+
+    if request.is_authorize_post_request() && configured_client.federated_server.is_some() {
         return Err(OAuthError::invalid_request(
             "POST /authorize is disabled for federated clients",
         ));
+    }
+    for response_type in request.requested_response_types() {
+        let required_grant_type = match response_type {
+            ResponseType::Code => Some(GrantType::AuthorizationCode),
+            ResponseType::IdToken | ResponseType::Token => Some(GrantType::Implicit),
+            ResponseType::PreAuthorizedCode => Some(GrantType::PreAuthorizedCode),
+            ResponseType::VpToken => None,
+        };
+        if let Some(grant_type) = required_grant_type
+            && !configured_client
+                .supported_grant_types
+                .contains(&grant_type)
+        {
+            return Err(OAuthError::unauthorized_client(format!(
+                "client does not support grant_type {}",
+                grant_type.as_str()
+            )));
+        }
     }
 
     let authenticated_username = is_public_client_id

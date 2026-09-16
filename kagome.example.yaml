@@ -17,6 +17,19 @@ clients:
     client_secret: client_secret
     redirect_uris:
       - https://client.example.com/callback
+    supported_grant_types:
+      - authorization_code
+      - client_credentials
+      - code_chain
+      - implicit
+      - urn:ietf:params:oauth:grant-type:pre-authorized_code
+      - password
+    supported_response_types:
+      - code
+      - id_token
+      - urn:ietf:params:oauth:response-type:pre-authorized_code
+      - token
+      - vp_token
     require_wallet_binding: false
     qr_code: false
     federated_server:

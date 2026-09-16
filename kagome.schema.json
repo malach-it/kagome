@@ -90,6 +90,20 @@
           "description": "Require wallet proofs and presentations to be bound to the public key\nfrom the ID token carried by the incoming authorization code.",
           "type": "boolean",
           "default": false
+        },
+        "supported_grant_types": {
+          "description": "OAuth grant types this client may use.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GrantType"
+          }
+        },
+        "supported_response_types": {
+          "description": "OAuth response types this client may request.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseType"
+          }
         }
       },
       "additionalProperties": false,
@@ -187,6 +201,27 @@
         "endpoints"
       ]
     },
+    "GrantType": {
+      "type": "string",
+      "enum": [
+        "authorization_code",
+        "client_credentials",
+        "code_chain",
+        "implicit",
+        "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+        "password"
+      ]
+    },
+    "ResponseType": {
+      "type": "string",
+      "enum": [
+        "code",
+        "id_token",
+        "urn:ietf:params:oauth:response-type:pre-authorized_code",
+        "token",
+        "vp_token"
+      ]
+    },
     "ServerConfig": {
       "type": "object",
       "properties": {
@@ -224,19 +259,19 @@
           "format": "uint64",
           "minimum": 1
         },
+        "authorization_code_chain_max_depth": {
+          "description": "Maximum number of nested authorization codes accepted in one chain.",
+          "type": "integer",
+          "format": "uint",
+          "default": 8,
+          "maximum": 32,
+          "minimum": 1
+        },
         "authorization_code_ttl": {
           "description": "Lifetime of an authorization code, in seconds.",
           "type": "integer",
           "format": "uint64",
           "minimum": 1
-        },
-        "authorization_code_chain_max_depth": {
-          "description": "Maximum number of nested authorization codes accepted in one chain.",
-          "type": "integer",
-          "format": "uint",
-          "minimum": 1,
-          "maximum": 32,
-          "default": 8
         },
         "id_token_ttl": {
           "description": "Lifetime of an ID token, in seconds.",
