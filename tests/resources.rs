@@ -1478,7 +1478,13 @@ mod resources {
 
         fn valid_id_token_claims() -> serde_json::Value {
             INITIALIZE_CONFIG.call_once(|| {
-                kagome::config::Config::initialize().expect("test configuration should load");
+                let config = kagome::config::Config::load_from_path(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/fixtures/kagome.yaml"
+                ))
+                .expect("test configuration should load");
+                kagome::config::Config::set_global(config)
+                    .expect("test configuration should initialize");
             });
             let now = jsonwebtoken::get_current_timestamp();
             serde_json::json!({

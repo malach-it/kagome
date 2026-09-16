@@ -1,0 +1,46 @@
+server:
+  address: 127.0.0.1:4000
+  issuer: http://localhost:4000
+  workers: 1
+crypto:
+  key_file: kagome.crypto.yaml
+tokens:
+  access_token_ttl: 3600
+  authorization_code_ttl: 600
+  id_token_ttl: 3600
+  authorization_code_chain_max_depth: 8
+credentials:
+  - credential_configuration_id: TestCredential
+    name: Test Credential
+    vct: TestCredential
+    type:
+      - TestCredential
+presentation_definitions:
+  - identifier: test_presentation
+    definition:
+      id: test_presentation
+      input_descriptors:
+        - id: credential
+          format:
+            jwt_vc:
+              alg: [EdDSA]
+          constraints:
+            fields:
+              - path: [$.vc.type]
+                filter:
+                  type: array
+                  contains:
+                    const: TestCredential
+clients:
+  - client_id: client_id
+    client_secret: client_secret
+    redirect_uris:
+      - https://client.example.com/callback
+    supported_grant_types:
+      - code_chain
+    supported_response_types:
+      - code
+    scopes:
+      - openid
+    require_wallet_binding: false
+    qr_code: false
