@@ -756,6 +756,10 @@ impl pkce::Validate for AuthorizeLoginRequest<'_> {
         self.code_challenge_method.as_deref()
     }
 
+    fn require_code_challenge(&self) -> bool {
+        self.response.response_types.contains(&ResponseType::Code)
+    }
+
     fn add_code_challenge(&mut self, code_challenge: CodeChallenge) {
         self.response.code_challenge = Some(code_challenge);
     }

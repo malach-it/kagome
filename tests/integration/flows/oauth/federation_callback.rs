@@ -564,6 +564,19 @@ fn federation_state() -> String {
 }
 
 fn federation_state_for(authorize_query: &str) -> String {
+    let response_type_contains_code = authorize_query
+        .split('&')
+        .find_map(|parameter| parameter.strip_prefix("response_type="))
+        .map(|value| value.replace("%20", " ").replace('+', " "))
+        .is_some_and(|value| value.split_whitespace().any(|value| value == "code"));
+    let authorize_query = if response_type_contains_code
+        && !authorize_query.contains("code_challenge=")
+        && !authorize_query.contains("code_challenge_method=")
+    {
+        format!("{authorize_query}&code_challenge={PKCE_CHALLENGE}&code_challenge_method=S256")
+    } else {
+        authorize_query.to_owned()
+    };
     let response = send_request(&format!(
         "GET /authorize?{authorize_query} HTTP/1.1\r\nhost: example.com\r\n\r\n"
     ));

@@ -80,7 +80,7 @@ pub trait Validate {
 
 /// Selects and stores the supported grant type requested by a token request.
 ///
-/// Only the first space-delimited value is selected and added as typed response state.
+/// Exactly one grant type must be provided and is added as typed response state.
 ///
 /// # Errors
 ///
@@ -94,7 +94,13 @@ pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
 }
 
 fn parse(grant_type: Option<&str>) -> Result<GrantType, OAuthError> {
-    match grant_type.and_then(|grant_type| grant_type.split_whitespace().next()) {
+    let mut values = grant_type.into_iter().flat_map(str::split_whitespace);
+    let grant_type = values.next();
+    if values.next().is_some() {
+        return Err(OAuthError::unsupported_grant_type(&SUPPORTED_GRANT_TYPES));
+    }
+
+    match grant_type {
         Some("authorization_code") => Ok(GrantType::AuthorizationCode),
         Some("client_credentials") => Ok(GrantType::ClientCredentials),
         Some(RESOURCE_OWNER_PASSWORD_CREDENTIALS) => {

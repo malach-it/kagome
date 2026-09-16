@@ -13,8 +13,8 @@ use super::super::*;
 //   missing | invalid
 // - metadata policy: missing | valid string | valid username superset | invalid |
 //   username mismatch
-// - PKCE: absent | valid S256 | missing challenge | missing method | unsupported
-//   method | malformed challenge
+// - PKCE when response_type contains code: valid S256 | absent | missing challenge |
+//   missing method | unsupported method | malformed challenge
 // - authorization-code chain depth: below maximum | exactly maximum | exceeding maximum
 // - authorization-code redemption: first generated response succeeds | repeated response
 //   generation is rejected by the process-local replay store
@@ -501,7 +501,7 @@ fn returns_not_implemented_for_authorize_get_request_with_missing_client_id_reso
 #[test]
 fn authenticates_authorize_get_request_with_public_username_host_client_id() {
     let response = send_request(&format!(
-        "GET /authorize?response_type=code&client_id=username%40example.com&redirect_uri={} HTTP/1.1\r\nhost: example.com\r\n\r\n",
+        "GET /authorize?response_type=code&client_id=username%40example.com&redirect_uri={}&code_challenge={PKCE_CHALLENGE}&code_challenge_method=S256 HTTP/1.1\r\nhost: example.com\r\n\r\n",
         valid_redirect_uri()
     ));
     let code = redirect_code(&response).expect("public client response should include code");
@@ -782,6 +782,17 @@ fn binds_s256_pkce_challenge_to_authorization_code() {
             value: PKCE_CHALLENGE.to_owned(),
         })
     );
+}
+
+#[test]
+fn rejects_code_response_type_without_pkce() {
+    let response = send_post_authorize_request_without_default_pkce(&format!(
+        "response_type=code&client_id=client_id&redirect_uri={}",
+        valid_redirect_uri()
+    ));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("code_challenge is required"));
 }
 
 #[test]
@@ -1075,6 +1086,7 @@ fn returns_oauth_error_for_invalid_authorize_password() {
 }
 
 fn send_authorize_request(query: &str) -> String {
+    let query = with_default_pkce(query);
     send_request(&format!(
         "GET /authorize?{query} HTTP/1.1\r\nhost: example.com\r\n\r\n"
     ))
@@ -1102,11 +1114,37 @@ fn send_post_authorize_request(query: &str) -> String {
 }
 
 fn send_post_authorize_request_with_body(query: &str, body: &str) -> String {
+    let query = with_default_pkce(query);
+    send_post_authorize_request_with_body_and_query(&query, body)
+}
+
+fn send_post_authorize_request_without_default_pkce(query: &str) -> String {
+    send_post_authorize_request_with_body_and_query(query, "username=username&password=password")
+}
+
+fn send_post_authorize_request_with_body_and_query(query: &str, body: &str) -> String {
     send_request(&format!(
         "POST /authorize?{query} HTTP/1.1\r\nhost: example.com\r\ncontent-type: application/x-www-form-urlencoded\r\ncontent-length: {}\r\n\r\n{}",
         body.len(),
         body
     ))
+}
+
+fn with_default_pkce(query: &str) -> String {
+    let response_type_contains_code = query
+        .split('&')
+        .find_map(|parameter| parameter.strip_prefix("response_type="))
+        .map(|value| value.replace("%20", " ").replace('+', " "))
+        .is_some_and(|value| value.split_whitespace().any(|value| value == "code"));
+    let has_pkce_parameter = query.split('&').any(|parameter| {
+        parameter.starts_with("code_challenge=") || parameter.starts_with("code_challenge_method=")
+    });
+
+    if response_type_contains_code && !has_pkce_parameter {
+        format!("{query}&code_challenge={PKCE_CHALLENGE}&code_challenge_method=S256")
+    } else {
+        query.to_owned()
+    }
 }
 
 fn redirect_code(response: &str) -> Option<String> {

@@ -9,8 +9,7 @@ pub use authorize::{AuthorizeCodeRequest, AuthorizeCodeResponse, AuthorizeLoginR
 pub use federation_callback::{FederationCallbackRequest, FederationCallbackResponse};
 pub use grant_type::{
     AuthorizationCodeRequest, AuthorizationCodeResponse, ClientCredentialsRequest,
-    ClientCredentialsResponse, CodeChainAuthorizationCodeRequest,
-    CodeChainAuthorizationCodeResponse, CodeChainRequest, CodeChainResponse, GrantTypeRequest,
+    ClientCredentialsResponse, CodeChainRequest, CodeChainResponse, GrantTypeRequest,
     GrantTypeResponse, ResourceOwnerPasswordCredentialsRequest,
     ResourceOwnerPasswordCredentialsResponse,
 };

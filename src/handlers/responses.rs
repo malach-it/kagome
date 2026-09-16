@@ -3,9 +3,9 @@ use crate::{
     errors::OAuthError,
     requests::{
         AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
-        ClientCredentialsRequest, CodeChainAuthorizationCodeRequest, CodeChainRequest,
-        CredentialRequest, PreAuthorizedCodeRequest, PresentationResponseRequest,
-        ResourceOwnerPasswordCredentialsRequest, SiopAuthorizationRequest, SiopResponseRequest,
+        ClientCredentialsRequest, CodeChainRequest, CredentialRequest, PreAuthorizedCodeRequest,
+        PresentationResponseRequest, ResourceOwnerPasswordCredentialsRequest,
+        SiopAuthorizationRequest, SiopResponseRequest,
     },
     resources::{
         access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
@@ -701,41 +701,6 @@ impl ResponseLog for CodeChainRequest<'_> {
                 (
                     "response.authorization_code",
                     artifact_status(self.response.authorization_code.as_ref()),
-                ),
-            ],
-        );
-    }
-}
-
-impl ResponseLog for CodeChainAuthorizationCodeRequest<'_> {
-    fn to_http_response(&self) -> Result<String, OAuthError> {
-        self.to_response()
-    }
-
-    fn log_success(&self) {
-        log_token_success(
-            "code_chain_authorization_code",
-            &[
-                (
-                    "request.grant_type",
-                    grant_type_value(self.response.grant_type),
-                ),
-                ("request.client_id", optional_str(self.client_id.as_deref())),
-                (
-                    "request.client_secret",
-                    redacted_optional(self.client_secret.as_deref()),
-                ),
-                (
-                    "request.authorization_code",
-                    redacted_optional(self.authorization_code.as_deref()),
-                ),
-                (
-                    "response.authorization_code",
-                    artifact_status(self.response.authorization_code.as_ref()),
-                ),
-                (
-                    "response.access_token",
-                    artifact_status(self.response.access_token.as_ref()),
                 ),
             ],
         );

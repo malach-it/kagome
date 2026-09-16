@@ -256,7 +256,7 @@ fn sign_id_token(claims: serde_json::Value) -> String {
 }
 
 fn valid_authorization_code() -> String {
-    authorization_code_for_client_id("client_id")
+    authorization_code_for_client_id_and_challenge("client_id", Some(PKCE_CHALLENGE))
 }
 
 fn authorization_code_for_client_id(client_id: &str) -> String {

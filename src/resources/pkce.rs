@@ -15,6 +15,9 @@ pub struct CodeChallenge {
 pub trait Validate {
     fn request_code_challenge(&self) -> Option<&str>;
     fn request_code_challenge_method(&self) -> Option<&str>;
+    fn require_code_challenge(&self) -> bool {
+        false
+    }
     fn add_code_challenge(&mut self, code_challenge: CodeChallenge);
 }
 
@@ -23,10 +26,11 @@ pub trait Verify {
     fn validated_authorization_code(&self) -> Option<&str>;
 }
 
-/// Validates an optional S256 challenge pair and stores the typed challenge.
+/// Validates an S256 challenge pair and stores the typed challenge.
 ///
-/// Challenge and method may both be absent. When present, they must appear together, the method
-/// must be `S256`, and the challenge must be a 43-character unpadded base64url value.
+/// Challenge and method may both be absent unless the request requires PKCE. When present, they
+/// must appear together, the method must be `S256`, and the challenge must be a 43-character
+/// unpadded base64url value.
 ///
 /// # Errors
 ///
@@ -36,6 +40,9 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         request.request_code_challenge().map(str::to_owned),
         request.request_code_challenge_method().map(str::to_owned),
     ) {
+        (None, None) if request.require_code_challenge() => {
+            Err(OAuthError::invalid_request("code_challenge is required"))
+        }
         (None, None) => Ok(request),
         (None, Some(_)) => Err(OAuthError::invalid_request(
             "code_challenge is required when code_challenge_method is provided",
@@ -60,9 +67,9 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
 
 /// Verifies a code verifier against the challenge in a validated authorization code.
 ///
-/// Requires the authorization code to have been validated first. Codes without a challenge need
-/// no verifier; otherwise the verifier syntax and its constant-time S256 comparison are enforced.
-/// This action validates state without mutating it.
+/// Requires the authorization code to have been validated first and to carry a challenge. The
+/// verifier syntax and its constant-time S256 comparison are then enforced. This action validates
+/// state without mutating it.
 ///
 /// # Errors
 ///
@@ -74,9 +81,9 @@ pub fn verify<T: Verify>(request: T) -> Result<T, OAuthError> {
         OAuthError::invalid_token_response("authorization_code must be validated before PKCE")
     })?;
     let payload = authorization_code::decode_cose_payload(authorization_code)?;
-    let Some(code_challenge) = payload.code_challenge else {
-        return Ok(request);
-    };
+    let code_challenge = payload
+        .code_challenge
+        .ok_or_else(|| OAuthError::invalid_grant("authorization_code must use PKCE"))?;
     let code_verifier = request
         .request_code_verifier()
         .ok_or_else(|| OAuthError::invalid_grant("code_verifier is required"))?;

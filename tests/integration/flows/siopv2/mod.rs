@@ -12,6 +12,7 @@ const ISSUER: &str = "http://localhost:4000";
 const RESPONSE_URI: &str = "http://localhost:4000/siopv2-response";
 const CLIENT_ID: &str = "configured_client";
 const CLIENT_REDIRECT_URI: &str = "https://configured.example.com/callback";
+const PKCE_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 const X: &str = "2OOMuJdc5XAbumGYaUtM3ngfBVFhqjeqb0fJ_N3Y7UI";
 const Y: &str = "Yp8TpPyvA3t9jF01vn7Z6SXYjpKkZOrO1Gg7CkxnMF8";
 const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9SWS4Y9IULSULCea\nXPaFWOCkkYV/k1RW1NCRhdqo8NGhRANCAATY44y4l1zlcBu6YZhpS0zeeB8FUWGq\nN6pvR8n83djtQmKfE6T8rwN7fYxdNb5+2ekl2I6SpGTqztRoOwpMZzBf\n-----END PRIVATE KEY-----\n";
@@ -23,7 +24,8 @@ const PRIVATE_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49Ag
 // - authorization request error format: every direct failure renders HTML
 // - wallet binding policy: SIOPv2 pre-authorized-code continuation carries the
 //   validated wallet key through an encrypted authorization code
-// - PKCE: absent | valid S256 parameters preserved in state | unsupported method
+// - PKCE when response_type contains code: valid S256 parameters preserved in state |
+//   absent | unsupported method
 // - verifier origin: configured issuer | unrelated or missing Host (equivalent)
 // - generated values: fresh nonce/state/request object | RNG/signing failure
 //   (unreachable with the process RNG and embedded signing key)
@@ -156,9 +158,19 @@ fn rejects_non_s256_pkce_method_for_siop_authorization() {
 }
 
 #[test]
+fn rejects_siop_code_response_type_without_pkce() {
+    let response = send_request(&format!(
+        "GET /siopv2-request?response_type=code&client_id={CLIENT_ID}&redirect_uri={} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        form_encode(CLIENT_REDIRECT_URI)
+    ));
+
+    assert_authorization_request_html_error(&response, "code_challenge is required");
+}
+
+#[test]
 fn renders_siop_authorization_request_as_qr_code_with_deep_link() {
     let response = send_request(&format!(
-        "GET /siopv2-request?response_type=code&client_id=qr_client&redirect_uri={} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        "GET /siopv2-request?response_type=code&client_id=qr_client&redirect_uri={}&code_challenge={PKCE_CHALLENGE}&code_challenge_method=S256 HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
         form_encode("https://qr.example.com/callback")
     ));
     let deep_link = super::common::qr_page_deep_link(&response);
@@ -223,7 +235,7 @@ fn generates_fresh_siop_nonce_state_and_request_object() {
 #[test]
 fn uses_configured_issuer_independently_of_host() {
     let path = format!(
-        "/siopv2-request?response_type=code&client_id={CLIENT_ID}&redirect_uri={}",
+        "/siopv2-request?response_type=code&client_id={CLIENT_ID}&redirect_uri={}&code_challenge={PKCE_CHALLENGE}&code_challenge_method=S256",
         form_encode(CLIENT_REDIRECT_URI)
     );
     let missing = send_request(&format!("GET {path} HTTP/1.1\r\n\r\n"));
@@ -921,8 +933,13 @@ fn authorization_request_for_client(
     let code = code
         .map(|code| format!("&code={}", form_encode(code)))
         .unwrap_or_default();
+    let pkce = response_type
+        .split_whitespace()
+        .any(|response_type| response_type == "code")
+        .then(|| format!("&code_challenge={PKCE_CHALLENGE}&code_challenge_method=S256"))
+        .unwrap_or_default();
     let response = send_request(&format!(
-        "GET /siopv2-request?response_type={}&client_id={client_id}&redirect_uri={}&state=client-state{code} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        "GET /siopv2-request?response_type={}&client_id={client_id}&redirect_uri={}&state=client-state{code}{pkce} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
         form_encode(response_type),
         form_encode(redirect_uri),
     ));
@@ -931,8 +948,13 @@ fn authorization_request_for_client(
 }
 
 fn qr_authorization_request(response_type: &str) -> AuthorizationFixture {
+    let pkce = response_type
+        .split_whitespace()
+        .any(|response_type| response_type == "code")
+        .then(|| format!("&code_challenge={PKCE_CHALLENGE}&code_challenge_method=S256"))
+        .unwrap_or_default();
     let response = send_request(&format!(
-        "GET /siopv2-request?response_type={}&client_id=qr_client&redirect_uri={}&state=client-state&scope=credential_presentation HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
+        "GET /siopv2-request?response_type={}&client_id=qr_client&redirect_uri={}&state=client-state&scope=credential_presentation{pkce} HTTP/1.1\r\nhost: {HOST}\r\n\r\n",
         form_encode(response_type),
         form_encode("https://qr.example.com/callback"),
     ));

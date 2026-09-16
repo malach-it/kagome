@@ -959,28 +959,6 @@ mod resources {
         }
 
         #[test]
-        fn rejects_combined_grant_when_one_type_is_not_supported_by_client() {
-            let mut request = token_request(Some("client_id"));
-            request.body = "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code".to_owned();
-            let token_response = kagome::handlers::token::CodeChainRequest::empty(&request);
-            let mut clients = crate::configured_clients();
-            clients[0].supported_grant_types =
-                vec![kagome::resources::grant_type::GrantType::CodeChain];
-
-            let error = kagome::resources::client_credentials::validate_with_clients(
-                token_response,
-                &clients,
-            )
-            .unwrap_err();
-
-            assert_eq!(error.error, "unauthorized_client");
-            assert_eq!(
-                error.error_description,
-                "client does not support grant_type authorization_code"
-            );
-        }
-
-        #[test]
         fn rejects_response_type_not_supported_by_client() {
             let mut request = authorize_request(Some("https://client.example.com/callback"));
             request
@@ -1546,21 +1524,15 @@ mod resources {
         }
 
         #[test]
-        fn validates_code_chain_authorization_code() {
+        fn rejects_multiple_grant_types() {
             let request = token_request(Some("code_chain authorization_code"));
             let token_response = kagome::handlers::token::GrantTypeRequest::from_request(&request);
-            let token_response = kagome::resources::grant_type::validate(token_response).unwrap();
+            let error = kagome::resources::grant_type::validate(token_response).unwrap_err();
 
+            assert_eq!(error.error, "unsupported_grant_type");
             assert_eq!(
-                token_response.response.grant_type,
-                Some(kagome::resources::grant_type::GrantType::CodeChain)
-            );
-            assert_eq!(
-                token_response.response.grant_types,
-                vec![
-                    kagome::resources::grant_type::GrantType::CodeChain,
-                    kagome::resources::grant_type::GrantType::AuthorizationCode,
-                ]
+                error.error_description,
+                "grant_type must be one of: client_credentials, password, code_chain, authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code"
             );
         }
 

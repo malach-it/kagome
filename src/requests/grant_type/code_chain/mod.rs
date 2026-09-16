@@ -7,12 +7,7 @@ use crate::{
 
 use super::GrantTypeRequest;
 
-mod code_chain_authorization_code;
-
 use crate::resources::{authorization_code::AuthorizationCode, id_token};
-pub use code_chain_authorization_code::{
-    CodeChainAuthorizationCodeRequest, CodeChainAuthorizationCodeResponse,
-};
 
 #[derive(Debug)]
 pub struct CodeChainRequest<'a> {

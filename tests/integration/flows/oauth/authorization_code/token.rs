@@ -16,7 +16,7 @@ use super::super::*;
 #[test]
 fn returns_token_response_for_form_authorization_code_grant_type() {
     let body = format!(
-        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={}",
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={}&code_verifier={PKCE_VERIFIER}",
         valid_authorization_code()
     );
     let response = send_form_token_request(&body);
@@ -41,7 +41,7 @@ fn returns_token_response_for_form_authorization_code_grant_type() {
 #[test]
 fn returns_token_response_for_json_authorization_code_grant_type() {
     let body = format!(
-        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"authorization_code\",\"code\":\"{}\"}}",
+        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"authorization_code\",\"code\":\"{}\",\"code_verifier\":\"{PKCE_VERIFIER}\"}}",
         valid_authorization_code()
     );
     let response = send_json_token_request(&body);
@@ -59,7 +59,7 @@ fn returns_token_response_for_json_authorization_code_grant_type() {
 fn rejects_repeated_authorization_code_exchange() {
     let code = valid_authorization_code();
     let body = format!(
-        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={code}"
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={code}&code_verifier={PKCE_VERIFIER}"
     );
 
     let first = send_form_token_request(&body);
@@ -91,6 +91,19 @@ fn exchanges_s256_pkce_bound_authorization_code() {
 
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(response.contains("\"access_token\":\""));
+}
+
+#[test]
+fn rejects_authorization_code_without_pkce_binding() {
+    let code = authorization_code_for_client_id_and_challenge("client_id", None);
+    let body = format!(
+        "client_id=client_id&client_secret=client_secret&grant_type=authorization_code&code={code}&code_verifier={PKCE_VERIFIER}"
+    );
+    let response = send_form_token_request(&body);
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"invalid_grant\""));
+    assert!(response.contains("authorization_code must use PKCE"));
 }
 
 #[test]

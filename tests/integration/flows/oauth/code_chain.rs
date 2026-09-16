@@ -14,7 +14,7 @@ use super::*;
 //   expired | future iat | exp before iat
 // - previous authorization_code: missing | valid below maximum depth | valid at maximum depth |
 //   exceeding maximum depth | invalid | issued to another client
-// - chained authorization_code exchange: absent | valid | invalid
+// - grant_type cardinality: code_chain | multiple values rejected
 // - scope: omitted | authorized | unauthorized
 // Validation failures are representation-independent after parsing, so each equivalent
 // failure path is exercised once with form input.
@@ -127,45 +127,27 @@ fn returns_token_response_for_json_code_chain_grant_type() {
 }
 
 #[test]
-fn returns_token_response_for_form_code_chain_authorization_code_grant_type() {
+fn rejects_multiple_form_grant_types() {
     let body = format!(
-        "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code&id_token={}&code={}",
-        valid_id_token(),
-        valid_authorization_code()
+        "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code&id_token={}",
+        valid_id_token()
     );
     let response = send_form_token_request(&body);
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: application/json\r\n"));
-    assert!(response.contains("connection: close\r\n"));
-    assert!(response.contains("\"token_type\":\"bearer\""));
-    assert!(response.contains("\"access_token\":\""));
-    assert!(response.contains("\"expires_in\":3600"));
-    assert!(!response.contains("\"authorization_code\""));
-    assert!(!response.contains("\"client_id\""));
-    assert!(!response.contains("\"client_secret\""));
-    assert!(!response.contains("\"grant_type\""));
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"unsupported_grant_type\""));
 }
 
 #[test]
-fn returns_token_response_for_json_code_chain_authorization_code_grant_type() {
+fn rejects_multiple_json_grant_types() {
     let body = format!(
-        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"code_chain authorization_code\",\"id_token\":\"{}\",\"code\":\"{}\"}}",
-        valid_id_token(),
-        valid_authorization_code()
+        "{{\"client_id\":\"client_id\",\"client_secret\":\"client_secret\",\"grant_type\":\"code_chain authorization_code\",\"id_token\":\"{}\"}}",
+        valid_id_token()
     );
     let response = send_json_token_request(&body);
 
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.contains("content-type: application/json\r\n"));
-    assert!(response.contains("connection: close\r\n"));
-    assert!(response.contains("\"token_type\":\"bearer\""));
-    assert!(response.contains("\"access_token\":\""));
-    assert!(response.contains("\"expires_in\":3600"));
-    assert!(!response.contains("\"authorization_code\""));
-    assert!(!response.contains("\"client_id\""));
-    assert!(!response.contains("\"client_secret\""));
-    assert!(!response.contains("\"grant_type\""));
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("\"error\":\"unsupported_grant_type\""));
 }
 
 #[test]
@@ -386,28 +368,6 @@ fn returns_oauth_error_for_previous_authorization_code_issued_to_another_client(
             "\"error_description\":\"authorization_code client_id does not match request\""
         )
     );
-}
-
-#[test]
-fn returns_oauth_error_for_missing_code_chain_authorization_code_exchange_code() {
-    let body = format!(
-        "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code&id_token={}",
-        valid_id_token()
-    );
-    let response = send_form_token_request(&body);
-
-    assert_missing_authorization_code_response(&response);
-}
-
-#[test]
-fn returns_oauth_error_for_invalid_code_chain_authorization_code_exchange_code() {
-    let body = format!(
-        "client_id=client_id&client_secret=client_secret&grant_type=code_chain+authorization_code&id_token={}&code=app",
-        valid_id_token()
-    );
-    let response = send_form_token_request(&body);
-
-    assert_invalid_authorization_code_response(&response);
 }
 
 fn assert_code_chain_id_token_error(id_token: &str, description: &str) {

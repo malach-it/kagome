@@ -11,9 +11,8 @@ use crate::{
 use super::responses::{cors_response, log_timestamp, logged_response};
 
 pub use crate::requests::{
-    AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainAuthorizationCodeRequest,
-    CodeChainRequest, GrantTypeRequest, GrantTypeResponse, PreAuthorizedCodeRequest,
-    ResourceOwnerPasswordCredentialsRequest,
+    AuthorizationCodeRequest, ClientCredentialsRequest, CodeChainRequest, GrantTypeRequest,
+    GrantTypeResponse, PreAuthorizedCodeRequest, ResourceOwnerPasswordCredentialsRequest,
 };
 
 pub fn handle_token(request: &KagomeRequest) -> String {
@@ -35,40 +34,35 @@ fn handle_validated_grant_type(
     request: &KagomeRequest,
 ) -> Result<String, OAuthError> {
     match token_request.grant_types() {
-        [GrantType::AuthorizationCode, ..] => authorization_code(
+        [GrantType::AuthorizationCode] => authorization_code(
             AuthorizationCodeRequest::from_grant_type_response(&token_request, request),
         )
         .and_then(logged_response),
-        [GrantType::ClientCredentials, ..] => client_credentials(
+        [GrantType::ClientCredentials] => client_credentials(
             ClientCredentialsRequest::from_grant_type_response(&token_request, request),
         )
         .and_then(logged_response),
-        [GrantType::CodeChain, GrantType::AuthorizationCode, ..] => code_chain_authorization_code(
-            CodeChainRequest::from_grant_type_response(&token_request, request),
-            AuthorizationCodeRequest::from_grant_type_response(&token_request, request),
-        )
-        .and_then(logged_response),
-        [GrantType::CodeChain, ..] => code_chain(CodeChainRequest::from_grant_type_response(
+        [GrantType::CodeChain] => code_chain(CodeChainRequest::from_grant_type_response(
             &token_request,
             request,
         ))
         .and_then(logged_response),
-        [GrantType::PreAuthorizedCode, ..] => {
+        [GrantType::PreAuthorizedCode] => {
             pre_authorized_code(PreAuthorizedCodeRequest::from_request(request))
                 .and_then(logged_response)
         }
-        [GrantType::ResourceOwnerPasswordCredentials, ..] => resource_owner_password_credentials(
+        [GrantType::ResourceOwnerPasswordCredentials] => resource_owner_password_credentials(
             ResourceOwnerPasswordCredentialsRequest::from_grant_type_response(
                 &token_request,
                 request,
             ),
         )
         .and_then(logged_response),
-        [GrantType::Implicit, ..] => Err(OAuthError::unsupported_grant_type(
+        [GrantType::Implicit] => Err(OAuthError::unsupported_grant_type(
             &grant_type::SUPPORTED_GRANT_TYPES,
         )),
-        [] => Err(OAuthError::invalid_token_response(
-            "token response requires grant_type",
+        [] | [_, _, ..] => Err(OAuthError::unsupported_grant_type(
+            &grant_type::SUPPORTED_GRANT_TYPES,
         )),
     }
 }
@@ -94,19 +88,6 @@ fn code_chain(token_request: CodeChainRequest) -> Result<CodeChainRequest, OAuth
         .and_then(authorization_code::validate_optional)
         .and_then(id_token::validate)
         .and_then(authorization_code::generate)
-}
-
-fn code_chain_authorization_code<'a>(
-    code_chain_request: CodeChainRequest<'a>,
-    authorization_code_request: AuthorizationCodeRequest<'a>,
-) -> Result<CodeChainAuthorizationCodeRequest<'a>, OAuthError> {
-    let code_chain_result = code_chain(code_chain_request)?;
-    let authorization_code_result = authorization_code(authorization_code_request)?;
-
-    Ok(CodeChainAuthorizationCodeRequest::from_requests(
-        code_chain_result,
-        authorization_code_result,
-    ))
 }
 
 fn client_credentials(

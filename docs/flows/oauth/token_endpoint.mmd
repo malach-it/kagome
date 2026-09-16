@@ -26,9 +26,7 @@ flowchart TD
     client_scope -- ok --> access["access_token::generate"]
     owner -- ok --> access
     consume_code -- ok --> access
-    issue -- code only --> code_success["`**HTTP 200** authorization code with CORS header`"]
-    issue -- with authorization_code --> exchange[Run authorization-code pipeline]
-    exchange --> access
+    issue -- ok --> code_success["`**HTTP 200** authorization code with CORS header`"]
     credential_access -- ok --> credential_access_success["`**HTTP 200** credential access token with CORS header`"]
     access -- ok --> access_success["`**HTTP 200** bearer access token with CORS header`"]
     client -- error --> oauth_error

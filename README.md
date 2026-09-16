@@ -202,6 +202,10 @@ wallet-error response. Valid federation callback state is likewise consumed
 after accepting a non-empty upstream code or error callback. Presentation state
 is consumed after accepting a validated presentation or supported wallet error.
 
+Authorization requests whose `response_type` contains `code`, including hybrid
+and chained responses, require an S256 PKCE challenge. Authorization-code token
+requests require the matching verifier and reject codes without a PKCE binding.
+
 OAuth access tokens and credential access tokens are opaque COSE_Encrypt0
 artifacts. Encryption is centralized and domain-separated by artifact-specific
 keys and external authenticated data, so an artifact cannot be substituted in

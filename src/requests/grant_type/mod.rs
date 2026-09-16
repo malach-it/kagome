@@ -10,10 +10,7 @@ mod resource_owner_password_credentials;
 
 pub use authorization_code::{AuthorizationCodeRequest, AuthorizationCodeResponse};
 pub use client_credentials::{ClientCredentialsRequest, ClientCredentialsResponse};
-pub use code_chain::{
-    CodeChainAuthorizationCodeRequest, CodeChainAuthorizationCodeResponse, CodeChainRequest,
-    CodeChainResponse,
-};
+pub use code_chain::{CodeChainRequest, CodeChainResponse};
 pub use resource_owner_password_credentials::{
     ResourceOwnerPasswordCredentialsRequest, ResourceOwnerPasswordCredentialsResponse,
 };
@@ -63,9 +60,7 @@ impl GrantTypeResponse {
 
 impl<'a> grant_type::Validate for GrantTypeRequest<'a> {
     fn request_grant_type(&self) -> Option<&str> {
-        self.grant_type
-            .as_deref()
-            .and_then(|grant_type| grant_type.split_whitespace().next())
+        self.grant_type.as_deref()
     }
 
     fn add_grant_type(&mut self, grant_type: &GrantType) {
