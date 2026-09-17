@@ -24,6 +24,11 @@ pub const DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS: u64 = 600;
 pub const DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH: usize = 8;
 pub const MAX_AUTHORIZATION_CODE_CHAIN_DEPTH: usize = 32;
 pub const DEFAULT_ID_TOKEN_TTL_SECONDS: u64 = 3600;
+pub const DEFAULT_PRE_AUTHORIZED_CODE_TTL_SECONDS: u64 = 300;
+pub const DEFAULT_FEDERATION_STATE_TTL_SECONDS: u64 = 300;
+pub const DEFAULT_PRESENTATION_STATE_TTL_SECONDS: u64 = 300;
+pub const DEFAULT_SIOPV2_STATE_TTL_SECONDS: u64 = 300;
+pub const DEFAULT_MAX_CONSUMED_ARTIFACTS: usize = 100_000;
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
@@ -156,6 +161,22 @@ pub struct TokenTtlsConfig {
     /// Lifetime of an ID token, in seconds.
     #[schemars(range(min = 1))]
     pub id_token_ttl: u64,
+    /// Lifetime of a pre-authorized code, in seconds.
+    #[serde(default = "default_pre_authorized_code_ttl")]
+    #[schemars(default = "default_pre_authorized_code_ttl", range(min = 1))]
+    pub pre_authorized_code_ttl: u64,
+    /// Lifetime of encrypted federation state, in seconds.
+    #[serde(default = "default_federation_state_ttl")]
+    #[schemars(default = "default_federation_state_ttl", range(min = 1))]
+    pub federation_state_ttl: u64,
+    /// Lifetime of encrypted presentation state, in seconds.
+    #[serde(default = "default_presentation_state_ttl")]
+    #[schemars(default = "default_presentation_state_ttl", range(min = 1))]
+    pub presentation_state_ttl: u64,
+    /// Lifetime of encrypted SIOPv2 state, in seconds.
+    #[serde(default = "default_siopv2_state_ttl")]
+    #[schemars(default = "default_siopv2_state_ttl", range(min = 1))]
+    pub siopv2_state_ttl: u64,
     /// Maximum number of nested authorization codes accepted in one chain.
     #[serde(default = "default_authorization_code_chain_max_depth")]
     #[schemars(
@@ -171,6 +192,10 @@ impl Default for TokenTtlsConfig {
             access_token_ttl: DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
             authorization_code_ttl: DEFAULT_AUTHORIZATION_CODE_TTL_SECONDS,
             id_token_ttl: DEFAULT_ID_TOKEN_TTL_SECONDS,
+            pre_authorized_code_ttl: DEFAULT_PRE_AUTHORIZED_CODE_TTL_SECONDS,
+            federation_state_ttl: DEFAULT_FEDERATION_STATE_TTL_SECONDS,
+            presentation_state_ttl: DEFAULT_PRESENTATION_STATE_TTL_SECONDS,
+            siopv2_state_ttl: DEFAULT_SIOPV2_STATE_TTL_SECONDS,
             authorization_code_chain_max_depth: DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH,
         }
     }
@@ -178,6 +203,18 @@ impl Default for TokenTtlsConfig {
 
 fn default_authorization_code_chain_max_depth() -> usize {
     DEFAULT_AUTHORIZATION_CODE_CHAIN_MAX_DEPTH
+}
+fn default_federation_state_ttl() -> u64 {
+    DEFAULT_FEDERATION_STATE_TTL_SECONDS
+}
+fn default_presentation_state_ttl() -> u64 {
+    DEFAULT_PRESENTATION_STATE_TTL_SECONDS
+}
+fn default_siopv2_state_ttl() -> u64 {
+    DEFAULT_SIOPV2_STATE_TTL_SECONDS
+}
+fn default_pre_authorized_code_ttl() -> u64 {
+    DEFAULT_PRE_AUTHORIZED_CODE_TTL_SECONDS
 }
 
 #[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -192,6 +229,81 @@ pub struct ServerConfig {
     /// Number of HTTP request worker threads.
     #[schemars(range(min = 1))]
     pub workers: usize,
+    /// Enable process-local replay protection for short-lived protocol artifacts.
+    #[serde(default)]
+    #[schemars(default)]
+    pub replay_protection: ReplayProtectionConfig,
+    /// Global per-IP request throttling policy.
+    #[serde(default)]
+    #[schemars(default)]
+    pub rate_limit: RateLimitConfig,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RateLimitConfig {
+    /// Target number of requests per configured time unit.
+    #[schemars(range(min = 1, max = 100_000))]
+    pub count: usize,
+    /// Time unit used to group request history.
+    pub time_unit: RateLimitTimeUnit,
+    /// Delay multiplier, in milliseconds, applied to the historical overload factor.
+    #[schemars(range(max = 600_000))]
+    pub penality: u64,
+    /// Reject requests whose calculated delay reaches this value, in milliseconds.
+    #[schemars(range(max = 600_000))]
+    pub timeout: u64,
+    /// Number of time-unit buckets retained per client IP.
+    #[schemars(range(min = 1, max = 10_000))]
+    pub memory_length: usize,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            count: DEFAULT_RATE_LIMIT_COUNT,
+            time_unit: RateLimitTimeUnit::Second,
+            penality: DEFAULT_RATE_LIMIT_PENALITY_MILLISECONDS,
+            timeout: DEFAULT_RATE_LIMIT_TIMEOUT_MILLISECONDS,
+            memory_length: DEFAULT_RATE_LIMIT_MEMORY_LENGTH,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum RateLimitTimeUnit {
+    Millisecond,
+    Second,
+    Minute,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(untagged)]
+pub enum ReplayProtectionConfig {
+    /// Enables replay protection with the default artifact capacity, or disables it when false.
+    Boolean(bool),
+    /// Enables replay protection with this maximum number of tracked artifacts.
+    Capacity(#[schemars(range(min = 1))] usize),
+}
+
+impl Default for ReplayProtectionConfig {
+    fn default() -> Self {
+        Self::Boolean(true)
+    }
+}
+
+impl ReplayProtectionConfig {
+    pub fn enabled(self) -> bool {
+        !matches!(self, Self::Boolean(false))
+    }
+
+    pub fn capacity(self) -> usize {
+        match self {
+            Self::Boolean(_) => DEFAULT_MAX_CONSUMED_ARTIFACTS,
+            Self::Capacity(capacity) => capacity,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -321,6 +433,86 @@ impl Config {
 
     pub fn token_ttls() -> TokenTtlsConfig {
         CONFIG.get().map(|config| config.tokens).unwrap_or_default()
+    }
+
+    pub fn replay_protection_enabled() -> bool {
+        CONFIG
+            .get()
+            .map(|config| config.server.replay_protection.enabled())
+            .unwrap_or(true)
+    }
+
+    pub fn replay_protection_capacity() -> usize {
+        CONFIG
+            .get()
+            .map(|config| config.server.replay_protection.capacity())
+            .unwrap_or(DEFAULT_MAX_CONSUMED_ARTIFACTS)
+    }
+
+    /// Returns a startup-safe configuration summary with credentials and key material redacted.
+    pub fn redacted_summary(&self) -> String {
+        let replay_protection = match self.server.replay_protection {
+            ReplayProtectionConfig::Boolean(enabled) => serde_json::json!(enabled),
+            ReplayProtectionConfig::Capacity(capacity) => serde_json::json!(capacity),
+        };
+        let clients: Vec<_> = self
+            .clients
+            .iter()
+            .map(|client| {
+                serde_json::json!({
+                    "client_id": client.client_id,
+                    "public": client.public,
+                    "redirect_uris": client.redirect_uris,
+                    "supported_grant_types": client
+                        .supported_grant_types
+                        .iter()
+                        .map(|grant| format!("{grant:?}"))
+                        .collect::<Vec<_>>(),
+                    "supported_response_types": client
+                        .supported_response_types
+                        .iter()
+                        .map(|response| format!("{response:?}"))
+                        .collect::<Vec<_>>(),
+                    "scopes": client.scopes,
+                    "require_wallet_binding": client.require_wallet_binding,
+                    "qr_code": client.qr_code,
+                    "client_secret": "[redacted]",
+                    "password_file": client.password_file.as_ref().map(|_| "[redacted]"),
+                    "federated_server": client.federated_server.as_ref().map(|_| "[redacted]"),
+                })
+            })
+            .collect();
+
+        serde_json::to_string_pretty(&serde_json::json!({
+            "server": {
+                "address": self.server.address,
+                "issuer": self.server.issuer,
+                "workers": self.server.workers,
+                "replay_protection": replay_protection,
+                "rate_limit": {
+                    "count": self.server.rate_limit.count,
+                    "time_unit": format!("{:?}", self.server.rate_limit.time_unit).to_lowercase(),
+                    "penality": self.server.rate_limit.penality,
+                    "timeout": self.server.rate_limit.timeout,
+                    "memory_length": self.server.rate_limit.memory_length,
+                },
+            },
+            "crypto": {"key_file": self.crypto.key_file, "contents": "[redacted]"},
+            "tokens": {
+                "access_token_ttl": self.tokens.access_token_ttl,
+                "authorization_code_ttl": self.tokens.authorization_code_ttl,
+                "id_token_ttl": self.tokens.id_token_ttl,
+                "pre_authorized_code_ttl": self.tokens.pre_authorized_code_ttl,
+                "federation_state_ttl": self.tokens.federation_state_ttl,
+                "presentation_state_ttl": self.tokens.presentation_state_ttl,
+                "siopv2_state_ttl": self.tokens.siopv2_state_ttl,
+                "authorization_code_chain_max_depth": self.tokens.authorization_code_chain_max_depth,
+            },
+            "credentials": self.credentials.iter().map(|credential| &credential.credential_configuration_id).collect::<Vec<_>>(),
+            "presentation_definitions": self.presentation_definitions.iter().map(|definition| &definition.identifier).collect::<Vec<_>>(),
+            "clients": clients,
+        }))
+        .expect("redacted configuration summary must serialize")
     }
 
     pub(crate) fn key_manager() -> &'static KeyManager {
@@ -486,6 +678,16 @@ impl Config {
             });
         }
 
+        lif matches!(
+            self.server.replay_protection,
+            ReplayProtectionConfig::Capacity(0)
+        ) {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "server.replay_protection capacity must be greater than zero".to_owned(),
+            });
+        }
+
         if self.clients.is_empty() {
             return Err(ConfigError::Validation {
                 path: path.to_owned(),
@@ -636,6 +838,13 @@ impl Config {
             ("access_token_ttl", self.tokens.access_token_ttl),
             ("authorization_code_ttl", self.tokens.authorization_code_ttl),
             ("id_token_ttl", self.tokens.id_token_ttl),
+            (
+                "pre_authorized_code_ttl",
+                self.tokens.pre_authorized_code_ttl,
+            ),
+            ("federation_state_ttl", self.tokens.federation_state_ttl),
+            ("presentation_state_ttl", self.tokens.presentation_state_ttl),
+            ("siopv2_state_ttl", self.tokens.siopv2_state_ttl),
         ] {
             if ttl == 0 {
                 return Err(ConfigError::Validation {

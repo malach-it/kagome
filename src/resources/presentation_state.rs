@@ -134,7 +134,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         presentation_definition_id: presentation_definition_id.to_owned(),
         input_descriptor_id: input_descriptor_id.to_owned(),
         iat,
-        exp: iat + TTL_SECONDS,
+        exp: iat + Config::token_ttls().presentation_state_ttl,
     };
     let mut plaintext = Vec::new();
     ciborium::into_writer(&claims, &mut plaintext)
@@ -203,7 +203,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
             })
         || claims.iat > now
         || claims.exp <= claims.iat
-        || claims.exp - claims.iat > TTL_SECONDS
+        || claims.exp - claims.iat > Config::token_ttls().presentation_state_ttl
         || claims.exp <= now
     {
         return Err(OAuthError::invalid_request("state is invalid or expired"));

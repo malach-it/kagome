@@ -6,7 +6,7 @@ use std::{
 
 use ring::digest::{SHA256, digest};
 
-const MAX_CONSUMED_ARTIFACTS: usize = 100_000;
+use crate::config::Config;
 
 static CONSUMED_ARTIFACTS: OnceLock<Mutex<HashMap<[u8; 32], u64>>> = OnceLock::new();
 
@@ -28,7 +28,9 @@ pub enum ConsumeError {
     TimeUnavailable,
 }
 
-/// Atomically marks an authenticated artifact as consumed until its expiration.
+/// Atomically marks an authenticated artifact as consumed until its expiration when replay
+/// protection is enabled. When `server.replay_protection` is `false`, this operation succeeds
+/// without recording the artifact.
 ///
 /// The process-local store follows the wallet-authorization relay pattern: a lazily initialized
 /// mutex protects an in-memory map, and expired entries are pruned before insertion. Artifact
@@ -39,8 +41,13 @@ pub enum ConsumeError {
 ///
 /// Returns [`ConsumeError::AlreadyConsumed`] when the artifact was already accepted,
 /// [`ConsumeError::CapacityExceeded`] when the bounded store is full, or a storage/time error when
-/// the marker cannot be recorded safely.
+/// the marker cannot be recorded safely. These errors cannot occur while replay protection is
+/// disabled.
 pub fn consume(artifact: Artifact, value: &str, expires_at: u64) -> Result<(), ConsumeError> {
+    if !Config::replay_protection_enabled() {
+        return Ok(());
+    }
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| ConsumeError::TimeUnavailable)?
@@ -54,7 +61,8 @@ pub fn consume(artifact: Artifact, value: &str, expires_at: u64) -> Result<(), C
     if consumed.contains_key(&identifier) {
         return Err(ConsumeError::AlreadyConsumed);
     }
-    if consumed.len() >= MAX_CONSUMED_ARTIFACTS {
+    let max_consumed_artifacts = Config::replay_protection_capacity();
+    if consumed.len() >= max_consumed_artifacts {
         return Err(ConsumeError::CapacityExceeded);
     }
     consumed.insert(identifier, expires_at);

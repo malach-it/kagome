@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{errors::OAuthError, resources::resource_owner::CredentialProfiles};
+use crate::{config::Config, errors::OAuthError, resources::resource_owner::CredentialProfiles};
 
 use super::{
     authorization_code, crypto,
@@ -122,7 +122,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
         id_token_public_jwk,
         require_wallet_binding,
         iat,
-        exp: iat + TTL_SECONDS,
+        exp: iat + Config::token_ttls().pre_authorized_code_ttl,
     };
     let mut claims_bytes = Vec::new();
     ciborium::into_writer(&claims, &mut claims_bytes)
@@ -158,7 +158,11 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let claims: PreAuthorizedCodeClaims = ciborium::from_reader(claims_bytes.as_slice())
         .map_err(|_| OAuthError::invalid_grant("pre-authorized_code is invalid or expired"))?;
     let now = now("pre-authorized code validation failed")?;
-    if claims.iat > now || claims.exp <= claims.iat || claims.exp <= now {
+    if claims.iat > now
+        || claims.exp <= claims.iat
+        || claims.exp - claims.iat > Config::token_ttls().pre_authorized_code_ttl
+        || claims.exp <= now
+    {
         return Err(OAuthError::invalid_grant(
             "pre-authorized_code is invalid or expired",
         ));

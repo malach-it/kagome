@@ -13,7 +13,6 @@ use super::{
     resource_owner::{self, ResourceOwner, ResourceOwnerAttributes},
 };
 
-const FEDERATION_STATE_TTL_SECONDS: u64 = 300;
 const TOKEN_REQUEST_TIMEOUT_SECONDS: u64 = 10;
 const MAX_FEDERATED_RESPONSE_BYTES: u64 = 64 * 1024;
 const INVALID_FEDERATION_STATE: &str = "federation callback state is invalid or expired";
@@ -516,7 +515,7 @@ fn encode_state(
         client_id: client_id.to_owned(),
         request_parameters,
         issued_at,
-        expires_at: issued_at + FEDERATION_STATE_TTL_SECONDS,
+        expires_at: issued_at + Config::token_ttls().federation_state_ttl,
     };
     let plaintext = serde_json::to_vec(&state)
         .map_err(|_| OAuthError::invalid_token_response("federation state generation failed"))?;
@@ -540,7 +539,8 @@ fn decode_state(encoded: &str, now: u64) -> Result<FederationState, OAuthError> 
     if state.client_id.is_empty()
         || state.issued_at > now
         || state.expires_at < now
-        || state.expires_at.saturating_sub(state.issued_at) != FEDERATION_STATE_TTL_SECONDS
+        || state.expires_at.saturating_sub(state.issued_at)
+            != Config::token_ttls().federation_state_ttl
     {
         return Err(OAuthError::invalid_request(INVALID_FEDERATION_STATE));
     }
@@ -565,7 +565,7 @@ mod tests {
         let state = encode_state(
             "client_id",
             request_parameters(),
-            now - FEDERATION_STATE_TTL_SECONDS - 1,
+            now - crate::config::DEFAULT_FEDERATION_STATE_TTL_SECONDS - 1,
         )
         .unwrap();
 

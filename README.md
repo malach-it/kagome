@@ -33,12 +33,23 @@ server:
   address: 0.0.0.0:4000
   issuer: http://localhost:4000
   workers: 4
+  replay_protection: true
+  rate_limit:
+    count: 10
+    time_unit: second
+    penality: 500
+    timeout: 5000
+    memory_length: 50
 crypto:
   key_file: kagome.crypto.yaml
 tokens:
   access_token_ttl: 3600
   authorization_code_ttl: 600
   id_token_ttl: 3600
+  pre_authorized_code_ttl: 300
+  federation_state_ttl: 300
+  presentation_state_ttl: 300
+  siopv2_state_ttl: 300
 credentials:
   - credential_configuration_id: UniversityDegreeCredential
     name: University Degree Credential
@@ -84,6 +95,12 @@ The example above is the complete configuration shape. In practice:
 - `clients` must use unique IDs, non-empty secrets, and registered redirect URIs.
   Configure supported grants, response types, scopes, wallet binding, QR pages,
   password authentication, or federation as needed.
+- `server.replay_protection` defaults to `true` and controls process-local
+  single-use checks for short-lived authorization artifacts. Set it to `false`
+  only for controlled testing; replayed artifacts will then be accepted.
+- `server.rate_limit` applies Boruta-style adaptive throttling globally per
+  client IP. `penality` and `timeout` are expressed in milliseconds, while
+  `memory_length` controls the number of historical time-unit buckets.
 - `crypto.key_file` is generated once, resolved relative to the YAML file, and
   must be protected with owner-only permissions. Rotating keys invalidates
   related artifacts or signatures.

@@ -315,6 +315,20 @@
         "definition"
       ]
     },
+    "ReplayProtectionConfig": {
+      "anyOf": [
+        {
+          "description": "Enables replay protection with the default artifact capacity, or disables it when false.",
+          "type": "boolean"
+        },
+        {
+          "description": "Enables replay protection with this maximum number of tracked artifacts.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1
+        }
+      ]
+    },
     "ResponseType": {
       "type": "string",
       "enum": [
@@ -338,6 +352,10 @@
           "type": "string",
           "format": "uri",
           "minLength": 1
+        },
+        "replay_protection": {
+          "description": "Enable process-local replay protection for short-lived protocol artifacts.",
+          "$ref": "#/$defs/ReplayProtectionConfig"
         },
         "workers": {
           "description": "Number of HTTP request worker threads.",
@@ -376,10 +394,38 @@
           "format": "uint64",
           "minimum": 1
         },
+        "federation_state_ttl": {
+          "description": "Lifetime of encrypted federation state, in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 300,
+          "minimum": 1
+        },
         "id_token_ttl": {
           "description": "Lifetime of an ID token, in seconds.",
           "type": "integer",
           "format": "uint64",
+          "minimum": 1
+        },
+        "pre_authorized_code_ttl": {
+          "description": "Lifetime of a pre-authorized code, in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 300,
+          "minimum": 1
+        },
+        "presentation_state_ttl": {
+          "description": "Lifetime of encrypted presentation state, in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 300,
+          "minimum": 1
+        },
+        "siopv2_state_ttl": {
+          "description": "Lifetime of encrypted SIOPv2 state, in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 300,
           "minimum": 1
         }
       },

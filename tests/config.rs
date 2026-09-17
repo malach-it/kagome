@@ -5,7 +5,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use kagome::config::{CONFIG_PATH_ENV_VAR, Config, ConfigError};
+use kagome::config::{CONFIG_PATH_ENV_VAR, Config, ConfigError, ReplayProtectionConfig};
 use kagome::resources::{grant_type::GrantType, response_type::ResponseType};
 
 static NEXT_CONFIG_ID: AtomicU64 = AtomicU64::new(0);
@@ -22,12 +22,20 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.server.issuer, "https://kagome.example.com");
     assert_eq!(config.server.workers, 8);
     assert_eq!(
+        config.server.replay_protection,
+        ReplayProtectionConfig::Boolean(true)
+    );
+    assert_eq!(
         config.crypto.key_file.file_name().unwrap(),
         file.crypto_file_name()
     );
     assert_eq!(config.tokens.access_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
+    assert_eq!(config.tokens.pre_authorized_code_ttl, 300);
+    assert_eq!(config.tokens.federation_state_ttl, 300);
+    assert_eq!(config.tokens.presentation_state_ttl, 300);
+    assert_eq!(config.tokens.siopv2_state_ttl, 300);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
     assert_eq!(config.credentials.len(), 1);
     assert_eq!(
@@ -66,6 +74,34 @@ fn loads_server_configuration_from_yaml() {
 }
 
 #[test]
+fn loads_disabled_replay_protection_from_yaml() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 8\n  replay_protection: false\n",
+    ));
+
+    let config = Config::load_from_path(file.path()).expect("configuration should load");
+
+    assert_eq!(
+        config.server.replay_protection,
+        ReplayProtectionConfig::Boolean(false)
+    );
+}
+
+#[test]
+fn loads_replay_protection_capacity_from_yaml() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 8\n  replay_protection: 250\n",
+    ));
+
+    let config = Config::load_from_path(file.path()).expect("configuration should load");
+
+    assert_eq!(
+        config.server.replay_protection,
+        ReplayProtectionConfig::Capacity(250)
+    );
+}
+
+#[test]
 fn example_configuration_matches_server_defaults() {
     let file = example_configuration_file();
 
@@ -74,9 +110,17 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.server.address, "0.0.0.0:4000");
     assert_eq!(config.server.issuer, "http://localhost:4000");
     assert_eq!(config.server.workers, 4);
+    assert_eq!(
+        config.server.replay_protection,
+        ReplayProtectionConfig::Capacity(1_00_000)
+    );
     assert_eq!(config.tokens.access_token_ttl, 3600);
     assert_eq!(config.tokens.authorization_code_ttl, 600);
     assert_eq!(config.tokens.id_token_ttl, 3600);
+    assert_eq!(config.tokens.pre_authorized_code_ttl, 300);
+    assert_eq!(config.tokens.federation_state_ttl, 300);
+    assert_eq!(config.tokens.presentation_state_ttl, 300);
+    assert_eq!(config.tokens.siopv2_state_ttl, 300);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
     assert_eq!(config.clients.len(), 2);
     assert_eq!(config.presentation_definitions.len(), 1);
@@ -237,6 +281,7 @@ fn json_schema_describes_configuration_constraints() {
     assert_eq!(server["properties"]["issuer"]["minLength"], 1);
     assert_eq!(server["properties"]["issuer"]["format"], "uri");
     assert_eq!(server["properties"]["workers"]["minimum"], 1);
+    assert!(schema["$defs"]["ReplayProtectionConfig"]["anyOf"].is_array());
     assert_eq!(token_ttls["additionalProperties"], false);
     assert_eq!(token_ttls["properties"]["access_token_ttl"]["minimum"], 1);
     assert_eq!(
@@ -244,6 +289,10 @@ fn json_schema_describes_configuration_constraints() {
         1
     );
     assert_eq!(token_ttls["properties"]["id_token_ttl"]["minimum"], 1);
+    assert_eq!(
+        token_ttls["properties"]["pre_authorized_code_ttl"]["minimum"],
+        1
+    );
     assert_eq!(
         token_ttls["properties"]["authorization_code_chain_max_depth"]["minimum"],
         1
