@@ -19,11 +19,13 @@ const C_NONCE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 const WALLET_BOUND_CLIENT_ID: &str = "wallet_bound_client";
 
 // Branch matrix:
-// - discovery endpoint: issuer metadata | authorization-server metadata | JWKS
+// - discovery endpoint: issuer metadata | authorization-server metadata | JWKS, each with CORS
 // - removed credential-offer endpoint: GET returns not found
 // - JWKS route: canonical | OpenID compatibility alias, each returning success
 //   with Access-Control-Allow-Origin
 // - endpoint method: supported | credential OPTIONS preflight | unsupported
+// - configured CORS origin: wildcard | exact match | absent or rejected | empty allowlist.
+//   Origin-policy combinations are covered by the shared response unit tests.
 // - request Host: configured-issuer host | different host. Both are intentionally
 //   equivalent because issuer identity comes only from server configuration.
 // - token representation: form | JSON
@@ -55,6 +57,7 @@ fn returns_credential_issuer_metadata_from_configured_issuer() {
     let body = json_body(&response);
 
     assert_ok_json(&response);
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
     assert_eq!(body["credential_issuer"], ISSUER);
     assert_eq!(
         body["credential_endpoint"],
@@ -102,6 +105,7 @@ fn returns_authorization_server_metadata_from_configured_issuer() {
     let body = json_body(&response);
 
     assert_ok_json(&response);
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
     assert_eq!(body["issuer"], ISSUER);
     assert_eq!(body["token_endpoint"], "http://localhost:4000/token");
     assert_eq!(body["response_types_supported"][1], RESPONSE_TYPE);

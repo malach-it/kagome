@@ -1,11 +1,9 @@
-use crate::{
-    handlers::responses::cors_response, resources::crypto::SigningArtifact, unit::KagomeRequest,
-};
+use crate::{resources::crypto::SigningArtifact, unit::KagomeRequest};
 
 use super::metadata::issuer_response;
 
 pub fn handle_jwks(request: &KagomeRequest) -> String {
-    cors_response(issuer_response(request, |_| {
+    issuer_response(request, |_| {
         serde_json::json!({
             "keys": [
                 SigningArtifact::Credential.public_jwk(),
@@ -13,5 +11,5 @@ pub fn handle_jwks(request: &KagomeRequest) -> String {
                 SigningArtifact::RequestObject.public_jwk()
             ]
         })
-    }))
+    })
 }

@@ -10,22 +10,31 @@ flowchart TD
     token --> grant["grant_type::validate"]
     grant -- error --> token_grant_error["`**HTTP 400** OAuth error without CORS header`"]
     grant -- pre-authorized_code --> code["pre_authorized_code::validate"]
-    code -- error --> token_error["`**HTTP 400** credential access token OAuth error with CORS header`"]
+    code -- error --> token_error_origin
     code -- ok --> consume["pre_authorized_code::consume"]
-    consume -- replay or storage error --> token_error
+    consume -- replay or storage error --> token_error_origin
     consume -- ok --> access["credential_access_token::generate"]
-    access -- error --> token_error
-    access -- ok --> token_success["`**HTTP 200** credential access token, c_nonce, and authorization details with CORS header`"]
-    token_success --> credential_request[Request /credential]
+    access -- error --> token_error_origin
+    access -- ok --> token_success_origin{Configured CORS origin allowed?}
+    token_error_origin{Configured CORS origin allowed?} -- yes --> token_cors_error["`**HTTP 400** credential access token OAuth error with CORS header`"]
+    token_error_origin -- no --> token_error["`**HTTP 400** credential access token OAuth error without CORS header`"]
+    token_success_origin -- yes --> token_cors_success["`**HTTP 200** credential access token, c_nonce, and authorization details with CORS header`"]
+    token_success_origin -- no --> token_success["`**HTTP 200** credential access token, c_nonce, and authorization details without CORS header`"]
+    token_cors_success --> credential_request[Request /credential]
+    token_success --> credential_request
     credential_request --> credential_issuer["credential_issuer::validate"]
     credential_issuer --> bearer["credential_access_token::validate"]
-    bearer -- error --> credential_error["`**HTTP 400/401** credential error with CORS header`"]
+    bearer -- error --> credential_error_origin
     bearer -- ok --> configuration["credential_issuer::validate_configuration"]
-    configuration -- error --> credential_error
+    configuration -- error --> credential_error_origin
     configuration -- ok --> proof["credential_proof::validate"]
-    proof -- error --> credential_error
+    proof -- error --> credential_error_origin
     proof -- valid with matching c_nonce --> consume_nonce["credential_access_token::consume_nonce"]
-    consume_nonce -- replay or storage error --> credential_error
+    consume_nonce -- replay or storage error --> credential_error_origin
     consume_nonce -- first use --> issue["verifiable_credential::generate"]
-    issue -- error --> credential_error
-    issue -- ok --> success["`**HTTP 200** jwt_vc credential with CORS header`"]
+    issue -- error --> credential_error_origin
+    issue -- ok --> success_origin{Configured CORS origin allowed?}
+    credential_error_origin{Configured CORS origin allowed?} -- yes --> credential_cors_error["`**HTTP 400/401** credential error with CORS header`"]
+    credential_error_origin -- no --> credential_error["`**HTTP 400/401** credential error without CORS header`"]
+    success_origin -- yes --> credential_cors_success["`**HTTP 200** jwt_vc credential with CORS header`"]
+    success_origin -- no --> success["`**HTTP 200** jwt_vc credential without CORS header`"]

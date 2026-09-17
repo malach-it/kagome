@@ -2,7 +2,9 @@
 flowchart TD
     start[Request /token] --> method{Method?}
     method -- other --> not_found["`**HTTP 404** not found`"]
-    method -- OPTIONS --> preflight["`**HTTP 204** CORS preflight response`"]
+    method -- OPTIONS --> preflight_origin{Configured CORS origin allowed?}
+    preflight_origin -- yes --> preflight["`**HTTP 204** CORS preflight response`"]
+    preflight_origin -- no --> plain_preflight["`**HTTP 204** response without CORS headers`"]
     method -- POST --> grant["grant_type::validate"]
     grant -- error --> oauth_error["`**HTTP 400** OAuth error without CORS header`"]
     grant -- client_credentials --> client["client_credentials::validate"]
@@ -27,7 +29,7 @@ flowchart TD
     owner -- ok --> access
     consume_code -- ok --> access
     issue -- ok --> code_success["`**HTTP 200** authorization code without CORS header`"]
-    credential_access -- ok --> credential_access_success["`**HTTP 200** credential access token with CORS header`"]
+    credential_access -- ok --> credential_success_origin{Configured CORS origin allowed?}
     access -- ok --> access_success["`**HTTP 200** bearer access token without CORS header`"]
     client -- error --> oauth_error
     client_scope -- error --> oauth_error
@@ -44,7 +46,11 @@ flowchart TD
     previous -- invalid, oversized, or excessive depth --> oauth_error
     id_token -- error --> oauth_error
     issue -- excessive depth or generation error --> oauth_error
-    pre_code -- error --> credential_oauth_error["`**HTTP 400** credential access token OAuth error with CORS header`"]
-    consume_pre_code -- replay or storage error --> credential_oauth_error
-    credential_access -- error --> credential_oauth_error
+    pre_code -- error --> credential_error_origin{Configured CORS origin allowed?}
+    consume_pre_code -- replay or storage error --> credential_error_origin
+    credential_access -- error --> credential_error_origin
+    credential_error_origin -- yes --> credential_cors_error["`**HTTP 400** credential access token OAuth error with CORS header`"]
+    credential_error_origin -- no --> credential_oauth_error["`**HTTP 400** credential access token OAuth error without CORS header`"]
+    credential_success_origin -- yes --> credential_cors_success["`**HTTP 200** credential access token with CORS header`"]
+    credential_success_origin -- no --> credential_access_success["`**HTTP 200** credential access token without CORS header`"]
     access -- error --> oauth_error

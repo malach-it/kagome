@@ -450,6 +450,16 @@
           "type": "string",
           "minLength": 1
         },
+        "cors_origins": {
+          "description": "HTTP origins permitted to read CORS-enabled responses. An empty list disables CORS.",
+          "type": "array",
+          "default": [
+            "*"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "issuer": {
           "description": "Public HTTP origin used to construct callback URLs.",
           "type": "string",

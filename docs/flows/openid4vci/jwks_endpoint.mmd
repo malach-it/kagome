@@ -3,4 +3,9 @@ flowchart TD
     start[Request /jwks] --> method{GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> issuer["credential_issuer::validate"]
-    issuer --> success["`**HTTP 200** CORS loaded signing JWKs`"]
+    issuer -- error --> error_origin{Configured CORS origin allowed?}
+    issuer -- ok --> success_origin{Configured CORS origin allowed?}
+    error_origin -- yes --> cors_error["`**HTTP 400** issuer error with CORS header`"]
+    error_origin -- no --> error["`**HTTP 400** issuer error without CORS header`"]
+    success_origin -- yes --> cors_success["`**HTTP 200** loaded signing JWKs with CORS header`"]
+    success_origin -- no --> success["`**HTTP 200** loaded signing JWKs without CORS header`"]

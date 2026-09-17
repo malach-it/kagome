@@ -12,6 +12,7 @@ use crate::{
         id_token::IdToken, pre_authorized_code, wallet_authorization,
     },
     templates,
+    unit::KagomeRequest,
 };
 use qrcode::{EcLevel, QrCode, render::svg};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -28,16 +29,75 @@ pub fn logged_response<T: ResponseLog>(response: T) -> Result<String, OAuthError
     Ok(http_response)
 }
 
-pub fn cors_response(response: String) -> String {
+pub fn cors_response(request: &KagomeRequest, response: String) -> String {
+    cors_response_with_origins(request, response, &Config::global().server.cors_origins)
+}
+
+fn cors_response_with_origins(
+    request: &KagomeRequest,
+    response: String,
+    configured_origins: &[String],
+) -> String {
+    let allowed_origin = allowed_cors_origin(request, configured_origins);
+    if allowed_origin.is_none() && !varies_by_origin(configured_origins) {
+        return response;
+    }
     let Some((status_line, remainder)) = response.split_once("\r\n") else {
         return response;
     };
+    let cors_headers = match allowed_origin.as_deref() {
+        Some("*") => "access-control-allow-origin: *\r\n".to_owned(),
+        Some(origin) => {
+            format!("access-control-allow-origin: {origin}\r\nvary: origin\r\n")
+        }
+        None => "vary: origin\r\n".to_owned(),
+    };
 
-    format!("{status_line}\r\naccess-control-allow-origin: *\r\n{remainder}")
+    format!("{status_line}\r\n{cors_headers}{remainder}")
 }
 
-pub fn cors_preflight_response() -> String {
-    "HTTP/1.1 204 No Content\r\naccess-control-allow-origin: *\r\naccess-control-allow-methods: POST, OPTIONS\r\naccess-control-allow-headers: content-type, authorization\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
+pub fn cors_preflight_response(request: &KagomeRequest) -> String {
+    cors_preflight_response_with_origins(request, &Config::global().server.cors_origins)
+}
+
+fn cors_preflight_response_with_origins(
+    request: &KagomeRequest,
+    configured_origins: &[String],
+) -> String {
+    let cors_headers = match allowed_cors_origin(request, configured_origins).as_deref() {
+        Some("*") => "access-control-allow-origin: *\r\naccess-control-allow-methods: POST, OPTIONS\r\naccess-control-allow-headers: content-type, authorization\r\n".to_owned(),
+        Some(origin) => format!(
+            "access-control-allow-origin: {origin}\r\nvary: origin\r\naccess-control-allow-methods: POST, OPTIONS\r\naccess-control-allow-headers: content-type, authorization\r\n"
+        ),
+        None if varies_by_origin(configured_origins) => "vary: origin\r\n".to_owned(),
+        None => String::new(),
+    };
+
+    format!(
+        "HTTP/1.1 204 No Content\r\n{cors_headers}content-length: 0\r\nconnection: close\r\n\r\n"
+    )
+}
+
+fn allowed_cors_origin(request: &KagomeRequest, configured_origins: &[String]) -> Option<String> {
+    if configured_origins.iter().any(|origin| origin == "*") {
+        return Some("*".to_owned());
+    }
+
+    let request_origin = request
+        .headers
+        .iter()
+        .find(|header| header.name.eq_ignore_ascii_case("origin"))?
+        .value
+        .as_str();
+
+    configured_origins
+        .iter()
+        .any(|origin| origin == request_origin)
+        .then(|| request_origin.to_owned())
+}
+
+fn varies_by_origin(configured_origins: &[String]) -> bool {
+    !configured_origins.is_empty() && configured_origins.iter().all(|origin| origin != "*")
 }
 
 pub fn log_timestamp() -> String {
@@ -963,7 +1023,87 @@ fn escape_json(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{artifact_status, authorize_success_log, token_success_log};
+    use crate::unit::parse_request;
+
+    use super::{
+        artifact_status, authorize_success_log, cors_preflight_response_with_origins,
+        cors_response_with_origins, token_success_log,
+    };
+
+    const RESPONSE: &str = "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}";
+
+    #[test]
+    fn wildcard_cors_origin_allows_requests_without_an_origin_header() {
+        let request = parse_request("GET /jwks HTTP/1.1\r\nhost: example.com\r\n\r\n");
+        let response = cors_response_with_origins(&request, RESPONSE.to_owned(), &["*".into()]);
+
+        assert!(response.contains("access-control-allow-origin: *\r\n"));
+        assert!(!response.contains("vary: origin\r\n"));
+    }
+
+    #[test]
+    fn configured_cors_origin_is_echoed_only_for_an_exact_match() {
+        let allowed = parse_request(
+            "GET /jwks HTTP/1.1\r\nhost: example.com\r\norigin: https://wallet.example.com\r\n\r\n",
+        );
+        let rejected = parse_request(
+            "GET /jwks HTTP/1.1\r\nhost: example.com\r\norigin: https://other.example.com\r\n\r\n",
+        );
+        let absent = parse_request("GET /jwks HTTP/1.1\r\nhost: example.com\r\n\r\n");
+        let origins = ["https://wallet.example.com".to_owned()];
+
+        let allowed_response = cors_response_with_origins(&allowed, RESPONSE.to_owned(), &origins);
+        let rejected_response =
+            cors_response_with_origins(&rejected, RESPONSE.to_owned(), &origins);
+        let absent_response = cors_response_with_origins(&absent, RESPONSE.to_owned(), &origins);
+
+        assert!(allowed_response.contains(
+            "access-control-allow-origin: https://wallet.example.com\r\nvary: origin\r\n"
+        ));
+        assert!(!rejected_response.contains("access-control-allow-origin"));
+        assert!(rejected_response.contains("vary: origin\r\n"));
+        assert!(!absent_response.contains("access-control-allow-origin"));
+        assert!(absent_response.contains("vary: origin\r\n"));
+    }
+
+    #[test]
+    fn empty_cors_origins_disable_response_and_preflight_headers() {
+        let request = parse_request(
+            "OPTIONS /credential HTTP/1.1\r\nhost: example.com\r\norigin: https://wallet.example.com\r\n\r\n",
+        );
+
+        let response = cors_response_with_origins(&request, RESPONSE.to_owned(), &[]);
+        let preflight = cors_preflight_response_with_origins(&request, &[]);
+
+        assert!(!response.contains("access-control-allow-origin"));
+        assert!(!preflight.contains("access-control-allow-origin"));
+        assert!(!preflight.contains("access-control-allow-methods"));
+        assert!(!preflight.contains("access-control-allow-headers"));
+        assert!(!preflight.contains("vary: origin"));
+    }
+
+    #[test]
+    fn configured_cors_origin_enables_preflight_headers() {
+        let request = parse_request(
+            "OPTIONS /credential HTTP/1.1\r\nhost: example.com\r\norigin: https://wallet.example.com\r\n\r\n",
+        );
+        let origins = ["https://wallet.example.com".to_owned()];
+        let rejected = parse_request(
+            "OPTIONS /credential HTTP/1.1\r\nhost: example.com\r\norigin: https://other.example.com\r\n\r\n",
+        );
+
+        let response = cors_preflight_response_with_origins(&request, &origins);
+        let rejected_response = cors_preflight_response_with_origins(&rejected, &origins);
+
+        assert!(response.contains(
+            "access-control-allow-origin: https://wallet.example.com\r\nvary: origin\r\n"
+        ));
+        assert!(response.contains("access-control-allow-methods: POST, OPTIONS\r\n"));
+        assert!(response.contains("access-control-allow-headers: content-type, authorization\r\n"));
+        assert!(!rejected_response.contains("access-control-allow-origin"));
+        assert!(!rejected_response.contains("access-control-allow-methods"));
+        assert!(rejected_response.contains("vary: origin\r\n"));
+    }
 
     #[test]
     fn successful_log_lines_exclude_bearer_artifacts() {

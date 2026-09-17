@@ -20,7 +20,7 @@ pub fn route_request(request: &KagomeRequest) -> String {
     }
 
     if request.method.eq_ignore_ascii_case("OPTIONS") && request.path == "/token" {
-        return crate::handlers::responses::cors_preflight_response();
+        return crate::handlers::responses::cors_preflight_response(request);
     }
 
     if request.method.eq_ignore_ascii_case("GET")
@@ -46,7 +46,7 @@ pub fn route_request(request: &KagomeRequest) -> String {
     }
 
     if request.method.eq_ignore_ascii_case("OPTIONS") && request.path == "/credential" {
-        return crate::handlers::responses::cors_preflight_response();
+        return crate::handlers::responses::cors_preflight_response(request);
     }
 
     if request.method.eq_ignore_ascii_case("POST") && request.path == "/presentation-response" {

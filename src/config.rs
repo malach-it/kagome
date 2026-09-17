@@ -222,6 +222,10 @@ fn default_pre_authorized_code_ttl() -> u64 {
     DEFAULT_PRE_AUTHORIZED_CODE_TTL_SECONDS
 }
 
+fn default_cors_origins() -> Vec<String> {
+    vec!["*".to_owned()]
+}
+
 #[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ServerConfig {
@@ -234,6 +238,10 @@ pub struct ServerConfig {
     /// Number of HTTP request worker threads.
     #[schemars(range(min = 1))]
     pub workers: usize,
+    /// HTTP origins permitted to read CORS-enabled responses. An empty list disables CORS.
+    #[serde(default = "default_cors_origins")]
+    #[schemars(default = "default_cors_origins")]
+    pub cors_origins: Vec<String>,
     /// Enable process-local replay protection for short-lived protocol artifacts.
     #[serde(default)]
     #[schemars(default)]
@@ -502,6 +510,7 @@ impl Config {
                 "address": self.server.address,
                 "issuer": self.server.issuer,
                 "workers": self.server.workers,
+                "cors_origins": self.server.cors_origins,
                 "replay_protection": replay_protection,
                 "rate_limit": {
                     "count": self.server.rate_limit.count,
@@ -693,6 +702,28 @@ impl Config {
             return Err(ConfigError::Validation {
                 path: path.to_owned(),
                 message: "server.workers must be greater than zero".to_owned(),
+            });
+        }
+
+        let mut cors_origins = HashSet::new();
+        for origin in &self.server.cors_origins {
+            if !cors_origins.insert(origin) {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: "server.cors_origins must not contain duplicates".to_owned(),
+                });
+            }
+            if origin != "*" && !is_http_origin(origin) {
+                return Err(ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: "server.cors_origins entries must be * or absolute HTTP or HTTPS origins without paths, queries, or fragments".to_owned(),
+                });
+            }
+        }
+        if cors_origins.iter().any(|origin| origin.as_str() == "*") && cors_origins.len() != 1 {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "server.cors_origins cannot combine * with explicit origins".to_owned(),
             });
         }
 
@@ -1135,6 +1166,49 @@ fn is_http_endpoint(endpoint: &str) -> bool {
                 .chars()
                 .any(|character| character.is_ascii_control() || character.is_whitespace())
     })
+}
+
+fn is_http_origin(origin: &str) -> bool {
+    let Some(authority) = origin
+        .strip_prefix("https://")
+        .or_else(|| origin.strip_prefix("http://"))
+    else {
+        return false;
+    };
+
+    if authority.is_empty()
+        || authority.contains(['/', '?', '#', '@'])
+        || authority
+            .chars()
+            .any(|character| character.is_ascii_control() || character.is_whitespace())
+    {
+        return false;
+    }
+
+    if let Some(ipv6) = authority.strip_prefix('[') {
+        let Some((address, port)) = ipv6.split_once(']') else {
+            return false;
+        };
+        return !address.is_empty()
+            && !address.contains(['[', ']'])
+            && address.parse::<std::net::Ipv6Addr>().is_ok()
+            && (port.is_empty() || valid_origin_port(port));
+    }
+
+    let (host, port) = authority
+        .rsplit_once(':')
+        .map_or((authority, None), |(host, port)| (host, Some(port)));
+
+    !host.is_empty()
+        && host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+        && port.is_none_or(|port| valid_origin_port(&format!(":{port}")))
+}
+
+fn valid_origin_port(port: &str) -> bool {
+    port.strip_prefix(':')
+        .is_some_and(|port| port.parse::<u16>().is_ok())
 }
 
 fn is_host(host: &str) -> bool {

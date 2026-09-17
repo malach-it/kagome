@@ -21,5 +21,5 @@ pub fn handle_credential(request: &KagomeRequest) -> String {
         Err(error) => credential_error_response(&error),
     };
 
-    cors_response(response)
+    cors_response(request, response)
 }

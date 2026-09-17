@@ -52,6 +52,8 @@ pub(super) fn qr_page_deep_link(response: &str) -> String {
 // - CORS response: credential access-token success or error | other token response
 //   All non-credential grant types share the same no-CORS response path;
 //   client_credentials covers that intentionally equivalent behavior.
+// - configured CORS origin: wildcard | exact match | absent or rejected | empty allowlist.
+//   Origin-policy combinations are covered by the shared response unit tests.
 // - wallet authorization relay: valid (covered by each QR flow) | missing |
 //   invalid | expired (resource unit test) | unsupported method
 // Supported grant types are covered by their specification-specific flow modules.

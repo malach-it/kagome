@@ -33,6 +33,8 @@ server:
   address: 0.0.0.0:4000
   issuer: http://localhost:4000
   workers: 4
+  cors_origins:
+    - "*"
   replay_protection: true
   rate_limit:
     count: 10
@@ -98,6 +100,10 @@ The example above is the complete configuration shape. In practice:
 - `server.replay_protection` defaults to `true` and controls process-local
   single-use checks for short-lived authorization artifacts. Set it to `false`
   only for controlled testing; replayed artifacts will then be accepted.
+- `server.cors_origins` controls which browser origins may read CORS-enabled
+  credential access-token, credential, JWKS, and well-known metadata responses.
+  It defaults to `["*"]`; use exact HTTP or HTTPS origins, or an empty list to
+  disable CORS. The wildcard cannot be combined with explicit origins.
 - `server.rate_limit` applies Boruta-style adaptive throttling globally per
   client IP. `penality` and `timeout` are expressed in milliseconds, while
   `memory_length` controls the number of historical time-unit buckets.

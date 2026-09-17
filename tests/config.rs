@@ -21,6 +21,7 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.server.address, "127.0.0.1:4100");
     assert_eq!(config.server.issuer, "https://kagome.example.com");
     assert_eq!(config.server.workers, 8);
+    assert_eq!(config.server.cors_origins, ["*"]);
     assert_eq!(
         config.server.replay_protection,
         ReplayProtectionConfig::Boolean(true)
@@ -110,6 +111,7 @@ fn example_configuration_matches_server_defaults() {
     assert_eq!(config.server.address, "0.0.0.0:4000");
     assert_eq!(config.server.issuer, "http://localhost:4000");
     assert_eq!(config.server.workers, 4);
+    assert_eq!(config.server.cors_origins, ["*"]);
     assert_eq!(
         config.server.replay_protection,
         ReplayProtectionConfig::Capacity(1_00_000)
@@ -293,6 +295,14 @@ fn json_schema_describes_configuration_constraints() {
     assert_eq!(server["properties"]["issuer"]["minLength"], 1);
     assert_eq!(server["properties"]["issuer"]["format"], "uri");
     assert_eq!(server["properties"]["workers"]["minimum"], 1);
+    assert_eq!(
+        server["properties"]["cors_origins"]["default"],
+        serde_json::json!(["*"])
+    );
+    assert_eq!(
+        server["properties"]["cors_origins"]["items"]["type"],
+        "string"
+    );
     assert!(schema["$defs"]["ReplayProtectionConfig"]["anyOf"].is_array());
     assert_eq!(token_ttls["additionalProperties"], false);
     assert_eq!(token_ttls["properties"]["access_token_ttl"]["minimum"], 1);
@@ -1028,6 +1038,68 @@ fn rejects_zero_server_workers() {
             .to_string()
             .contains("server.workers must be greater than zero")
     );
+}
+
+#[test]
+fn loads_explicit_and_empty_cors_origins() {
+    for (origins, expected) in [
+        (
+            "\n    - https://wallet.example.com\n    - http://localhost:8080",
+            vec!["https://wallet.example.com", "http://localhost:8080"],
+        ),
+        (" []", Vec::new()),
+    ] {
+        let file = ConfigFile::new(&configuration_yaml(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n  cors_origins:{origins}\n"
+        )));
+
+        let config = Config::load_from_path(file.path()).expect("CORS origins should load");
+
+        assert_eq!(config.server.cors_origins, expected);
+    }
+}
+
+#[test]
+fn rejects_invalid_cors_origins() {
+    for (origins, message) in [
+        (
+            "[\"*\", https://wallet.example.com]",
+            "cannot combine * with explicit origins",
+        ),
+        (
+            "[https://wallet.example.com, https://wallet.example.com]",
+            "must not contain duplicates",
+        ),
+        (
+            "[https://wallet.example.com/path]",
+            "entries must be * or absolute HTTP or HTTPS origins",
+        ),
+        (
+            "[https://wallet.example.com?tenant=one]",
+            "entries must be * or absolute HTTP or HTTPS origins",
+        ),
+        (
+            "[https://user@wallet.example.com]",
+            "entries must be * or absolute HTTP or HTTPS origins",
+        ),
+        (
+            "[https://wallet.example.com:invalid]",
+            "entries must be * or absolute HTTP or HTTPS origins",
+        ),
+        (
+            "[javascript:alert(1)]",
+            "entries must be * or absolute HTTP or HTTPS origins",
+        ),
+    ] {
+        let file = ConfigFile::new(&configuration_yaml(&format!(
+            "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\n  cors_origins: {origins}\n"
+        )));
+
+        let error = Config::load_from_path(file.path()).expect_err("CORS origins should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(error.to_string().contains(message), "{error}");
+    }
 }
 
 #[test]

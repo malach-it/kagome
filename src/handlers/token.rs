@@ -36,7 +36,7 @@ pub fn handle_token(request: &KagomeRequest) -> String {
     };
 
     if allow_cors {
-        cors_response(response)
+        cors_response(request, response)
     } else {
         response
     }
