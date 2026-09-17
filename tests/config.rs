@@ -199,6 +199,18 @@ fn example_configuration_matches_server_defaults() {
 }
 
 #[test]
+fn redacted_configuration_summary_hides_secrets() {
+    let file = example_configuration_file();
+    let config = Config::load_from_path(file.path()).expect("example configuration should load");
+    let summary = config.redacted_summary();
+
+    assert!(summary.contains("server:"));
+    assert!(summary.contains("[redacted]"));
+    assert!(!summary.contains("\"client_secret\": \"client_secret\""));
+    assert!(!summary.contains("federated_client_secret"));
+}
+
+#[test]
 fn initializes_global_configuration_only_once() {
     let file = example_configuration_file();
     let config = Config::load_from_path(file.path()).expect("example configuration should load");

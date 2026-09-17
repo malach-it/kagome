@@ -12,8 +12,12 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let config = kagome::config::Config::initialize()?;
+    eprintln!("-----BEGIN KAGOME CONFIGURATION-----");
+    eprintln!("{}", config.redacted_summary());
+    eprintln!("-----END KAGOME CONFIGURATION-----\n");
     kagome::templates::initialize()?;
 
+    eprintln!("kagome listening on {}", config.server.address);
     kagome::http_server::serve_with_workers(&config.server.address, config.server.workers)?;
 
     Ok(())

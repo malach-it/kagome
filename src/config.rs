@@ -9,8 +9,9 @@ use std::{
     sync::OnceLock,
 };
 
+use ring::digest;
 use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     key_management::{KeyManagementError, KeyManager},
@@ -29,6 +30,10 @@ pub const DEFAULT_FEDERATION_STATE_TTL_SECONDS: u64 = 300;
 pub const DEFAULT_PRESENTATION_STATE_TTL_SECONDS: u64 = 300;
 pub const DEFAULT_SIOPV2_STATE_TTL_SECONDS: u64 = 300;
 pub const DEFAULT_MAX_CONSUMED_ARTIFACTS: usize = 100_000;
+pub const DEFAULT_RATE_LIMIT_COUNT: usize = 10;
+pub const DEFAULT_RATE_LIMIT_PENALITY_MILLISECONDS: u64 = 500;
+pub const DEFAULT_RATE_LIMIT_TIMEOUT_MILLISECONDS: u64 = 5_000;
+pub const DEFAULT_RATE_LIMIT_MEMORY_LENGTH: usize = 50;
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
@@ -62,7 +67,7 @@ pub struct Config {
     key_manager: KeyManager,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CredentialConfig {
     /// Identifier used in issuer metadata, offers, and credential requests.
@@ -89,7 +94,7 @@ fn default_credential_configurations() -> Vec<CredentialConfig> {
     }]
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PresentationDefinitionConfig {
     /// OAuth scope value used to select the presentation definition.
@@ -451,6 +456,15 @@ impl Config {
 
     /// Returns a startup-safe configuration summary with credentials and key material redacted.
     pub fn redacted_summary(&self) -> String {
+        let crypto_sha256 = fs::read(&self.crypto.key_file)
+            .map(|contents| {
+                digest::digest(&digest::SHA256, &contents)
+                    .as_ref()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            })
+            .unwrap_or_else(|_| "unavailable".to_owned());
         let replay_protection = match self.server.replay_protection {
             ReplayProtectionConfig::Boolean(enabled) => serde_json::json!(enabled),
             ReplayProtectionConfig::Capacity(capacity) => serde_json::json!(capacity),
@@ -483,7 +497,7 @@ impl Config {
             })
             .collect();
 
-        serde_json::to_string_pretty(&serde_json::json!({
+        serde_yaml_ng::to_string(&serde_json::json!({
             "server": {
                 "address": self.server.address,
                 "issuer": self.server.issuer,
@@ -497,7 +511,11 @@ impl Config {
                     "memory_length": self.server.rate_limit.memory_length,
                 },
             },
-            "crypto": {"key_file": self.crypto.key_file, "contents": "[redacted]"},
+            "crypto": {
+                "key_file": self.crypto.key_file,
+                "sha256": crypto_sha256,
+                "contents": "[redacted]"
+            },
             "tokens": {
                 "access_token_ttl": self.tokens.access_token_ttl,
                 "authorization_code_ttl": self.tokens.authorization_code_ttl,
@@ -508,11 +526,11 @@ impl Config {
                 "siopv2_state_ttl": self.tokens.siopv2_state_ttl,
                 "authorization_code_chain_max_depth": self.tokens.authorization_code_chain_max_depth,
             },
-            "credentials": self.credentials.iter().map(|credential| &credential.credential_configuration_id).collect::<Vec<_>>(),
-            "presentation_definitions": self.presentation_definitions.iter().map(|definition| &definition.identifier).collect::<Vec<_>>(),
+            "credentials": &self.credentials,
+            "presentation_definitions": &self.presentation_definitions,
             "clients": clients,
         }))
-        .expect("redacted configuration summary must serialize")
+        .expect("redacted configuration summary must serialize as YAML")
     }
 
     pub(crate) fn key_manager() -> &'static KeyManager {
@@ -678,7 +696,19 @@ impl Config {
             });
         }
 
-        lif matches!(
+        let rate_limit = self.server.rate_limit;
+        if !(1..=100_000).contains(&rate_limit.count)
+            || rate_limit.penality > 600_000
+            || rate_limit.timeout > 600_000
+            || !(1..=10_000).contains(&rate_limit.memory_length)
+        {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "server.rate_limit values are outside their supported ranges".to_owned(),
+            });
+        }
+
+        if matches!(
             self.server.replay_protection,
             ReplayProtectionConfig::Capacity(0)
         ) {
