@@ -17,7 +17,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     eprintln!("-----END KAGOME CONFIGURATION-----\n");
     kagome::templates::initialize()?;
 
-    eprintln!("kagome listening on {}", config.server.address);
     kagome::http_server::serve_with_workers(&config.server.address, config.server.workers)?;
 
     Ok(())

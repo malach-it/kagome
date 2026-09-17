@@ -143,6 +143,7 @@ fn serve_listener_with_workers_tls_and_limits(
 ) -> io::Result<()> {
     validate_limits(limits)?;
     let worker_count = worker_count.max(1);
+    let address = listener.local_addr()?;
     listener.set_nonblocking(true)?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -177,6 +178,7 @@ fn serve_listener_with_workers_tls_and_limits(
                     })
                     .http1_only();
                 configure_http(&mut server, limits);
+                eprintln!("kagome listening on {address}");
                 server
                     .serve(application.into_make_service_with_connect_info::<SocketAddr>())
                     .await
@@ -190,6 +192,7 @@ fn serve_listener_with_workers_tls_and_limits(
                     })
                     .http1_only();
                 configure_http(&mut server, limits);
+                eprintln!("kagome listening on {address}");
                 server
                     .serve(application.into_make_service_with_connect_info::<SocketAddr>())
                     .await
