@@ -178,7 +178,7 @@ fn serve_listener_with_workers_tls_and_limits(
                     })
                     .http1_only();
                 configure_http(&mut server, limits);
-                eprintln!("kagome listening on {address}");
+                println!("kagome listening on {address}");
                 server
                     .serve(application.into_make_service_with_connect_info::<SocketAddr>())
                     .await
@@ -192,7 +192,7 @@ fn serve_listener_with_workers_tls_and_limits(
                     })
                     .http1_only();
                 configure_http(&mut server, limits);
-                eprintln!("kagome listening on {address}");
+                println!("kagome listening on {address}");
                 server
                     .serve(application.into_make_service_with_connect_info::<SocketAddr>())
                     .await

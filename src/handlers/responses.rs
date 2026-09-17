@@ -803,7 +803,7 @@ impl ResponseLog for CredentialRequest<'_> {
     }
 
     fn log_success(&self) {
-        eprintln!(
+        println!(
             "[{}] credential_handler success configuration={}",
             log_timestamp(),
             optional_str(
@@ -822,7 +822,7 @@ impl ResponseLog for PresentationResponseRequest<'_> {
     }
 
     fn log_success(&self) {
-        eprintln!(
+        println!(
             "[{}] presentation_response_handler success outcome={}",
             log_timestamp(),
             if self.response.wallet_error.is_some() {
@@ -840,7 +840,7 @@ impl ResponseLog for SiopAuthorizationRequest<'_> {
     }
 
     fn log_success(&self) {
-        eprintln!(
+        println!(
             "[{}] siopv2_request_handler success response_mode=direct_post",
             log_timestamp()
         );
@@ -853,7 +853,7 @@ impl ResponseLog for SiopResponseRequest<'_> {
     }
 
     fn log_success(&self) {
-        eprintln!(
+        println!(
             "[{}] siopv2_response_handler success outcome={}",
             log_timestamp(),
             if self.response.wallet_error.is_some() {
@@ -866,11 +866,11 @@ impl ResponseLog for SiopResponseRequest<'_> {
 }
 
 fn log_token_success(response_type: &str, attributes: &[(&str, String)]) {
-    eprintln!("{}", token_success_log(response_type, attributes));
+    println!("{}", token_success_log(response_type, attributes));
 }
 
 fn log_authorize_success(response_type: &str, attributes: &[(&str, String)]) {
-    eprintln!("{}", authorize_success_log(response_type, attributes));
+    println!("{}", authorize_success_log(response_type, attributes));
 }
 
 fn token_success_log(response_type: &str, attributes: &[(&str, String)]) -> String {

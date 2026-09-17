@@ -12,9 +12,9 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let config = kagome::config::Config::initialize()?;
-    eprintln!("-----BEGIN KAGOME CONFIGURATION-----");
-    eprintln!("{}", config.redacted_summary());
-    eprintln!("-----END KAGOME CONFIGURATION-----\n");
+    println!("-----BEGIN KAGOME CONFIGURATION-----");
+    println!("{}", config.redacted_summary());
+    println!("-----END KAGOME CONFIGURATION-----\n");
     kagome::templates::initialize()?;
 
     kagome::http_server::serve_with_workers(&config.server.address, config.server.workers)?;
