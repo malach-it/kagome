@@ -36,15 +36,32 @@ flowchart TD
     federated_authorize -- error --> response_error
     federated_authorize -- ok --> federation_redirect["`**HTTP 302** upstream authorization redirect with encrypted original request and wallet-bound code`"]
     continuation_flow -- OAuth or OpenID4VP --> selected_response[Run selected authorization response pipeline]
-    selected_response -- error --> response_error
+    selected_response -- error --> selected_failure{Active endpoint?}
     selected_response -- ok --> consume["authorization_code::consume_optional"]
-    consume -- replay or storage error --> response_error
-    consume -- absent or consumed --> response_kind{Generated response kind?}
+    consume -- replay or storage error --> selected_failure
+    consume -- absent or authorization code consumed --> response_kind{Generated response kind?}
     response_kind -- OAuth --> identity_success["`**HTTP 302** requested OAuth response`"]
     response_kind -- OpenID4VP --> presentation_success["`**HTTP 302** wallet presentation request or **HTTP 200** QR relay`"]
+    response_kind -- pre-authorized code --> credential_offer["`**HTTP 302** credential offer or **HTTP 200** credential-offer QR relay`"]
     continuation_flow -- pre-authorized code --> continuation_code["authorization_code::generate"]
     continuation_code -- error --> response_error
-    continuation_code -- ok --> authorize_redirect["`**HTTP 302** /authorize continuation`"]
+    continuation_code -- ok --> authorize_redirect["`**HTTP 302** /authorize continuation carrying an unconsumed SIOPv2 authorization code`"]
+    authorize_redirect --> authorize_continuation[GET /authorize continuation]
+    authorize_continuation --> authorize_pipeline[Run common authorize resource pipeline]
+    authorize_pipeline -- error --> authorize_failure
+    authorize_pipeline -- authenticated --> selected_response
+    authorize_pipeline -- unauthenticated --> continuation_authentication{Federated client?}
+    continuation_authentication -- no --> local_authentication["`**HTTP 501** local authentication not implemented`"]
+    continuation_authentication -- yes --> continuation_federation["`**HTTP 302** upstream authorization redirect`"]
+    continuation_federation --> federation_callback[GET /federation_callback]
+    federation_callback --> callback_pipeline[Run federation callback and common authorize resource pipelines]
+    callback_pipeline -- error --> authorize_failure
+    callback_pipeline -- authenticated --> selected_response
+    selected_failure -- /siopv2-response --> response_error
+    selected_failure -- /authorize or /federation_callback --> authorize_failure
+    authorize_failure[Authorization continuation error] --> authorize_error_destination{Trusted redirect URI and state?}
+    authorize_error_destination -- yes --> authorize_error_redirect["`**HTTP 302** authorization error with exact state`"]
+    authorize_error_destination -- no --> authorize_error_html["`**HTTP 400** HTML authorization error`"]
     response_error[Error response] --> destination{Trusted error context remembered?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
     destination -- no --> html_error["`**HTTP 400** HTML error page`"]

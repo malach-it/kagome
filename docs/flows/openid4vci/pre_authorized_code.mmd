@@ -1,6 +1,6 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    authorize[GET /authorize with pre-authorized_code] --> authorize_pipeline[Run common authorize resource pipeline]
+    authorize[GET /authorize with pre-authorized_code and optional SIOPv2 authorization code] --> authorize_pipeline[Run common authorize resource pipeline]
     authorize_pipeline -- error --> authorize_failure
     authorize_pipeline -- unauthenticated --> authentication{Federated client?}
     authentication -- no --> local_authentication["`**HTTP 501** local authentication not implemented`"]
@@ -9,7 +9,7 @@ flowchart TD
     generate -- error --> authorize_failure
     generate -- ok --> consume_authorize_code["authorization_code::consume_optional"]
     consume_authorize_code -- replay or storage error --> authorize_failure
-    consume_authorize_code -- absent or consumed --> offer_delivery{QR delivery enabled?}
+    consume_authorize_code -- absent or SIOPv2 code consumed --> offer_delivery{QR delivery enabled?}
     offer_delivery -- no --> authorize_offer["`**HTTP 302** credential offer with exact state`"]
     offer_delivery -- yes --> authorize_offer_qr["`**HTTP 200** credential-offer QR relay`"]
     authorize_offer --> token[POST /token with pre-authorized-code grant]
