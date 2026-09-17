@@ -4,6 +4,7 @@ pub mod errors;
 pub mod handlers;
 pub mod http_server;
 pub mod key_management;
+pub mod rate_limit;
 pub mod requests;
 #[path = "resources/lib.rs"]
 pub mod resources;

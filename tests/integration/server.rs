@@ -359,6 +359,7 @@ fn start_server() -> String {
     std::fs::write(&config_path, config_yaml).expect("integration configuration should be written");
     let mut config = kagome::config::Config::load_from_path(&config_path)
         .expect("example configuration should load");
+    config.server.rate_limit.count = 100_000;
     let _ = std::fs::remove_file(config_path);
     config.clients[0].public = Some("example.com".to_owned());
     config.credentials.push(kagome::config::CredentialConfig {

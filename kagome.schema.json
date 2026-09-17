@@ -14,6 +14,16 @@
     "credentials": {
       "description": "Verifiable credential configurations advertised and issued by the server.",
       "type": "array",
+      "default": [
+        {
+          "credential_configuration_id": "UniversityDegreeCredential",
+          "name": "University Degree Credential",
+          "type": [
+            "UniversityDegreeCredential"
+          ],
+          "vct": "UniversityDegreeCredential"
+        }
+      ],
       "items": {
         "$ref": "#/$defs/CredentialConfig"
       },
@@ -26,6 +36,46 @@
     "presentation_definitions": {
       "description": "Presentation definitions selected by OAuth scope identifiers.",
       "type": "array",
+      "default": [
+        {
+          "definition": {
+            "id": "credential_presentation",
+            "input_descriptors": [
+              {
+                "constraints": {
+                  "fields": [
+                    {
+                      "filter": {
+                        "contains": {
+                          "const": "UniversityDegreeCredential"
+                        },
+                        "type": "array"
+                      },
+                      "path": [
+                        "$.vc.type"
+                      ]
+                    },
+                    {
+                      "path": [
+                        "$.vc.credentialSubject.id"
+                      ]
+                    }
+                  ]
+                },
+                "format": {
+                  "jwt_vc": {
+                    "alg": [
+                      "EdDSA"
+                    ]
+                  }
+                },
+                "id": "credential"
+              }
+            ]
+          },
+          "identifier": "credential_presentation"
+        }
+      ],
       "items": {
         "$ref": "#/$defs/PresentationDefinitionConfig"
       },
@@ -315,6 +365,59 @@
         "definition"
       ]
     },
+    "RateLimitConfig": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "description": "Target number of requests per configured time unit.",
+          "type": "integer",
+          "format": "uint",
+          "maximum": 100000,
+          "minimum": 1
+        },
+        "memory_length": {
+          "description": "Number of time-unit buckets retained per client IP.",
+          "type": "integer",
+          "format": "uint",
+          "maximum": 10000,
+          "minimum": 1
+        },
+        "penality": {
+          "description": "Delay multiplier, in milliseconds, applied to the historical overload factor.",
+          "type": "integer",
+          "format": "uint64",
+          "maximum": 600000,
+          "minimum": 0
+        },
+        "time_unit": {
+          "description": "Time unit used to group request history.",
+          "$ref": "#/$defs/RateLimitTimeUnit"
+        },
+        "timeout": {
+          "description": "Reject requests whose calculated delay reaches this value, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "maximum": 600000,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "time_unit",
+        "penality",
+        "timeout",
+        "memory_length"
+      ]
+    },
+    "RateLimitTimeUnit": {
+      "type": "string",
+      "enum": [
+        "millisecond",
+        "second",
+        "minute"
+      ]
+    },
     "ReplayProtectionConfig": {
       "anyOf": [
         {
@@ -352,6 +455,10 @@
           "type": "string",
           "format": "uri",
           "minLength": 1
+        },
+        "rate_limit": {
+          "description": "Global per-IP request throttling policy.",
+          "$ref": "#/$defs/RateLimitConfig"
         },
         "replay_protection": {
           "description": "Enable process-local replay protection for short-lived protocol artifacts.",

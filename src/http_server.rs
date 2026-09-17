@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use axum::extract::ConnectInfo;
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -21,6 +22,7 @@ use axum::{
 };
 use axum_server::{accept::Accept, tls_rustls::RustlsConfig};
 use hyper_util::rt::TokioTimer;
+use std::net::SocketAddr;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     sync::{OwnedSemaphorePermit, Semaphore},
@@ -73,6 +75,7 @@ impl Default for ServerLimits {
 struct ApplicationState {
     limits: ServerLimits,
     request_permits: Arc<Semaphore>,
+    rate_limiter: Option<Arc<crate::rate_limit::RateLimiter>>,
 }
 
 #[derive(Clone)]
@@ -119,6 +122,7 @@ fn serve_listener_with_workers_and_tls(
         worker_count,
         tls_configuration,
         ServerLimits::default(),
+        true,
     )
 }
 
@@ -127,7 +131,7 @@ pub fn serve_listener_with_workers_and_limits(
     worker_count: usize,
     limits: ServerLimits,
 ) -> io::Result<()> {
-    serve_listener_with_workers_tls_and_limits(listener, worker_count, None, limits)
+    serve_listener_with_workers_tls_and_limits(listener, worker_count, None, limits, false)
 }
 
 fn serve_listener_with_workers_tls_and_limits(
@@ -135,10 +139,10 @@ fn serve_listener_with_workers_tls_and_limits(
     worker_count: usize,
     tls_configuration: Option<TlsConfiguration>,
     limits: ServerLimits,
+    rate_limit_enabled: bool,
 ) -> io::Result<()> {
     validate_limits(limits)?;
     let worker_count = worker_count.max(1);
-    println!("{}", listener.local_addr()?);
     listener.set_nonblocking(true)?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -154,6 +158,11 @@ fn serve_listener_with_workers_tls_and_limits(
                 .with_state(ApplicationState {
                     limits,
                     request_permits: Arc::new(Semaphore::new(limits.max_concurrent_requests)),
+                    rate_limiter: rate_limit_enabled.then(|| {
+                        Arc::new(crate::rate_limit::RateLimiter::new(
+                            crate::config::Config::global().server.rate_limit,
+                        ))
+                    }),
                 });
         let connection_permits = Arc::new(Semaphore::new(limits.max_concurrent_connections));
 
@@ -168,7 +177,9 @@ fn serve_listener_with_workers_tls_and_limits(
                     })
                     .http1_only();
                 configure_http(&mut server, limits);
-                server.serve(application.into_make_service()).await
+                server
+                    .serve(application.into_make_service_with_connect_info::<SocketAddr>())
+                    .await
             }
             None => {
                 let mut server = axum_server::from_tcp(listener)?
@@ -179,7 +190,9 @@ fn serve_listener_with_workers_tls_and_limits(
                     })
                     .http1_only();
                 configure_http(&mut server, limits);
-                server.serve(application.into_make_service()).await
+                server
+                    .serve(application.into_make_service_with_connect_info::<SocketAddr>())
+                    .await
             }
         }
     })
@@ -265,8 +278,18 @@ fn tls_configuration(
 
 async fn handle_request(
     State(state): State<ApplicationState>,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     request: Request<Body>,
 ) -> Response<Body> {
+    let ip = connect_info.ip();
+    if let Some(rate_limiter) = state.rate_limiter {
+        match rate_limiter.throttle(ip) {
+            crate::rate_limit::Decision::AllowAfter(delay) => tokio::time::sleep(delay).await,
+            crate::rate_limit::Decision::Reject => {
+                return text_response(StatusCode::TOO_MANY_REQUESTS, "");
+            }
+        }
+    }
     if request.headers().len() > state.limits.max_request_headers
         || request_header_bytes(&request) > state.limits.max_header_bytes
     {
@@ -695,7 +718,9 @@ mod tests {
             State(ApplicationState {
                 limits: ServerLimits::default(),
                 request_permits: Arc::new(Semaphore::new(0)),
+                rate_limiter: None,
             }),
+            ConnectInfo("127.0.0.1:4000".parse().unwrap()),
             Request::builder().uri("/echo").body(Body::empty()).unwrap(),
         ));
 
