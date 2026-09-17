@@ -9,8 +9,10 @@ flowchart TD
     shape -- valid code or error --> consume["federated_server::consume_callback_state"]
     consume -- replay or storage error --> redirect_error
     consume -- consumed --> callback["federated_server::validate_callback"]
-    callback -- error --> redirect_error["`**HTTP 302** client error redirect`"]
-    callback -- ok --> response_type["response_type::validate"]
+    callback -- error --> redirect_error
+    callback -- ok --> restore[Restore authorization request from federation state]
+    restore -- error --> redirect_error
+    restore -- ok --> response_type["response_type::validate"]
     response_type -- error --> redirect_error
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> redirect_error
@@ -26,8 +28,34 @@ flowchart TD
     token -- error --> redirect_error
     token -- ok --> identity["federated_server::fetch_identity"]
     identity -- error --> redirect_error
-    identity -- ok --> generate[Generate selected authorize response]
-    generate -- error --> redirect_error
-    generate -- ok --> delivery{Wallet delivery?}
+    identity -- ok --> generate{Selected response pipeline?}
+    generate -- pre-authorized_code --> pre_code["pre_authorized_code::generate"]
+    generate -- code --> auth_code["authorization_code::generate"]
+    generate -- access token --> access["access_token::generate"]
+    generate -- ID token --> id_token["id_token::generate"]
+    generate -- combined --> combined[Compose selected generation actions]
+    generate -- OpenID4VP --> verifier["verifier::validate"]
+    verifier -- error --> redirect_error
+    verifier -- ok --> issuer["credential_issuer::validate"]
+    issuer -- error --> redirect_error
+    issuer -- ok --> definition["presentation_definition::select"]
+    definition -- error --> redirect_error
+    definition -- ok --> presentation_state["presentation_state::generate"]
+    presentation_state -- error --> redirect_error
+    presentation_state -- ok --> presentation_request["presentation_request::generate"]
+    presentation_request -- error --> redirect_error
+    presentation_request -- ok --> consume_optional
+    pre_code -- error --> redirect_error
+    auth_code -- excessive depth or generation error --> redirect_error
+    access -- error --> redirect_error
+    id_token -- error --> redirect_error
+    combined -- error --> redirect_error
+    pre_code -- ok --> consume_optional["authorization_code::consume_optional"]
+    auth_code -- ok --> consume_optional
+    access -- ok --> consume_optional
+    id_token -- ok --> consume_optional
+    combined -- ok --> consume_optional
+    consume_optional -- replay or storage error --> redirect_error
+    consume_optional -- absent or consumed --> delivery{Wallet delivery?}
     delivery -- QR client and no validated ID-token code --> qr["`**HTTP 200** QR relay`"]
     delivery -- validated ID-token code or standard client --> accepted["`**HTTP 302** downstream authorize response`"]

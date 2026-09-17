@@ -2,7 +2,11 @@
 flowchart TD
     start[Request /siopv2-response] --> method{POST?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> encoding["self_issued_id_token::validate_encoding"]
+    method -- yes --> error_context["siopv2_state::validate"]
+    error_context -- valid state with redirect URI --> trusted[Remember trusted client redirect URI and state]
+    error_context -- missing, invalid, or no redirect URI --> untrusted[No trusted error redirect]
+    trusted --> encoding["self_issued_id_token::validate_encoding"]
+    untrusted --> encoding
     encoding -- error --> failure
     encoding -- ok --> state["siopv2_state::validate"]
     state -- error --> failure
@@ -16,7 +20,8 @@ flowchart TD
     id_token -- error --> failure
     id_token -- ok --> consume_id_state["siopv2_state::consume"]
     consume_id_state -- replay or storage error --> failure
-    consume_id_state -- consumed --> response_type["response_type::validate"]
+    consume_id_state -- consumed --> continuation[Build authenticated authorize continuation]
+    continuation --> response_type["response_type::validate"]
     response_type -- error --> failure
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> failure
@@ -28,21 +33,43 @@ flowchart TD
     code -- invalid, oversized, or excessive depth --> failure
     code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
     policy -- error --> failure
-    policy -- ok --> federation{Federated client?}
-    federation -- yes --> federation_code["authorization_code::generate"]
+    policy -- ok --> continuation_flow{Continuation flow?}
+    continuation_flow -- federated client --> federation_code["authorization_code::generate"]
     federation_code -- error --> failure
     federation_code -- ok --> federated_authorize["federated_server::authorize"]
     federated_authorize -- error --> failure
     federated_authorize -- ok --> federation_redirect["`**HTTP 302** upstream authorization redirect with encrypted original request and wallet-bound code`"]
-    federation -- no --> response_type_branch{Pre-authorized code?}
-    response_type_branch -- yes --> continuation_code["authorization_code::generate"]
+    continuation_flow -- pre-authorized code --> continuation_code["authorization_code::generate"]
     continuation_code -- error --> failure
     continuation_code -- ok --> authorize_redirect["`**HTTP 302** /authorize continuation`"]
-    response_type_branch -- no --> response[Generate selected authorize response]
-    response -- error --> failure
-    response -- ok --> consume["authorization_code::consume_optional"]
+    continuation_flow -- OpenID4VP --> verifier["verifier::validate"]
+    verifier -- error --> failure
+    verifier -- ok --> issuer["credential_issuer::validate"]
+    issuer -- error --> failure
+    issuer -- ok --> definition["presentation_definition::select"]
+    definition -- error --> failure
+    definition -- ok --> presentation_state["presentation_state::generate"]
+    presentation_state -- error --> failure
+    presentation_state -- ok --> presentation_request["presentation_request::generate"]
+    presentation_request -- error --> failure
+    presentation_request -- ok --> consume
+    continuation_flow -- OAuth response --> generate{Selected response actions?}
+    generate -- code --> authorization_code["authorization_code::generate"]
+    generate -- access token --> access_token["access_token::generate"]
+    generate -- ID token --> generated_id_token["id_token::generate"]
+    generate -- combined --> combined[Compose selected generation actions]
+    authorization_code -- error --> failure
+    access_token -- error --> failure
+    generated_id_token -- error --> failure
+    combined -- error --> failure
+    authorization_code -- ok --> consume["authorization_code::consume_optional"]
+    access_token -- ok --> consume
+    generated_id_token -- ok --> consume
+    combined -- ok --> consume
     consume -- replay or storage error --> failure
-    consume -- absent or consumed --> identity_success["`**HTTP 302** requested OAuth response`"]
-    failure[Error response] --> destination{Trusted client redirect URI available?}
+    consume -- absent or consumed --> response_kind{Generated response kind?}
+    response_kind -- OpenID4VP --> presentation_success["`**HTTP 302** wallet presentation request or **HTTP 200** QR relay`"]
+    response_kind -- OAuth --> identity_success["`**HTTP 302** requested OAuth response`"]
+    failure[Error response] --> destination{Trusted error context remembered?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
     destination -- no --> html_error["`**HTTP 400** HTML error page`"]

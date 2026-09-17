@@ -1,6 +1,6 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    start[Request /jwks] --> method{GET?}
+    start[Request /jwks or /openid/jwks] --> method{GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> issuer["credential_issuer::validate"]
     issuer -- error --> error_origin{Configured CORS origin allowed?}

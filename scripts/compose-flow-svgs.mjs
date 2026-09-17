@@ -52,6 +52,7 @@ const graphs = [
   ],
   ["SIOPv2 — Response Endpoint", "siopv2/response_endpoint.svg"],
   ["SIOPv2 — Flow", "siopv2/siopv2.svg"],
+  ["Server — Echo Endpoint", "server/echo_endpoint.svg"],
 ];
 
 const columns = 6;
@@ -106,7 +107,7 @@ const document = [
   '<?xml version="1.0" encoding="UTF-8"?>',
   `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}" role="img" aria-labelledby="title description">`,
   "  <title id=\"title\">Kagome identity flow graphs</title>",
-  "  <desc id=\"description\">Landscape overview of all OAuth, OpenID4VCI, OpenID4VP, and SIOPv2 flow and endpoint graphs.</desc>",
+  "  <desc id=\"description\">Landscape overview of all OAuth, OpenID4VCI, OpenID4VP, SIOPv2, and server flow and endpoint graphs.</desc>",
   "  <style>.title { font: 700 72px sans-serif; fill: #222; }</style>",
   `  <rect width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`,
   ...sections,

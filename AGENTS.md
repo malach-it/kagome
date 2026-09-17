@@ -151,6 +151,16 @@
 ### Flow and Endpoint Branch Graphs
 
 - Maintain a Mermaid branch graph for every identity flow and HTTP endpoint.
+- Treat the router and handler implementation as the source of truth when
+  maintaining graphs. Trace each route from its HTTP method and path through
+  request construction, every behavior-affecting handler branch, the ordered
+  resource-action pipeline, and the shared response boundary; do not infer the
+  flow only from an existing graph or its tests.
+- Whenever routes or handlers change, reconcile the complete routed-endpoint
+  inventory against `docs/flows/**/*.mmd`, `docs/flows/README.md`, and the input
+  list in `scripts/compose-flow-svgs.mjs`. Add or remove graph, catalog, and
+  overview entries in the same change so no routed endpoint is undocumented and
+  no removed endpoint remains represented.
 - Keep graphs at the handler-pipeline level. Quote only resource actions, using
   their exact `module::function` names; do not expand validation or generation
   rules implemented inside a resource into separate graph nodes.

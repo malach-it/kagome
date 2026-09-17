@@ -21,7 +21,6 @@ flowchart TD
     federate -- error --> authorize_error
     federate -- ok --> federated_redirect["`**HTTP 302** federated authorize endpoint`"]
     authentication -- unauthenticated local --> not_implemented["`**HTTP 501** local authentication not implemented`"]
-    authentication -- authenticated --> issue
     authentication -- authenticated --> issue["authorization_code::generate"]
     issue -- excessive depth or generation error --> authorize_error
     issue -- ok --> consume["authorization_code::consume_optional"]
@@ -40,6 +39,8 @@ flowchart TD
     code -- invalid, oversized, or excessive depth --> token_error
     code -- valid within depth limit --> verifier["pkce::verify"]
     verifier -- error --> token_error
-    verifier -- ok --> access["access_token::generate"]
+    verifier -- ok --> consume_code["authorization_code::consume"]
+    consume_code -- replay or storage error --> token_error
+    consume_code -- consumed --> access["access_token::generate"]
     access -- error --> token_error
     access -- ok --> success["`**HTTP 200** opaque COSE_Encrypt0 bearer access token`"]

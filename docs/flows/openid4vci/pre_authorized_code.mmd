@@ -1,11 +1,17 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     authorize[GET /authorize with pre-authorized_code] --> authorize_pipeline[Run common authorize resource pipeline]
-    authorize_pipeline -- error --> authorize_error["`**HTTP 400** HTML authorization error`"]
-    authorize_pipeline -- unauthenticated --> authentication["`**HTTP 501** local authentication or **HTTP 302** federation redirect`"]
-    authorize_pipeline -- authenticated --> generate
-    generate -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
-    generate -- authorize --> authorize_offer["`**HTTP 302** credential offer with exact state or **HTTP 200** QR relay`"]
+    authorize_pipeline -- error --> authorize_failure
+    authorize_pipeline -- unauthenticated --> authentication{Federated client?}
+    authentication -- no --> local_authentication["`**HTTP 501** local authentication not implemented`"]
+    authentication -- yes --> federation_redirect["`**HTTP 302** federation redirect`"]
+    authorize_pipeline -- authenticated --> generate["pre_authorized_code::generate"]
+    generate -- error --> authorize_failure
+    generate -- ok --> consume_authorize_code["authorization_code::consume_optional"]
+    consume_authorize_code -- replay or storage error --> authorize_failure
+    consume_authorize_code -- absent or consumed --> offer_delivery{QR delivery enabled?}
+    offer_delivery -- no --> authorize_offer["`**HTTP 302** credential offer with exact state`"]
+    offer_delivery -- yes --> authorize_offer_qr["`**HTTP 200** credential-offer QR relay`"]
     authorize_offer --> token[POST /token with pre-authorized-code grant]
     token --> grant["grant_type::validate"]
     grant -- error --> token_grant_error["`**HTTP 400** OAuth error without CORS header`"]
@@ -23,7 +29,8 @@ flowchart TD
     token_cors_success --> credential_request[Request /credential]
     token_success --> credential_request
     credential_request --> credential_issuer["credential_issuer::validate"]
-    credential_issuer --> bearer["credential_access_token::validate"]
+    credential_issuer -- error --> credential_error_origin
+    credential_issuer -- ok --> bearer["credential_access_token::validate"]
     bearer -- error --> credential_error_origin
     bearer -- ok --> configuration["credential_issuer::validate_configuration"]
     configuration -- error --> credential_error_origin
@@ -38,3 +45,6 @@ flowchart TD
     credential_error_origin -- no --> credential_error["`**HTTP 400/401** credential error without CORS header`"]
     success_origin -- yes --> credential_cors_success["`**HTTP 200** jwt_vc credential with CORS header`"]
     success_origin -- no --> success["`**HTTP 200** jwt_vc credential without CORS header`"]
+    authorize_failure{Trusted redirect URI and state?}
+    authorize_failure -- yes --> authorize_redirect_error["`**HTTP 302** authorization error with exact state`"]
+    authorize_failure -- no --> authorize_html_error["`**HTTP 400** HTML authorization error`"]

@@ -1,0 +1,4 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    start[Request /echo with any HTTP method] --> serialize[Serialize parsed request as JSON]
+    serialize --> success["`**HTTP 200** JSON request echo`"]

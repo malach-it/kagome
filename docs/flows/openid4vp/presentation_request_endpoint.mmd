@@ -3,7 +3,7 @@ flowchart TD
     start[Request /authorize with response_type vp_token] --> method{GET?}
     method -- no --> not_found["`**HTTP 404** not found`"]
     method -- yes --> response_type["response_type::validate"]
-    response_type -- error --> authorize_error["`**HTTP 400** authorize HTML error`"]
+    response_type -- error --> authorize_error
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> authorize_error
     client -- ok --> scope["scope::validate"]
@@ -21,10 +21,14 @@ flowchart TD
     authentication -- yes or local client --> verifier["verifier::validate"]
     verifier -- error --> authorize_error
     verifier -- ok --> issuer["credential_issuer::validate"]
-    issuer --> definition["presentation_definition::select"]
+    issuer -- error --> authorize_error
+    issuer -- ok --> definition["presentation_definition::select"]
     definition -- error --> authorize_error
     definition -- ok --> state["presentation_state::generate"]
-    state -- error --> generation_error["`**HTTP 400** invalid_token_response`"]
+    state -- error --> authorize_error
     state -- ok --> request_object["presentation_request::generate"]
-    request_object -- error --> generation_error
+    request_object -- error --> authorize_error
     request_object -- ok --> success["`**HTTP 302** wallet redirect or **HTTP 200** QR relay with nonce and state only in signed request`"]
+    authorize_error{Trusted redirect URI and state?}
+    authorize_error -- yes --> redirect_error["`**HTTP 302** authorization error with exact state`"]
+    authorize_error -- no --> html_error["`**HTTP 400** authorize HTML error`"]

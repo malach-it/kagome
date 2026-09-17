@@ -126,6 +126,12 @@ this catalog.
 
 ### Endpoints
 
+#### Presentation Request
+
+[Mermaid source](openid4vp/presentation_request_endpoint.mmd)
+
+[Presentation request endpoint](openid4vp/presentation_request_endpoint.svg)
+
 #### Presentation Response
 
 [Mermaid source](openid4vp/presentation_response_endpoint.mmd)
@@ -157,3 +163,13 @@ this catalog.
 [Mermaid source](siopv2/response_endpoint.mmd)
 
 [SIOPv2 response endpoint](siopv2/response_endpoint.svg)
+
+## Server
+
+### Endpoints
+
+#### Echo
+
+[Mermaid source](server/echo_endpoint.mmd)
+
+[Echo endpoint](server/echo_endpoint.svg)

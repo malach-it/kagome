@@ -6,7 +6,13 @@ flowchart TD
     client -- error --> authorize_error
     client -- ok --> scope["scope::validate"]
     scope -- error --> authorize_error
-    scope -- ok --> authentication{Authenticated or federated?}
+    scope -- ok --> pkce["pkce::validate"]
+    pkce -- error --> authorize_error
+    pkce -- ok --> code["authorization_code::validate_optional"]
+    code -- invalid, oversized, or excessive depth --> authorize_error
+    code -- absent or valid within depth limit --> policy["metadata_policy::validate"]
+    policy -- error --> authorize_error
+    policy -- ok --> authentication{Authenticated or federated?}
     authentication -- unauthenticated local --> owner_optional["resource_owner::validate_optional"]
     owner_optional -- error --> authorize_error
     owner_optional -- absent --> not_implemented["`**HTTP 501** local authentication not implemented`"]
@@ -17,6 +23,8 @@ flowchart TD
     owner_optional -- present --> generate
     owner_optional -- present --> generate["access_token::generate"]
     generate -- error --> authorize_error
-    generate -- ok --> redirect["`**HTTP 302** client fragment with access_token and exact state`"]
+    generate -- ok --> consume["authorization_code::consume_optional"]
+    consume -- replay or storage error --> authorize_error
+    consume -- absent or consumed --> redirect["`**HTTP 302** client fragment with access_token and exact state`"]
     authorize_error -- yes --> redirect_error["`**HTTP 302** authorization error with exact state`"]
     authorize_error -- no --> html_error["`**HTTP 400** HTML authorization error`"]

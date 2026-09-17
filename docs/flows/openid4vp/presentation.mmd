@@ -1,9 +1,26 @@
 %%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    begin[GET /authorize with vp_token] --> verifier["verifier::validate"]
-    verifier -- error --> request_error["`**HTTP 400** authorization error`"]
+    begin[GET /authorize with vp_token] --> response_type["response_type::validate"]
+    response_type -- error --> request_error
+    response_type -- ok --> request_client["client_credentials::validate"]
+    request_client -- error --> request_error
+    request_client -- ok --> request_scope["scope::validate"]
+    request_scope -- error --> request_error
+    request_scope -- ok --> pkce["pkce::validate"]
+    pkce -- error --> request_error
+    pkce -- ok --> previous["authorization_code::validate_optional"]
+    previous -- invalid, oversized, or excessive depth --> request_error
+    previous -- absent or valid within depth limit --> policy["metadata_policy::validate"]
+    policy -- error --> request_error
+    policy -- ok --> authentication{Federated client authenticated?}
+    authentication -- no --> federate["federated_server::authorize"]
+    federate -- error --> request_error
+    federate -- ok --> federation_redirect["`**HTTP 302** federated authorize endpoint`"]
+    authentication -- yes or local client --> verifier["verifier::validate"]
+    verifier -- error --> request_error
     verifier -- ok --> issuer["credential_issuer::validate"]
-    issuer --> definition["presentation_definition::select"]
+    issuer -- error --> request_error
+    issuer -- ok --> definition["presentation_definition::select"]
     definition -- error --> request_error
     definition -- ok --> state["presentation_state::generate"]
     state -- error --> request_error
@@ -33,3 +50,6 @@ flowchart TD
     submission -- error --> response_error
     presentation -- error --> response_error
     code -- error --> response_error
+    request_error{Trusted redirect URI and state?}
+    request_error -- yes --> request_redirect_error["`**HTTP 302** authorization error with exact state`"]
+    request_error -- no --> request_html_error["`**HTTP 400** authorization HTML error`"]

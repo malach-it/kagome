@@ -25,13 +25,16 @@ flowchart TD
     flow -- vp_token for authenticated or local client --> verifier["verifier::validate"]
     verifier -- error --> error
     verifier -- ok --> issuer["credential_issuer::validate"]
-    issuer --> definition["presentation_definition::select"]
+    issuer -- error --> error
+    issuer -- ok --> definition["presentation_definition::select"]
     definition -- error --> error
     definition -- ok --> state["presentation_state::generate"]
     state -- error --> error
     state -- ok --> request_object["presentation_request::generate"]
     request_object -- error --> error
-    request_object -- ok --> vp_success["`**HTTP 302** wallet redirect or **HTTP 200** QR relay with nonce and state only in signed request`"]
+    request_object -- ok --> vp_delivery{QR delivery enabled?}
+    vp_delivery -- no --> vp_redirect["`**HTTP 302** wallet redirect with nonce and state only in signed request`"]
+    vp_delivery -- yes --> vp_qr["`**HTTP 200** QR relay with nonce and state only in signed request`"]
     flow -- unauthenticated local OAuth GET --> not_implemented["`**HTTP 501** local authentication not implemented`"]
     flow -- authenticated OAuth GET --> generate{Selected response type?}
     generate -- pre-authorized_code --> pre_code["pre_authorized_code::generate"]
@@ -51,7 +54,9 @@ flowchart TD
     combined -- ok --> consume
     consume -- replay or storage error --> error
     consume -- absent or consumed --> generated_response{Generated response kind?}
-    generated_response -- credential offer --> offer["`**HTTP 302** credential offer with exact state or **HTTP 200** QR relay`"]
+    generated_response -- credential offer --> offer_delivery{QR delivery enabled?}
+    offer_delivery -- no --> offer_redirect["`**HTTP 302** credential offer with exact state`"]
+    offer_delivery -- yes --> offer_qr["`**HTTP 200** credential-offer QR relay`"]
     generated_response -- code --> code_response["`**HTTP 302** code response or continuation with exact state`"]
     generated_response -- access token --> token_response["`**HTTP 302** access-token response with exact state`"]
     generated_response -- ID token --> id_response["`**HTTP 302** ID-token response with exact state`"]
