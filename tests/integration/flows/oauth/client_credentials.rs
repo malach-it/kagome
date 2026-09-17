@@ -19,7 +19,7 @@ fn returns_token_response_for_form_client_credentials_grant_type() {
 
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(response.contains("content-type: application/json\r\n"));
-    assert!(response.contains("access-control-allow-origin: *\r\n"));
+    assert!(!response.contains("access-control-allow-origin:"));
     assert!(response.contains("connection: close\r\n"));
     assert!(response.contains("\"token_type\":\"bearer\""));
     assert!(response.contains("\"access_token\":\""));

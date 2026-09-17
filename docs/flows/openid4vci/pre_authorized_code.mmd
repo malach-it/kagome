@@ -8,14 +8,14 @@ flowchart TD
     generate -- authorize --> authorize_offer["`**HTTP 302** credential offer with exact state or **HTTP 200** QR relay`"]
     authorize_offer --> token[POST /token with pre-authorized-code grant]
     token --> grant["grant_type::validate"]
-    grant -- error --> token_error["`**HTTP 400** OAuth error`"]
+    grant -- error --> token_grant_error["`**HTTP 400** OAuth error without CORS header`"]
     grant -- pre-authorized_code --> code["pre_authorized_code::validate"]
-    code -- error --> token_error
+    code -- error --> token_error["`**HTTP 400** credential access token OAuth error with CORS header`"]
     code -- ok --> consume["pre_authorized_code::consume"]
     consume -- replay or storage error --> token_error
     consume -- ok --> access["credential_access_token::generate"]
     access -- error --> token_error
-    access -- ok --> token_success["`**HTTP 200** credential access token, c_nonce, and authorization details`"]
+    access -- ok --> token_success["`**HTTP 200** credential access token, c_nonce, and authorization details with CORS header`"]
     token_success --> credential_request[Request /credential]
     credential_request --> credential_issuer["credential_issuer::validate"]
     credential_issuer --> bearer["credential_access_token::validate"]

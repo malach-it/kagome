@@ -16,9 +16,18 @@ pub use crate::requests::{
 };
 
 pub fn handle_token(request: &KagomeRequest) -> String {
-    let response = match grant_type::validate(GrantTypeRequest::from_request(request))
-        .and_then(|token_request| handle_validated_grant_type(token_request, request))
+    let (response, allow_cors) = match grant_type::validate(GrantTypeRequest::from_request(request))
     {
+        Ok(token_request) => {
+            let allow_cors = matches!(token_request.grant_types(), [GrantType::PreAuthorizedCode]);
+            (
+                handle_validated_grant_type(token_request, request),
+                allow_cors,
+            )
+        }
+        Err(error) => (Err(error), false),
+    };
+    let response = match response {
         Ok(response) => response,
         Err(error) => {
             log_token_failure(&error);
@@ -26,7 +35,11 @@ pub fn handle_token(request: &KagomeRequest) -> String {
         }
     };
 
-    cors_response(response)
+    if allow_cors {
+        cors_response(response)
+    } else {
+        response
+    }
 }
 
 fn handle_validated_grant_type(

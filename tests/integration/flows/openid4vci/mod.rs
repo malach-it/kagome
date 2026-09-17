@@ -1126,6 +1126,7 @@ fn assert_ok_json(response: &str) {
 
 fn assert_token_response(response: &str) {
     assert_ok_json(response);
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
     let body = json_body(response);
     assert_eq!(body["token_type"], "Bearer");
     assert_eq!(body["expires_in"], 3600);
@@ -1174,6 +1175,7 @@ fn assert_token_response(response: &str) {
 
 fn assert_oauth_error(response: &str, error: &str, description: &str) {
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));
+    assert!(response.contains("access-control-allow-origin: *\r\n"));
     let body = json_body(response);
     assert_eq!(body["error"], error);
     assert_eq!(body["error_description"], description);
