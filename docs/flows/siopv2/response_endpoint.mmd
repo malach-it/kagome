@@ -21,8 +21,7 @@ flowchart TD
     id_token -- ok --> consume_id_state["siopv2_state::consume"]
     consume_id_state -- replay or storage error --> failure
     consume_id_state -- consumed --> continuation[Build authenticated authorize continuation]
-    continuation --> common_security[Run standard authorization security validation pipeline]
-    common_security --> response_type["response_type::validate"]
+    continuation --> response_type["response_type::validate"]
     response_type -- error --> failure
     response_type -- ok --> client["client_credentials::validate"]
     client -- error --> failure
