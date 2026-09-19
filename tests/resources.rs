@@ -1217,6 +1217,7 @@ mod resources {
                 token_response.response.client_id.as_deref(),
                 Some("client_id")
             );
+            assert_eq!(token_response.response.subject.as_deref(), Some("username"));
         }
 
         #[test]

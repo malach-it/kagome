@@ -613,9 +613,10 @@ impl ResponseLog for AuthorizeLoginRequest<'_> {
                     optional_str(self.response_type.as_deref()),
                 ),
                 (
-                    "request.client_id",
+                    "client_id",
                     optional_str(self.response.client_id.as_deref()),
                 ),
+                ("sub", optional_str(self.response.username.as_deref())),
                 (
                     "response.code",
                     artifact_status(self.response.authorization_code.as_ref()),
@@ -652,7 +653,11 @@ impl ResponseLog for AuthorizeCodeRequest<'_> {
                     "request.response_type",
                     optional_str(self.response_type.as_deref()),
                 ),
-                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "client_id",
+                    optional_str(self.response.client_id.as_deref()),
+                ),
+                ("sub", optional_str(self.response.username.as_deref())),
                 (
                     "response.code",
                     artifact_status(self.response.authorization_code.as_ref()),
@@ -675,7 +680,11 @@ impl ResponseLog for AuthorizationCodeRequest<'_> {
                     "request.grant_type",
                     optional_str(self.grant_type.as_deref()),
                 ),
-                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "client_id",
+                    optional_str(self.response.client_id.as_deref()),
+                ),
+                ("sub", optional_str(self.response.subject.as_deref())),
                 (
                     "request.client_secret",
                     redacted_optional(self.client_secret.as_deref()),
@@ -703,7 +712,11 @@ impl ResponseLog for ClientCredentialsRequest<'_> {
                     "request.grant_type",
                     optional_str(self.grant_type.as_deref()),
                 ),
-                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "client_id",
+                    optional_str(self.response.client_id.as_deref()),
+                ),
+                ("sub", "<none>".to_owned()),
                 (
                     "request.client_secret",
                     redacted_optional(self.client_secret.as_deref()),
@@ -730,7 +743,11 @@ impl ResponseLog for ResourceOwnerPasswordCredentialsRequest {
                     "request.grant_type",
                     optional_str(self.grant_type.as_deref()),
                 ),
-                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "client_id",
+                    optional_str(self.response.client_id.as_deref()),
+                ),
+                ("sub", optional_str(self.response.username.as_deref())),
                 (
                     "request.client_secret",
                     redacted_optional(self.client_secret.as_deref()),
@@ -762,7 +779,11 @@ impl ResponseLog for CodeChainRequest<'_> {
                     "request.grant_type",
                     grant_type_value(self.response.grant_type),
                 ),
-                ("request.client_id", optional_str(self.client_id.as_deref())),
+                (
+                    "client_id",
+                    optional_str(self.response.client_id.as_deref()),
+                ),
+                ("sub", optional_str(self.response.subject.as_deref())),
                 (
                     "request.client_secret",
                     redacted_optional(self.client_secret.as_deref()),
@@ -792,7 +813,11 @@ impl ResponseLog for PreAuthorizedCodeRequest<'_> {
     fn log_success(&self) {
         log_token_success(
             "pre_authorized_code",
-            &[("request.pre-authorized_code", "<redacted>".to_owned())],
+            &[
+                ("client_id", "<none>".to_owned()),
+                ("sub", optional_str(self.response.subject.as_deref())),
+                ("request.pre-authorized_code", "<redacted>".to_owned()),
+            ],
         );
     }
 }
@@ -804,14 +829,21 @@ impl ResponseLog for CredentialRequest<'_> {
 
     fn log_success(&self) {
         println!(
-            "[{}] credential_handler success configuration={}",
+            "[{}] credential_handler success {}",
             log_timestamp(),
-            optional_str(
-                self.response
-                    .credential_configuration
-                    .as_ref()
-                    .map(|credential| credential.credential_configuration_id.as_str())
-            )
+            log_attributes(&[
+                ("client_id", "<none>".to_owned()),
+                ("sub", optional_str(self.response.subject.as_deref())),
+                (
+                    "configuration",
+                    optional_str(
+                        self.response
+                            .credential_configuration
+                            .as_ref()
+                            .map(|credential| credential.credential_configuration_id.as_str())
+                    ),
+                ),
+            ])
         );
     }
 }
@@ -823,13 +855,37 @@ impl ResponseLog for PresentationResponseRequest<'_> {
 
     fn log_success(&self) {
         println!(
-            "[{}] presentation_response_handler success outcome={}",
+            "[{}] presentation_response_handler success {}",
             log_timestamp(),
-            if self.response.wallet_error.is_some() {
-                "wallet_error"
-            } else {
-                "presentation"
-            }
+            log_attributes(&[
+                (
+                    "client_id",
+                    optional_str(
+                        self.response
+                            .state_claims
+                            .as_ref()
+                            .map(|state| state.authorization_client_id.as_str()),
+                    ),
+                ),
+                (
+                    "sub",
+                    optional_str(
+                        self.response
+                            .presentation
+                            .as_ref()
+                            .map(|presentation| presentation.subject.as_str()),
+                    ),
+                ),
+                (
+                    "outcome",
+                    if self.response.wallet_error.is_some() {
+                        "wallet_error"
+                    } else {
+                        "presentation"
+                    }
+                    .to_owned(),
+                ),
+            ])
         );
     }
 }
@@ -841,8 +897,16 @@ impl ResponseLog for SiopAuthorizationRequest<'_> {
 
     fn log_success(&self) {
         println!(
-            "[{}] siopv2_request_handler success response_mode=direct_post",
-            log_timestamp()
+            "[{}] siopv2_request_handler success {}",
+            log_timestamp(),
+            log_attributes(&[
+                (
+                    "client_id",
+                    optional_str(self.authorization.client_id.as_deref()),
+                ),
+                ("sub", "<none>".to_owned()),
+                ("response_mode", "direct_post".to_owned()),
+            ])
         );
     }
 }
@@ -854,13 +918,37 @@ impl ResponseLog for SiopResponseRequest<'_> {
 
     fn log_success(&self) {
         println!(
-            "[{}] siopv2_response_handler success outcome={}",
+            "[{}] siopv2_response_handler success {}",
             log_timestamp(),
-            if self.response.wallet_error.is_some() {
-                "wallet_error"
-            } else {
-                "id_token"
-            }
+            log_attributes(&[
+                (
+                    "client_id",
+                    optional_str(
+                        self.response
+                            .state_claims
+                            .as_ref()
+                            .and_then(|state| state.authorization.client_id.as_deref()),
+                    ),
+                ),
+                (
+                    "sub",
+                    optional_str(
+                        self.response
+                            .id_token
+                            .as_ref()
+                            .map(|id_token| id_token.subject.as_str()),
+                    ),
+                ),
+                (
+                    "outcome",
+                    if self.response.wallet_error.is_some() {
+                        "wallet_error"
+                    } else {
+                        "id_token"
+                    }
+                    .to_owned(),
+                ),
+            ])
         );
     }
 }
@@ -1132,5 +1220,33 @@ mod tests {
         );
 
         assert!(log.contains("response.code=<none>"));
+    }
+
+    #[test]
+    fn successful_log_lines_include_client_and_subject_identity() {
+        let log = token_success_log(
+            "password",
+            &[
+                ("client_id", "client_id".to_owned()),
+                ("sub", "subject".to_owned()),
+            ],
+        );
+
+        assert!(log.contains("client_id=client_id"));
+        assert!(log.contains("sub=subject"));
+    }
+
+    #[test]
+    fn successful_log_lines_mark_unavailable_identity() {
+        let log = token_success_log(
+            "client_credentials",
+            &[
+                ("client_id", "client_id".to_owned()),
+                ("sub", "<none>".to_owned()),
+            ],
+        );
+
+        assert!(log.contains("client_id=client_id"));
+        assert!(log.contains("sub=<none>"));
     }
 }

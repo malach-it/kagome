@@ -81,6 +81,7 @@ pub trait Validate {
         true
     }
     fn add_authorization_code(&mut self, authorization_code: &str);
+    fn add_authorization_code_subject(&mut self, _subject: Option<&str>) {}
 }
 
 pub trait Consume {
@@ -88,7 +89,8 @@ pub trait Consume {
     fn validated_client_id(&self) -> Option<&str>;
 }
 
-/// Requires a valid authorization code chain and records the code as validated state.
+/// Requires a valid authorization code chain and records the code and optional authenticated
+/// subject as validated state.
 ///
 /// Validation authenticates every nested code and enforces encoded/plaintext size, lifetime,
 /// configured chain depth, and optional client binding.
@@ -102,7 +104,7 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         .map(str::to_owned)
         .ok_or_else(OAuthError::missing_authorization_code)?;
 
-    validate_request_authorization_code(
+    let claims = validate_request_authorization_code(
         &authorization_code,
         request
             .validate_client_id()
@@ -111,10 +113,12 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     )?;
 
     request.add_authorization_code(&authorization_code);
+    request.add_authorization_code_subject(claims.username.as_deref());
     Ok(request)
 }
 
-/// Validates and records an authorization code when present, otherwise leaves the request unchanged.
+/// Validates and records an authorization code and optional authenticated subject when present,
+/// otherwise leaves the request unchanged.
 ///
 /// Present values receive the same chain, lifetime, size, depth, and client checks as [`validate`].
 ///
@@ -126,7 +130,7 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         return Ok(request);
     };
 
-    validate_request_authorization_code(
+    let claims = validate_request_authorization_code(
         &authorization_code,
         request
             .validate_client_id()
@@ -135,6 +139,7 @@ pub fn validate_optional<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     )?;
 
     request.add_authorization_code(&authorization_code);
+    request.add_authorization_code_subject(claims.username.as_deref());
     Ok(request)
 }
 

@@ -29,6 +29,7 @@ pub struct AuthorizationCodeRequest<'a> {
 pub struct AuthorizationCodeResponse {
     pub access_token: Option<AccessToken>,
     pub authorization_code: Option<String>,
+    pub subject: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub grant_type: Option<GrantType>,
@@ -89,6 +90,7 @@ impl AuthorizationCodeResponse {
         Self {
             access_token: None,
             authorization_code: None,
+            subject: None,
             client_id: None,
             client_secret: None,
             grant_type: None,
@@ -149,6 +151,10 @@ impl<'a> authorization_code::Validate for AuthorizationCodeRequest<'a> {
 
     fn add_authorization_code(&mut self, authorization_code: &str) {
         self.response.authorization_code = Some(authorization_code.to_owned());
+    }
+
+    fn add_authorization_code_subject(&mut self, subject: Option<&str>) {
+        self.response.subject = subject.map(str::to_owned);
     }
 }
 

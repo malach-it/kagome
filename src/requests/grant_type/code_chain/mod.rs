@@ -25,6 +25,7 @@ pub struct CodeChainRequest<'a> {
 pub struct CodeChainResponse {
     pub authorization_code: Option<AuthorizationCode>,
     pub previous_authorization_code: Option<String>,
+    pub subject: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub grant_type: Option<GrantType>,
@@ -86,6 +87,7 @@ impl CodeChainResponse {
         Self {
             authorization_code: None,
             previous_authorization_code: None,
+            subject: None,
             client_id: None,
             client_secret: None,
             grant_type: None,
@@ -169,6 +171,10 @@ impl<'a> id_token::Validate for CodeChainRequest<'a> {
 
     fn add_id_token(&mut self, id_token: &str) {
         self.response.id_token = Some(id_token.to_owned());
+    }
+
+    fn add_id_token_subject(&mut self, subject: &str) {
+        self.response.subject = Some(subject.to_owned());
     }
 }
 

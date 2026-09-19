@@ -52,6 +52,7 @@ pub trait Validate {
     fn request_id_token(&self) -> Option<&str>;
     fn validated_client_id(&self) -> Option<&str>;
     fn add_id_token(&mut self, id_token: &str);
+    fn add_id_token_subject(&mut self, _subject: &str) {}
 }
 
 pub trait Generate {
@@ -114,7 +115,7 @@ pub fn generate<T: Generate>(mut request: T) -> Result<T, OAuthError> {
     Ok(request)
 }
 
-/// Verifies a Kagome-issued, client-bound ID token and records its encoded value.
+/// Verifies a Kagome-issued, client-bound ID token and records its encoded value and subject.
 ///
 /// Requires the configured ID-token algorithm, key identifier and signing key, standard issuer,
 /// subject and audience claims, and coherent issuance/expiration times. Successful validation
@@ -133,9 +134,10 @@ pub fn validate<T: Validate>(mut token_request: T) -> Result<T, OAuthError> {
     let client_id = token_request
         .validated_client_id()
         .ok_or_else(OAuthError::missing_client_id)?;
-    validate_jwt(&id_token, client_id)?;
+    let payload = validate_jwt(&id_token, client_id)?;
 
     token_request.add_id_token(&id_token);
+    token_request.add_id_token_subject(&payload.sub);
     Ok(token_request)
 }
 
