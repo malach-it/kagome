@@ -22,7 +22,8 @@ use super::super::*;
 //   exact value returned in the fragment for implicit and hybrid responses. A state supplied
 //   with an untrusted redirect URI is intentionally not returned.
 // - generated artifacts: COSE_Encrypt0 code/access token | EdDSA ID token
-// - federation: configured redirect | local authentication not implemented
+// - federation: configured scope included | omitted scope supported by resource coverage |
+//   local authentication not implemented
 //   Federated clients ignore local credentials until the upstream authenticates them.
 // Authorization errors without state render as HTML. Errors with state redirect only when the
 // client and redirect URI can be independently trusted. Public client response representations
@@ -429,7 +430,7 @@ fn assert_not_implemented(response: &str) {
 fn assert_federated_authorize_redirect(response: &str) {
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Ffederation_callback&state="
+        "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Ffederation_callback&scope=openid%20profile&state="
     ));
     assert!(response.contains("content-length: 0\r\n"));
     assert!(response.contains("connection: close\r\n"));

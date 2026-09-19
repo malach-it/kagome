@@ -353,6 +353,7 @@ pub fn federated_authorize_redirect_response(
     authorize_endpoint: &str,
     client_id: &str,
     redirect_uri: &str,
+    scope: Option<&str>,
     state: &str,
 ) -> String {
     let location = append_query_parameter(authorize_endpoint, "response_type", "code");
@@ -366,6 +367,7 @@ pub fn federated_authorize_redirect_response(
         "redirect_uri",
         &percent_encode_query_value(redirect_uri),
     );
+    let location = append_optional_query_parameter(&location, "scope", scope);
     let location = append_query_parameter(&location, "state", &percent_encode_query_value(state));
 
     format!(

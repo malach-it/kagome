@@ -320,6 +320,15 @@
           },
           "minItems": 1
         },
+        "scope": {
+          "description": "Optional OAuth scope requested from the federated server.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "minLength": 1
+        },
         "token_endpoint": {
           "description": "Federated server endpoint at which authorization codes are exchanged.",
           "type": "string",

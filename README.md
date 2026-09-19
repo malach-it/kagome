@@ -81,6 +81,7 @@ clients:
       client_secret: federated_client_secret
       authorize_endpoint: https://identity.example.com/authorize
       token_endpoint: https://identity.example.com/token
+      scope: openid profile
       endpoints:
         - endpoint: https://identity.example.com/userinfo
           claims:
@@ -96,7 +97,9 @@ The example above is the complete configuration shape. In practice:
 - `presentation_definitions` map OAuth scopes to Presentation Exchange rules.
 - `clients` must use unique IDs, non-empty secrets, and registered redirect URIs.
   Configure supported grants, response types, scopes, wallet binding, QR pages,
-  password authentication, or federation as needed.
+  password authentication, or federation as needed. A federated server's optional
+  `scope` is sent only to that upstream server and is independent of the downstream
+  client's requested scope.
 - `server.replay_protection` defaults to `true` and controls process-local
   single-use checks for short-lived authorization artifacts. Set it to `false`
   only for controlled testing; replayed artifacts will then be accepted.

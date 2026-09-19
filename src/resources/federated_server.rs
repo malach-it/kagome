@@ -22,6 +22,7 @@ pub struct FederatedAuthorization {
     pub authorize_endpoint: String,
     pub client_id: String,
     pub redirect_uri: String,
+    pub scope: Option<String>,
     pub state: String,
 }
 
@@ -135,6 +136,7 @@ pub fn authorize_with_server<T: Authorize>(
         authorize_endpoint: federated_server.authorize_endpoint.clone(),
         client_id: federated_server.client_id.clone(),
         redirect_uri: callback_uri(issuer),
+        scope: federated_server.scope.clone(),
         state,
     });
 

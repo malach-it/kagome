@@ -314,6 +314,7 @@ mod resources {
                 client_secret: "federated_client_secret".to_owned(),
                 authorize_endpoint: "https://identity.example.com/authorize".to_owned(),
                 token_endpoint: "https://identity.example.com/token".to_owned(),
+                scope: Some("openid email".to_owned()),
                 endpoints: vec![kagome::config::FederatedIdentityEndpointConfig {
                     endpoint: "https://identity.example.com/userinfo".to_owned(),
                     claims: vec![kagome::config::FederatedIdentityClaimConfig {
@@ -335,9 +336,41 @@ mod resources {
 
             assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
             assert!(response.contains(
-                "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=https%3A%2F%2Fkagome.example.com%2Ffederation_callback&state="
+                "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=https%3A%2F%2Fkagome.example.com%2Ffederation_callback&scope=openid%20email&state="
             ));
             assert!(!response.contains("<form"));
+        }
+
+        #[test]
+        fn omits_unconfigured_scope_from_federated_authorization_redirect() {
+            let request = authorize_request();
+            let authorize_request = validated_authorize_request(&request);
+            let federated_server = kagome::config::FederatedServerConfig {
+                client_id: "kagome".to_owned(),
+                client_secret: "federated_client_secret".to_owned(),
+                authorize_endpoint: "https://identity.example.com/authorize".to_owned(),
+                token_endpoint: "https://identity.example.com/token".to_owned(),
+                scope: None,
+                endpoints: vec![kagome::config::FederatedIdentityEndpointConfig {
+                    endpoint: "https://identity.example.com/userinfo".to_owned(),
+                    claims: vec![kagome::config::FederatedIdentityClaimConfig {
+                        claim: "sub".to_owned(),
+                        target: "username".to_owned(),
+                        id_token: false,
+                        credential: Vec::new(),
+                    }],
+                }],
+            };
+            let authorize_request = kagome::resources::federated_server::authorize_with_server(
+                authorize_request,
+                &federated_server,
+                "https://kagome.example.com/",
+            )
+            .unwrap();
+
+            let response = authorize_request.to_response().unwrap();
+
+            assert!(!response.contains("&scope="));
         }
 
         #[test]

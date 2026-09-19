@@ -8,6 +8,7 @@ use super::*;
 // - state: absent | present
 // - scope: omitted | authorized | unauthorized
 // - access-token artifact: opaque COSE_Encrypt0
+// - federation: configured upstream scope included
 // - response: federated redirect | access-token fragment | trusted error redirect with exact
 //   state | not implemented | HTML error
 //
@@ -24,7 +25,7 @@ fn redirects_implicit_get_request_to_federated_server() {
 
     assert!(response.starts_with("HTTP/1.1 302 Found\r\n"));
     assert!(response.contains(
-        "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Ffederation_callback&state="
+        "location: https://identity.example.com/authorize?response_type=code&client_id=kagome&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Ffederation_callback&scope=openid%20profile&state="
     ));
     assert!(!response.contains("access_token="));
     assert!(!response.contains("<form"));

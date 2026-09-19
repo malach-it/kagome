@@ -166,6 +166,7 @@ fn example_configuration_matches_server_defaults() {
         federated_server.token_endpoint,
         "https://identity.example.com/token"
     );
+    assert_eq!(federated_server.scope.as_deref(), Some("openid profile"));
     assert_eq!(federated_server.endpoints.len(), 1);
     assert_eq!(
         federated_server.endpoints[0].endpoint,
@@ -402,6 +403,11 @@ fn json_schema_describes_configuration_constraints() {
         federated_server["properties"]["token_endpoint"]["format"],
         "uri"
     );
+    assert_eq!(
+        federated_server["properties"]["scope"]["default"],
+        serde_json::Value::Null
+    );
+    assert_eq!(federated_server["properties"]["scope"]["minLength"], 1);
     assert_eq!(federated_server["properties"]["endpoints"]["minItems"], 1);
     assert_eq!(identity_claim["additionalProperties"], false);
     assert_eq!(identity_endpoint["additionalProperties"], false);
@@ -1233,6 +1239,23 @@ fn rejects_empty_federated_server_fields() {
         assert!(error.to_string().contains(&format!(
             "clients[0].federated_server.{field} must not be empty"
         )));
+    }
+}
+
+#[test]
+fn rejects_invalid_federated_server_scope() {
+    for scope in ["", "openid  profile", "openid\tprofile"] {
+        let file = ConfigFile::new(&federated_configuration_yaml(&format!(
+            "scope: \"{scope}\"\n      endpoints:\n        - endpoint: https://identity.example.com/userinfo\n          claims:\n            - claim: sub\n              target: username"
+        )));
+
+        let error = Config::load_from_path(file.path())
+            .expect_err("invalid federated server scope should fail");
+
+        assert!(matches!(error, ConfigError::Validation { .. }));
+        assert!(error.to_string().contains(
+            "clients[0].federated_server.scope must contain valid non-empty OAuth scope tokens"
+        ));
     }
 }
 

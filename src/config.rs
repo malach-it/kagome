@@ -390,6 +390,10 @@ pub struct FederatedServerConfig {
     /// Federated server endpoint at which authorization codes are exchanged.
     #[schemars(length(min = 1), url)]
     pub token_endpoint: String,
+    /// Optional OAuth scope requested from the federated server.
+    #[serde(default)]
+    #[schemars(default, length(min = 1))]
+    pub scope: Option<String>,
     /// Federated endpoints used to obtain identity claims with the access token.
     #[schemars(length(min = 1))]
     pub endpoints: Vec<FederatedIdentityEndpointConfig>,
@@ -1045,6 +1049,18 @@ impl Config {
                         });
                     }
                 }
+                if federated_server
+                    .scope
+                    .as_deref()
+                    .is_some_and(|scope| !is_scope_value(scope))
+                {
+                    return Err(ConfigError::Validation {
+                        path: path.to_owned(),
+                        message: format!(
+                            "clients[{index}].federated_server.scope must contain valid non-empty OAuth scope tokens"
+                        ),
+                    });
+                }
                 if federated_server.endpoints.is_empty() {
                     return Err(ConfigError::Validation {
                         path: path.to_owned(),
@@ -1223,6 +1239,10 @@ fn is_scope_token(scope: &str) -> bool {
         && scope.bytes().all(|byte| {
             byte == b'!' || (b'#'..=b'[').contains(&byte) || (b']'..=b'~').contains(&byte)
         })
+}
+
+fn is_scope_value(scope: &str) -> bool {
+    !scope.is_empty() && scope.split(' ').all(is_scope_token)
 }
 
 fn validate_client_capabilities<T: Eq + Hash>(

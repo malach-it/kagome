@@ -178,6 +178,7 @@ impl<'a> AuthorizeLoginRequest<'a> {
                 &authorization.authorize_endpoint,
                 &authorization.client_id,
                 &authorization.redirect_uri,
+                authorization.scope.as_deref(),
                 &authorization.state,
             ));
         }
