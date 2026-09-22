@@ -213,6 +213,16 @@ owner password, implicit, pre-authorized code, SIOPv2, and OpenID4VP flows. Set
 `K6_VUS` and `K6_DURATION` to change the defaults; flow-specific `KAGOME_*`
 variables configure targets and credentials.
 
+## Credits
+
+This server is the result of an iterative research about authorization servers,
+the result is still ongoing while the design is aimed to be compliant with the
+standards. I would thank the people that participated and helped in the
+research that led to this implementation. While the system provide a secure
+rationale, the implementation cannot give insurance of perfect security. Do not
+hesitate to give feedback if you see any impairment, to improve the
+confidentiality, integrity or availability provided by the software.
+
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
