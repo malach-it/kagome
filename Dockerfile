@@ -1,4 +1,6 @@
-FROM rust:1-bookworm AS builder
+FROM rust:1-alpine3.24 AS builder
+
+RUN apk add --no-cache cmake make perl
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
@@ -10,13 +12,11 @@ COPY src ./src
 COPY templates/base.html templates/authorization_error.html templates/wallet_authorization.html ./templates/
 RUN cargo build --release --locked
 
-FROM debian:bookworm-slim
+FROM alpine:3.24
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends wget \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 10001 kagome \
-    && useradd --system --uid 10001 --gid kagome --no-create-home --home-dir /nonexistent kagome \
+RUN apk add --no-cache ca-certificates \
+    && addgroup --system --gid 10001 kagome \
+    && adduser --system --disabled-password --no-create-home --uid 10001 --ingroup kagome kagome \
     && mkdir /templates \
     && chown kagome:kagome /templates
 
