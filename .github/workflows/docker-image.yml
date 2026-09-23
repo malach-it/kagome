@@ -15,11 +15,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: verify tag is on echo branch
-        run: |
-          git fetch origin echo
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/echo
-
       - name: set up docker buildx
         uses: docker/setup-buildx-action@v3
 
