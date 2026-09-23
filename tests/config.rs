@@ -5,7 +5,10 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use kagome::config::{CONFIG_PATH_ENV_VAR, Config, ConfigError, ReplayProtectionConfig};
+use kagome::config::{
+    CONFIG_PATH_ENV_VAR, Config, ConfigError, RateLimitConfig, RateLimitSetting,
+    ReplayProtectionConfig,
+};
 use kagome::resources::{grant_type::GrantType, response_type::ResponseType};
 
 static NEXT_CONFIG_ID: AtomicU64 = AtomicU64::new(0);
@@ -25,6 +28,10 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(
         config.server.replay_protection,
         ReplayProtectionConfig::Boolean(true)
+    );
+    assert_eq!(
+        config.server.rate_limit,
+        RateLimitSetting::Policy(RateLimitConfig::default())
     );
     assert_eq!(
         config.crypto.key_file.file_name().unwrap(),
@@ -99,6 +106,32 @@ fn loads_replay_protection_capacity_from_yaml() {
     assert_eq!(
         config.server.replay_protection,
         ReplayProtectionConfig::Capacity(250)
+    );
+}
+
+#[test]
+fn loads_disabled_rate_limit_from_yaml() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 8\n  rate_limit: false\n",
+    ));
+
+    let config = Config::load_from_path(file.path()).expect("configuration should load");
+
+    assert_eq!(config.server.rate_limit, RateLimitSetting::Boolean(false));
+    assert_eq!(config.server.rate_limit.policy(), None);
+}
+
+#[test]
+fn loads_default_rate_limit_from_true_boolean() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 8\n  rate_limit: true\n",
+    ));
+
+    let config = Config::load_from_path(file.path()).expect("configuration should load");
+
+    assert_eq!(
+        config.server.rate_limit.policy(),
+        Some(RateLimitConfig::default())
     );
 }
 
@@ -305,6 +338,7 @@ fn json_schema_describes_configuration_constraints() {
         "string"
     );
     assert!(schema["$defs"]["ReplayProtectionConfig"]["anyOf"].is_array());
+    assert!(schema["$defs"]["RateLimitSetting"]["anyOf"].is_array());
     assert_eq!(token_ttls["additionalProperties"], false);
     assert_eq!(token_ttls["properties"]["access_token_ttl"]["minimum"], 1);
     assert_eq!(

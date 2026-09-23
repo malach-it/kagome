@@ -153,17 +153,18 @@ fn serve_listener_with_workers_tls_and_limits(
         .build()?;
 
     runtime.block_on(async move {
+        let rate_limit = rate_limit_enabled
+            .then(|| crate::config::Config::global().server.rate_limit.policy())
+            .flatten();
         let application =
             Router::new()
                 .fallback(any(handle_request))
                 .with_state(ApplicationState {
                     limits,
                     request_permits: Arc::new(Semaphore::new(limits.max_concurrent_requests)),
-                    rate_limiter: rate_limit_enabled.then(|| {
-                        Arc::new(crate::rate_limit::RateLimiter::new(
-                            crate::config::Config::global().server.rate_limit,
-                        ))
-                    }),
+                    rate_limiter: rate_limit
+                        .map(crate::rate_limit::RateLimiter::new)
+                        .map(Arc::new),
                 });
         let connection_permits = Arc::new(Semaphore::new(limits.max_concurrent_connections));
 

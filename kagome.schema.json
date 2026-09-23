@@ -419,6 +419,18 @@
         "memory_length"
       ]
     },
+    "RateLimitSetting": {
+      "anyOf": [
+        {
+          "description": "Enables rate limiting with the default policy, or disables it when false.",
+          "type": "boolean"
+        },
+        {
+          "description": "Enables rate limiting with this policy.",
+          "$ref": "#/$defs/RateLimitConfig"
+        }
+      ]
+    },
     "RateLimitTimeUnit": {
       "type": "string",
       "enum": [
@@ -477,7 +489,7 @@
         },
         "rate_limit": {
           "description": "Global per-IP request throttling policy.",
-          "$ref": "#/$defs/RateLimitConfig"
+          "$ref": "#/$defs/RateLimitSetting"
         },
         "replay_protection": {
           "description": "Enable process-local replay protection for short-lived protocol artifacts.",

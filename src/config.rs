@@ -249,7 +249,32 @@ pub struct ServerConfig {
     /// Global per-IP request throttling policy.
     #[serde(default)]
     #[schemars(default)]
-    pub rate_limit: RateLimitConfig,
+    pub rate_limit: RateLimitSetting,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(untagged)]
+pub enum RateLimitSetting {
+    /// Enables rate limiting with the default policy, or disables it when false.
+    Boolean(bool),
+    /// Enables rate limiting with this policy.
+    Policy(RateLimitConfig),
+}
+
+impl Default for RateLimitSetting {
+    fn default() -> Self {
+        Self::Policy(RateLimitConfig::default())
+    }
+}
+
+impl RateLimitSetting {
+    pub fn policy(self) -> Option<RateLimitConfig> {
+        match self {
+            Self::Boolean(false) => None,
+            Self::Boolean(true) => Some(RateLimitConfig::default()),
+            Self::Policy(policy) => Some(policy),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -481,6 +506,16 @@ impl Config {
             ReplayProtectionConfig::Boolean(enabled) => serde_json::json!(enabled),
             ReplayProtectionConfig::Capacity(capacity) => serde_json::json!(capacity),
         };
+        let rate_limit = match self.server.rate_limit {
+            RateLimitSetting::Boolean(enabled) => serde_json::json!(enabled),
+            RateLimitSetting::Policy(policy) => serde_json::json!({
+                "count": policy.count,
+                "time_unit": format!("{:?}", policy.time_unit).to_lowercase(),
+                "penality": policy.penality,
+                "timeout": policy.timeout,
+                "memory_length": policy.memory_length,
+            }),
+        };
         let clients: Vec<_> = self
             .clients
             .iter()
@@ -516,13 +551,7 @@ impl Config {
                 "workers": self.server.workers,
                 "cors_origins": self.server.cors_origins,
                 "replay_protection": replay_protection,
-                "rate_limit": {
-                    "count": self.server.rate_limit.count,
-                    "time_unit": format!("{:?}", self.server.rate_limit.time_unit).to_lowercase(),
-                    "penality": self.server.rate_limit.penality,
-                    "timeout": self.server.rate_limit.timeout,
-                    "memory_length": self.server.rate_limit.memory_length,
-                },
+                "rate_limit": rate_limit,
             },
             "crypto": {
                 "key_file": self.crypto.key_file,
@@ -731,11 +760,11 @@ impl Config {
             });
         }
 
-        let rate_limit = self.server.rate_limit;
-        if !(1..=100_000).contains(&rate_limit.count)
-            || rate_limit.penality > 600_000
-            || rate_limit.timeout > 600_000
-            || !(1..=10_000).contains(&rate_limit.memory_length)
+        if let Some(rate_limit) = self.server.rate_limit.policy()
+            && (!(1..=100_000).contains(&rate_limit.count)
+                || rate_limit.penality > 600_000
+                || rate_limit.timeout > 600_000
+                || !(1..=10_000).contains(&rate_limit.memory_length))
         {
             return Err(ConfigError::Validation {
                 path: path.to_owned(),

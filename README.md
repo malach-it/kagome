@@ -109,7 +109,8 @@ The example above is the complete configuration shape. In practice:
   disable CORS. The wildcard cannot be combined with explicit origins.
 - `server.rate_limit` applies Boruta-style adaptive throttling globally per
   client IP. `penality` and `timeout` are expressed in milliseconds, while
-  `memory_length` controls the number of historical time-unit buckets.
+  `memory_length` controls the number of historical time-unit buckets. Set
+  `server.rate_limit: false` to disable request throttling.
 - `crypto.key_file` is generated once, resolved relative to the YAML file, and
   must be protected with owner-only permissions. Rotating keys invalidates
   related artifacts or signatures.
