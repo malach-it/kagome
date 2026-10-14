@@ -62,6 +62,11 @@
 - Pair each request type with a response-state type. Keep parsed input parameters
   on the request and keep validated or generated values on its `response` field;
   do not use response state as a substitute for parsing required flow inputs.
+- When an error response depends on validated flow state, store its trusted
+  response context (such as a redirect URI and client state) in the request's
+  paired response state as part of validation. Expose that context through the
+  request type and use it at the handler's shared error boundary instead of
+  reconstructing it from raw parameters or validated claims in the handler.
 - Retain a reference to the original `KagomeRequest` only when response
   generation, logging, or other request metadata requires it—not as an alternate
   source for flow parameters.

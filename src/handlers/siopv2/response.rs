@@ -15,14 +15,8 @@ pub fn handle_siop_response(request: &KagomeRequest) -> String {
             return oauth_error_html_response(None, &error.error, Some(&error.error_description));
         }
     };
-    let error_context = response.response.state_claims.as_ref().and_then(|state| {
-        Some((
-            state.authorization.redirect_uri.clone()?,
-            state.authorization.state.clone(),
-        ))
-    });
-    let validated = self_issued_id_token::validate_encoding(response);
-    let result = match validated {
+    let error_context = response.error_context();
+    let result = match self_issued_id_token::validate_encoding(response) {
         Ok(response) if response.error.is_some() => {
             self_issued_id_token::validate_wallet_error(response)
                 .and_then(siopv2_state::consume)
@@ -39,11 +33,11 @@ pub fn handle_siop_response(request: &KagomeRequest) -> String {
     match result {
         Ok(response) => response,
         Err(error) => match error_context {
-            Some((redirect_uri, state)) => siopv2_error_redirect_response(
-                &redirect_uri,
+            Some(context) => siopv2_error_redirect_response(
+                &context.redirect_uri,
                 &error.error,
                 Some(&error.error_description),
-                state.as_deref(),
+                context.state.as_deref(),
             ),
             None => oauth_error_html_response(None, &error.error, Some(&error.error_description)),
         },

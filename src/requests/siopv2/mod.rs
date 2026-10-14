@@ -2,4 +2,4 @@ mod authorization_request;
 mod response;
 
 pub use authorization_request::{SiopAuthorizationRequest, SiopAuthorizationResponse};
-pub use response::{SiopResponse, SiopResponseRequest};
+pub use response::{SiopErrorContext, SiopResponse, SiopResponseRequest};

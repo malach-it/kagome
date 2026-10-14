@@ -19,5 +19,6 @@ pub use oid4vci::{
 };
 pub use oid4vp::{PresentationResponse, PresentationResponseRequest};
 pub use siopv2::{
-    SiopAuthorizationRequest, SiopAuthorizationResponse, SiopResponse, SiopResponseRequest,
+    SiopAuthorizationRequest, SiopAuthorizationResponse, SiopErrorContext, SiopResponse,
+    SiopResponseRequest,
 };

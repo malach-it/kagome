@@ -23,8 +23,15 @@ pub struct SiopResponseRequest<'a> {
 pub struct SiopResponse {
     pub state: Option<String>,
     pub state_claims: Option<SiopStateClaims>,
+    pub error_context: Option<SiopErrorContext>,
     pub id_token: Option<ValidatedSelfIssuedIdToken>,
     pub wallet_error: Option<ValidatedWalletError>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SiopErrorContext {
+    pub redirect_uri: String,
+    pub state: Option<String>,
 }
 
 impl<'a> SiopResponseRequest<'a> {
@@ -41,6 +48,10 @@ impl<'a> SiopResponseRequest<'a> {
         }
     }
 
+    pub fn error_context(&self) -> Option<SiopErrorContext> {
+        self.response.error_context.clone()
+    }
+
     pub fn to_response(&self) -> Result<String, OAuthError> {
         let state =
             self.response.state_claims.as_ref().ok_or_else(|| {
@@ -49,7 +60,7 @@ impl<'a> SiopResponseRequest<'a> {
         let wallet_error = self.response.wallet_error.as_ref().ok_or_else(|| {
             OAuthError::invalid_token_response("siop id_token must continue the authorize flow")
         })?;
-        let Some(redirect_uri) = state.authorization.redirect_uri.as_deref() else {
+        let Some(error_context) = self.response.error_context.as_ref() else {
             return Ok(oauth_error_html_response(
                 state.authorization.client_id.as_deref(),
                 &wallet_error.error,
@@ -58,10 +69,10 @@ impl<'a> SiopResponseRequest<'a> {
         };
 
         Ok(siopv2_error_redirect_response(
-            redirect_uri,
+            &error_context.redirect_uri,
             &wallet_error.error,
             wallet_error.error_description.as_deref(),
-            state.authorization.state.as_deref(),
+            error_context.state.as_deref(),
         ))
     }
 }
@@ -72,6 +83,15 @@ impl siopv2_state::Validate for SiopResponseRequest<'_> {
     }
 
     fn add_siop_state_claims(&mut self, state: &str, claims: SiopStateClaims) {
+        self.response.error_context =
+            claims
+                .authorization
+                .redirect_uri
+                .as_ref()
+                .map(|uri| SiopErrorContext {
+                    redirect_uri: uri.clone(),
+                    state: claims.authorization.state.clone(),
+                });
         self.response.state = Some(state.to_owned());
         self.response.state_claims = Some(claims);
     }
