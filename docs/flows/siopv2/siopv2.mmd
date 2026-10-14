@@ -8,16 +8,15 @@ flowchart TD
     request_object -- error --> request_error
     request_object -- ok --> authorization["`**HTTP 302** wallet redirect or **HTTP 200** QR relay with nonce and state only in signed request`"]
     authorization --> wallet{Wallet error or id_token?}
-    wallet -- error --> error_context["siopv2_state::validate"]
-    wallet -- id_token --> error_context
-    error_context -- valid state with redirect URI --> trusted[Remember trusted client redirect URI and state]
-    error_context -- missing, invalid, or no redirect URI --> untrusted[No trusted error redirect]
+    wallet -- error --> response_state["siopv2_state::validate"]
+    wallet -- id_token --> response_state
+    response_state -- valid with redirect URI --> trusted[Remember trusted client redirect URI and state]
+    response_state -- valid without redirect URI --> untrusted[No trusted error redirect]
+    response_state -- missing or invalid --> html_error["`**HTTP 400** HTML error page`"]
     trusted --> encoding["self_issued_id_token::validate_encoding"]
     untrusted --> encoding
     encoding -- error --> response_error
-    encoding -- ok --> restore["siopv2_state::validate"]
-    restore -- error --> response_error
-    restore -- ok --> kind{Wallet error or id_token?}
+    encoding -- ok --> kind{Wallet error or id_token?}
     kind -- error --> wallet_error["self_issued_id_token::validate_wallet_error"]
     wallet_error -- error --> response_error
     wallet_error -- ok --> consume_error_state["siopv2_state::consume"]
@@ -64,4 +63,4 @@ flowchart TD
     authorize_error_destination -- no --> authorize_error_html["`**HTTP 400** HTML authorization error`"]
     response_error[Error response] --> destination{Trusted error context remembered?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
-    destination -- no --> html_error["`**HTTP 400** HTML error page`"]
+    destination -- no --> html_error

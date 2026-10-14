@@ -9,13 +9,19 @@ use crate::{
 };
 
 pub fn handle_siop_response(request: &KagomeRequest) -> String {
-    let error_context = siopv2_state::validate(SiopResponseRequest::from_request(request))
-        .ok()
-        .and_then(|request| request.response.state_claims)
-        .and_then(|state| Some((state.authorization.redirect_uri?, state.authorization.state)));
-    let validated =
-        self_issued_id_token::validate_encoding(SiopResponseRequest::from_request(request))
-            .and_then(siopv2_state::validate);
+    let response = match siopv2_state::validate(SiopResponseRequest::from_request(request)) {
+        Ok(response) => response,
+        Err(error) => {
+            return oauth_error_html_response(None, &error.error, Some(&error.error_description));
+        }
+    };
+    let error_context = response.response.state_claims.as_ref().and_then(|state| {
+        Some((
+            state.authorization.redirect_uri.clone()?,
+            state.authorization.state.clone(),
+        ))
+    });
+    let validated = self_issued_id_token::validate_encoding(response);
     let result = match validated {
         Ok(response) if response.error.is_some() => {
             self_issued_id_token::validate_wallet_error(response)

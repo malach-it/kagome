@@ -2,15 +2,14 @@
 flowchart TD
     start[Request /siopv2-response] --> method{POST?}
     method -- no --> not_found["`**HTTP 404** not found`"]
-    method -- yes --> error_context["siopv2_state::validate"]
-    error_context -- valid state with redirect URI --> trusted[Remember trusted client redirect URI and state]
-    error_context -- missing, invalid, or no redirect URI --> untrusted[No trusted error redirect]
+    method -- yes --> state["siopv2_state::validate"]
+    state -- valid with redirect URI --> trusted[Remember trusted client redirect URI and state]
+    state -- valid without redirect URI --> untrusted[No trusted error redirect]
+    state -- missing or invalid --> html_error["`**HTTP 400** HTML error page`"]
     trusted --> encoding["self_issued_id_token::validate_encoding"]
     untrusted --> encoding
     encoding -- error --> failure
-    encoding -- ok --> state["siopv2_state::validate"]
-    state -- error --> failure
-    state -- ok --> kind{Wallet error or id_token?}
+    encoding -- ok --> kind{Wallet error or id_token?}
     kind -- wallet error --> wallet_error["self_issued_id_token::validate_wallet_error"]
     wallet_error -- error --> failure
     wallet_error -- ok --> consume_error_state["siopv2_state::consume"]
@@ -72,4 +71,4 @@ flowchart TD
     response_kind -- OAuth --> identity_success["`**HTTP 302** requested OAuth response`"]
     failure[Error response] --> destination{Trusted error context remembered?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]
-    destination -- no --> html_error["`**HTTP 400** HTML error page`"]
+    destination -- no --> html_error
