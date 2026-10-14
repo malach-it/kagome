@@ -54,21 +54,21 @@ flowchart TD
     presentation_request -- error --> failure
     presentation_request -- ok --> consume
     continuation_flow -- OAuth response --> generate{Selected response actions?}
-    generate -- code --> authorization_code["authorization_code::generate"]
-    generate -- access token --> access_token["access_token::generate"]
-    generate -- ID token --> generated_id_token["id_token::generate"]
-    generate -- combined --> combined[Compose selected generation actions]
+    generate -- code, code token, code id_token, or code id_token token --> authorization_code["authorization_code::generate"]
+    generate -- token --> access_token["access_token::generate"]
+    generate -- id_token or id_token token --> generated_id_token["id_token::generate"]
     authorization_code -- error --> failure
     access_token -- error --> failure
     generated_id_token -- error --> failure
-    combined -- error --> failure
-    authorization_code -- ok --> consume["authorization_code::consume_optional"]
+    authorization_code -- code only --> consume["authorization_code::consume_optional"]
+    authorization_code -- code token --> access_token
+    authorization_code -- code id_token or code id_token token --> generated_id_token
     access_token -- ok --> consume
-    generated_id_token -- ok --> consume
-    combined -- ok --> consume
+    generated_id_token -- id_token or code id_token --> consume
+    generated_id_token -- id_token token or code id_token token --> access_token
     consume -- replay or storage error --> failure
     consume -- absent or consumed --> response_kind{Generated response kind?}
-    response_kind -- OpenID4VP --> presentation_success["`**HTTP 302** wallet presentation request or **HTTP 200** QR relay`"]
+    response_kind -- OpenID4VP after wallet authentication --> presentation_success["`**HTTP 302** wallet presentation request`"]
     response_kind -- OAuth --> identity_success["`**HTTP 302** requested OAuth response`"]
     failure[Error response] --> destination{Trusted error context remembered?}
     destination -- yes --> error_redirect["`**HTTP 302** client redirect with error, description, and state`"]

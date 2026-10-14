@@ -30,10 +30,9 @@ flowchart TD
     identity -- error --> redirect_error
     identity -- ok --> generate{Selected response pipeline?}
     generate -- pre-authorized_code --> pre_code["pre_authorized_code::generate"]
-    generate -- code --> auth_code["authorization_code::generate"]
-    generate -- access token --> access["access_token::generate"]
-    generate -- ID token --> id_token["id_token::generate"]
-    generate -- combined --> combined[Compose selected generation actions]
+    generate -- code, code token, code id_token, or code id_token token --> auth_code["authorization_code::generate"]
+    generate -- token --> access["access_token::generate"]
+    generate -- id_token or id_token token --> id_token["id_token::generate"]
     generate -- OpenID4VP --> verifier["verifier::validate"]
     verifier -- error --> redirect_error
     verifier -- ok --> issuer["credential_issuer::validate"]
@@ -49,13 +48,15 @@ flowchart TD
     auth_code -- excessive depth or generation error --> redirect_error
     access -- error --> redirect_error
     id_token -- error --> redirect_error
-    combined -- error --> redirect_error
     pre_code -- ok --> consume_optional["authorization_code::consume_optional"]
-    auth_code -- ok --> consume_optional
+    auth_code -- code only --> consume_optional
+    auth_code -- code token --> access
+    auth_code -- code id_token or code id_token token --> id_token
     access -- ok --> consume_optional
-    id_token -- ok --> consume_optional
-    combined -- ok --> consume_optional
+    id_token -- id_token or code id_token --> consume_optional
+    id_token -- id_token token or code id_token token --> access
     consume_optional -- replay or storage error --> redirect_error
-    consume_optional -- absent or consumed --> delivery{Wallet delivery?}
-    delivery -- QR client and no validated ID-token code --> qr["`**HTTP 200** QR relay`"]
-    delivery -- validated ID-token code or standard client --> accepted["`**HTTP 302** downstream authorize response`"]
+    consume_optional -- absent or consumed --> delivery{Response kind and wallet delivery?}
+    delivery -- wallet request, QR enabled, no wallet authentication or binding --> qr["`**HTTP 200** QR relay`"]
+    delivery -- OAuth response, wallet authenticated, wallet bound, or QR disabled --> accepted["`**HTTP 302** downstream authorize response`"]
+    delivery -- relay or rendering error --> redirect_error

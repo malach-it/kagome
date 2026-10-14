@@ -41,8 +41,8 @@ flowchart TD
     consume -- replay or storage error --> selected_failure
     consume -- absent or authorization code consumed --> response_kind{Generated response kind?}
     response_kind -- OAuth --> identity_success["`**HTTP 302** requested OAuth response`"]
-    response_kind -- OpenID4VP --> presentation_success["`**HTTP 302** wallet presentation request or **HTTP 200** QR relay`"]
-    response_kind -- pre-authorized code --> credential_offer["`**HTTP 302** credential offer or **HTTP 200** credential-offer QR relay`"]
+    response_kind -- OpenID4VP after wallet authentication --> presentation_success["`**HTTP 302** wallet presentation request`"]
+    response_kind -- pre-authorized code after wallet authentication --> credential_offer["`**HTTP 302** credential offer`"]
     continuation_flow -- pre-authorized code --> continuation_code["authorization_code::generate"]
     continuation_code -- error --> response_error
     continuation_code -- ok --> authorize_redirect["`**HTTP 302** /authorize continuation carrying an unconsumed SIOPv2 authorization code`"]

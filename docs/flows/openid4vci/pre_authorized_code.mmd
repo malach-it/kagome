@@ -9,10 +9,12 @@ flowchart TD
     generate -- error --> authorize_failure
     generate -- ok --> consume_authorize_code["authorization_code::consume_optional"]
     consume_authorize_code -- replay or storage error --> authorize_failure
-    consume_authorize_code -- absent or SIOPv2 code consumed --> offer_delivery{QR delivery enabled?}
-    offer_delivery -- no --> authorize_offer["`**HTTP 302** credential offer with exact state`"]
-    offer_delivery -- yes --> authorize_offer_qr["`**HTTP 200** credential-offer QR relay`"]
+    consume_authorize_code -- absent or SIOPv2 code consumed --> offer_delivery{Wallet authenticated or QR disabled?}
+    offer_delivery -- yes --> authorize_offer["`**HTTP 302** credential offer with exact state`"]
+    offer_delivery -- no --> authorize_offer_qr["`**HTTP 200** credential-offer QR relay`"]
+    offer_delivery -- relay or rendering error --> authorize_failure
     authorize_offer --> token[POST /token with pre-authorized-code grant]
+    authorize_offer_qr --> token
     token --> grant["grant_type::validate"]
     grant -- error --> token_grant_error["`**HTTP 400** OAuth error without CORS header`"]
     grant -- pre-authorized_code --> code["pre_authorized_code::validate"]

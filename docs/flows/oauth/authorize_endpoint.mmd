@@ -32,31 +32,33 @@ flowchart TD
     state -- error --> error
     state -- ok --> request_object["presentation_request::generate"]
     request_object -- error --> error
-    request_object -- ok --> vp_delivery{QR delivery enabled?}
-    vp_delivery -- no --> vp_redirect["`**HTTP 302** wallet redirect with nonce and state only in signed request`"]
-    vp_delivery -- yes --> vp_qr["`**HTTP 200** QR relay with nonce and state only in signed request`"]
+    request_object -- ok --> vp_delivery{Wallet authenticated, wallet bound, or QR disabled?}
+    vp_delivery -- yes --> vp_redirect["`**HTTP 302** wallet redirect with nonce and state only in signed request`"]
+    vp_delivery -- no --> vp_qr["`**HTTP 200** QR relay with nonce and state only in signed request`"]
+    vp_delivery -- relay or rendering error --> error
     flow -- unauthenticated local OAuth GET --> not_implemented["`**HTTP 501** local authentication not implemented`"]
     flow -- authenticated OAuth GET --> generate{Selected response type?}
     generate -- pre-authorized_code --> pre_code["pre_authorized_code::generate"]
-    generate -- code --> auth_code["authorization_code::generate"]
+    generate -- code, code token, code id_token, or code id_token token --> auth_code["authorization_code::generate"]
     generate -- token --> access["access_token::generate"]
-    generate -- id_token --> id_token["id_token::generate"]
-    generate -- combined --> combined[Compose selected generation actions]
+    generate -- id_token or id_token token --> id_token["id_token::generate"]
     pre_code -- error --> error
     auth_code -- excessive depth or generation error --> error
     access -- error --> error
     id_token -- error --> error
-    combined -- error --> error
     pre_code -- ok --> consume["authorization_code::consume_optional"]
-    auth_code -- ok --> consume
+    auth_code -- code only --> consume
+    auth_code -- code token --> access
+    auth_code -- code id_token or code id_token token --> id_token
     access -- ok --> consume
-    id_token -- ok --> consume
-    combined -- ok --> consume
+    id_token -- id_token or code id_token --> consume
+    id_token -- id_token token or code id_token token --> access
     consume -- replay or storage error --> error
     consume -- absent or consumed --> generated_response{Generated response kind?}
-    generated_response -- credential offer --> offer_delivery{QR delivery enabled?}
-    offer_delivery -- no --> offer_redirect["`**HTTP 302** credential offer with exact state`"]
-    offer_delivery -- yes --> offer_qr["`**HTTP 200** credential-offer QR relay`"]
+    generated_response -- credential offer --> offer_delivery{Wallet authenticated or QR disabled?}
+    offer_delivery -- yes --> offer_redirect["`**HTTP 302** credential offer with exact state`"]
+    offer_delivery -- no --> offer_qr["`**HTTP 200** credential-offer QR relay`"]
+    offer_delivery -- relay or rendering error --> error
     generated_response -- code --> code_response["`**HTTP 302** code response or continuation with exact state`"]
     generated_response -- access token --> token_response["`**HTTP 302** access-token response with exact state`"]
     generated_response -- ID token --> id_response["`**HTTP 302** ID-token response with exact state`"]
