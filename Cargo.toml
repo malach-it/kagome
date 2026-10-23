@@ -14,7 +14,7 @@ coset = "0.4.2"
 jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 minijinja = "2.24.0"
-p256 = "0.13.2"
+p256 = "0.14.0"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 ring = "0.17.14"
 schemars = "1.2"
