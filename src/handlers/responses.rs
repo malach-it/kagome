@@ -56,6 +56,11 @@ fn cors_response_with_origins(
     format!("{status_line}\r\n{cors_headers}{remainder}")
 }
 
+/// Handle `OPTIONS /token` and `OPTIONS /credential` with HTTP 204.
+///
+/// Allowed origins receive CORS headers advertising POST and OPTIONS plus the
+/// content-type and authorization request headers. Disallowed origins receive
+/// no access-control permission headers. Explicit origin lists add `Vary: origin`.
 pub fn cors_preflight_response(request: &KagomeRequest) -> String {
     cors_preflight_response_with_origins(request, &Config::global().server.cors_origins)
 }

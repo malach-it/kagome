@@ -10,6 +10,15 @@ use crate::{
     unit::KagomeRequest,
 };
 
+/// Handle `POST /presentation-response` from a presentation wallet.
+///
+/// Validates submission encoding, encrypted state, and client credentials before
+/// retaining authorization redirect context. Wallet errors are validated and
+/// consume state; successful submissions additionally validate the presentation
+/// and generate an authorization code.
+///
+/// Returns the logged response on success. Early errors produce HTML OAuth errors;
+/// later errors use the authorization redirect when trusted context is available.
 pub fn handle_presentation_response(request: &KagomeRequest) -> String {
     let validated_state = presentation_submission::validate_encoding(
         PresentationResponseRequest::from_request(request),

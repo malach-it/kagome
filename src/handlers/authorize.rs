@@ -18,6 +18,12 @@ use super::responses::{
 
 pub use crate::requests::{AuthorizeCodeRequest, AuthorizeLoginRequest};
 
+/// Handle `GET /authorize`, returning a complete HTTP response.
+///
+/// Validates authorization inputs before selecting local authentication, federation,
+/// or generation of codes, tokens, credential offers, or presentation requests.
+/// Failures are logged and returned as OAuth error redirects when client, redirect
+/// URI, and state permit it, or as HTML errors otherwise. Other methods return 404.
 pub fn handle_authorize(request: &KagomeRequest) -> String {
     match request.method.to_ascii_uppercase().as_str() {
         "GET" => handle_authorization_request(request),
@@ -101,6 +107,11 @@ where
         .and_then(scope::validate)
 }
 
+/// Validate authorization inputs before starting or resuming SIOPv2.
+///
+/// Checks response types, client credentials, scope, PKCE, an optional existing
+/// authorization code, and metadata policy in order. Returns accumulated validated
+/// request state or the first OAuth validation error.
 pub fn validate_siop_authorize(
     authorize_request: AuthorizeLoginRequest<'_>,
 ) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
@@ -110,6 +121,11 @@ pub fn validate_siop_authorize(
         .and_then(metadata_policy::validate)
 }
 
+/// Resume authorization after a validated federation callback.
+///
+/// Revalidates restored inputs, exchanges the upstream code for an access token,
+/// fetches the identity, and selects the next authorization flow. Returns accumulated
+/// response state or the first validation, upstream, or generation error.
 pub fn continue_federated_authorize(
     authorize_request: AuthorizeLoginRequest<'_>,
 ) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {
@@ -122,6 +138,11 @@ pub fn continue_federated_authorize(
         .and_then(select_authorization_request_flow)
 }
 
+/// Resume authorization with an identity restored from a SIOPv2 response.
+///
+/// Revalidates inputs, then generates a code and starts configured federation,
+/// generates a code for a pre-authorized-code continuation, or generates the local
+/// authorization response. Returns accumulated state or the first OAuth error.
 pub fn continue_siop_authorize(
     authorize_request: AuthorizeLoginRequest<'_>,
 ) -> Result<AuthorizeLoginRequest<'_>, OAuthError> {

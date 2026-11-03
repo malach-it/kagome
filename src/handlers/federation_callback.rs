@@ -9,6 +9,13 @@ use crate::{
     unit::KagomeRequest,
 };
 
+/// Handle `GET /federation_callback` and resume the original authorization flow.
+///
+/// Validates callback state before retaining its redirect context, validates the
+/// callback shape, consumes state, and validates the upstream response before
+/// continuing authorization. Failures are logged and returned as query error
+/// redirects when trusted context exists, or direct OAuth errors otherwise.
+/// Other methods return HTTP 404.
 pub fn handle_federation_callback(request: &KagomeRequest) -> String {
     match request.method.to_ascii_uppercase().as_str() {
         "GET" => handle_authorization_response(request),

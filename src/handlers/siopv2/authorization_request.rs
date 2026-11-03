@@ -7,6 +7,11 @@ use crate::{
     unit::{KagomeRequest, parse_query_parameter},
 };
 
+/// Handle `GET /siopv2-request` by starting SIOPv2 authorization.
+///
+/// Validates authorization inputs, carries their state into a SIOPv2 request,
+/// and generates encrypted flow state followed by the wallet request. Returns
+/// the logged response or logs the failure and renders an HTML OAuth error.
 pub fn handle_siop_authorization_request(request: &KagomeRequest) -> String {
     match authorize::validate_siop_authorize(AuthorizeLoginRequest::from_request(request))
         .map(SiopAuthorizationRequest::from_authorize)

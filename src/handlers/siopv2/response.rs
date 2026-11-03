@@ -8,6 +8,15 @@ use crate::{
     unit::KagomeRequest,
 };
 
+/// Handle `POST /siopv2-response` and resume authorization after wallet sign-in.
+///
+/// Validates encrypted state before retaining trusted error context, then checks
+/// response encoding. Wallet errors are validated and consume state; successful
+/// responses validate the self-issued ID token, consume state, and continue
+/// authorization with the restored identity.
+///
+/// Returns the logged response on success. Errors use a SIOPv2 error redirect
+/// when trusted context exists, or an HTML OAuth error otherwise.
 pub fn handle_siop_response(request: &KagomeRequest) -> String {
     let response = match siopv2_state::validate(SiopResponseRequest::from_request(request)) {
         Ok(response) => response,

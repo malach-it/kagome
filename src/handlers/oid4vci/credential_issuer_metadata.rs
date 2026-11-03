@@ -4,6 +4,12 @@ use crate::{config::Config, resources::credential_issuer, unit::KagomeRequest};
 
 use super::metadata::issuer_response;
 
+/// Handle `GET /.well-known/openid-credential-issuer`.
+///
+/// Validates the issuer and returns JSON describing its credential endpoint and
+/// configured credentials, including formats, signing algorithms, proof types,
+/// and display metadata. Issuer errors become OAuth error responses; configured
+/// CORS policy applies to both outcomes.
 pub fn handle_credential_issuer_metadata(request: &KagomeRequest) -> String {
     issuer_response(request, |issuer| {
         let configurations: Map<String, serde_json::Value> = Config::global()

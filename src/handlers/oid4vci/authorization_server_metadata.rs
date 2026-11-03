@@ -5,6 +5,11 @@ use crate::{
 
 use super::metadata::issuer_response;
 
+/// Handle `GET /.well-known/oauth-authorization-server`.
+///
+/// Validates the issuer and returns JSON describing authorization, token, and JWKS
+/// endpoints, supported response and grant types, and PKCE support. Issuer errors
+/// become OAuth error responses; configured CORS policy applies to both outcomes.
 pub fn handle_authorization_server_metadata(request: &KagomeRequest) -> String {
     issuer_response(request, |issuer| {
         serde_json::json!({

@@ -15,6 +15,15 @@ pub use crate::requests::{
     GrantTypeResponse, PreAuthorizedCodeRequest, ResourceOwnerPasswordCredentialsRequest,
 };
 
+/// Handle `POST /token` through the validated grant-type pipeline.
+///
+/// Supports authorization code, client credentials, code chain, pre-authorized
+/// code, and resource owner password grants. Implicit and unsupported grant
+/// combinations are rejected. Each selected pipeline validates inputs before
+/// generating a token or code response.
+///
+/// Returns a complete HTTP response, logging success or the final OAuth error.
+/// Configured CORS policy applies only to a validated pre-authorized-code grant.
 pub fn handle_token(request: &KagomeRequest) -> String {
     let (response, allow_cors) = match grant_type::validate(GrantTypeRequest::from_request(request))
     {
