@@ -27,10 +27,26 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --no-deps --package kagome
 
+      - name: add documentation root redirect
+        run: |
+          cat > target/doc/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta http-equiv="refresh" content="0; url=kagome/index.html">
+              <title>Kagome documentation</title>
+            </head>
+            <body>
+              <a href="kagome/index.html">Kagome documentation</a>
+            </body>
+          </html>
+          HTML
+
       - name: upload documentation
         uses: actions/upload-pages-artifact@v4
         with:
-          path: target/doc/kagome
+          path: target/doc
 
   deploy:
     needs: build
