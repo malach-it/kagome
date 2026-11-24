@@ -14,6 +14,17 @@ server:
     memory_length: 50
 crypto:
   key_file: kagome.crypto.yaml
+# Configure a trusted issuer with its public signing keys, JWKS endpoint, or both.
+# agent_providers:
+#   - issuer: https://agents.example
+#     jwks_uri: https://agents.example/jwks.json
+#     jwks:
+#       keys:
+#         - kid: provider-key-1
+#           alg: Ed25519
+#           kty: OKP
+#           crv: Ed25519
+#           x: "<provider's base64url public key>"
 tokens:
   access_token_ttl: 3600
   authorization_code_ttl: 600

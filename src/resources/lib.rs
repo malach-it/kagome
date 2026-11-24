@@ -1,4 +1,5 @@
 pub mod access_token;
+pub mod agent_token;
 pub mod authorization_code;
 pub mod client_credentials;
 pub mod credential_access_token;
@@ -7,6 +8,7 @@ pub mod credential_proof;
 pub mod crypto;
 pub mod federated_server;
 pub mod grant_type;
+pub mod http_signature;
 pub mod id_token;
 pub mod metadata_policy;
 pub mod pkce;

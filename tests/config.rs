@@ -45,6 +45,7 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.tokens.presentation_state_ttl, 300);
     assert_eq!(config.tokens.siopv2_state_ttl, 300);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
+    assert!(config.agent_providers.is_empty());
     assert_eq!(config.credentials.len(), 1);
     assert_eq!(
         config.credentials[0].credential_configuration_id,
@@ -1729,6 +1730,130 @@ fn rejects_duplicate_presentation_definition_identifiers_and_ids() {
             .expect_err("duplicate presentation definition identity should fail");
 
         assert!(error.to_string().contains("must be unique"), "{error}");
+    }
+}
+
+const AGENT_PROVIDER_ISSUER: &str = "https://agents.example";
+const AGENT_PROVIDER_KEY: &str = r#"{kid: ap-1, alg: Ed25519, kty: OKP, crv: Ed25519, x: mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g}"#;
+
+fn agent_provider_configuration(entries: &str) -> ConfigFile {
+    ConfigFile::new(&configuration_yaml(&format!(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nagent_providers:\n{entries}"
+    )))
+}
+
+#[test]
+fn loads_pinned_agent_provider_keys_with_a_distinct_issuer() {
+    let next_key = AGENT_PROVIDER_KEY.replace("ap-1", "ap-2");
+    let file = agent_provider_configuration(&format!(
+        "  - issuer: {AGENT_PROVIDER_ISSUER}\n    jwks:\n      keys: [{AGENT_PROVIDER_KEY}, {next_key}]\n"
+    ));
+    let config = Config::load_from_path(file.path()).unwrap();
+    let provider = &config.agent_providers[0];
+    assert_ne!(config.server.issuer, provider.issuer);
+    assert_eq!(provider.issuer, AGENT_PROVIDER_ISSUER);
+    let keys = &provider.jwks.as_ref().unwrap().keys;
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[1]["kid"], "ap-2");
+    assert!(provider.jwks_uri.is_none());
+}
+
+#[test]
+fn loads_agent_provider_with_a_jwks_endpoint_and_optional_pins() {
+    for inline in [
+        String::new(),
+        format!("    jwks:\n      keys: [{AGENT_PROVIDER_KEY}]\n"),
+    ] {
+        let endpoint = "https://keys.example/providers/agents.json";
+        let file = agent_provider_configuration(&format!(
+            "  - issuer: {AGENT_PROVIDER_ISSUER}\n    jwks_uri: {endpoint}\n{inline}"
+        ));
+        let config = Config::load_from_path(file.path()).unwrap();
+        let provider = &config.agent_providers[0];
+        assert_eq!(provider.jwks_uri.as_deref(), Some(endpoint));
+        assert_eq!(provider.jwks.is_some(), !inline.is_empty());
+    }
+}
+
+#[test]
+fn rejects_ambiguous_or_invalid_agent_provider_configuration() {
+    let provider = |issuer: &str, keys: &str| {
+        format!("  - issuer: {issuer}\n    jwks:\n      keys: [{keys}]\n")
+    };
+    let valid = provider(AGENT_PROVIDER_ISSUER, AGENT_PROVIDER_KEY);
+    for (entries, expected) in [
+        (format!("{valid}{valid}"), "issuer must be unique"),
+        (
+            format!("  - issuer: {AGENT_PROVIDER_ISSUER}\n"),
+            "jwks or jwks_uri is required",
+        ),
+        (
+            provider("http://agents.example", AGENT_PROVIDER_KEY),
+            "issuer must be a lowercase HTTPS URL",
+        ),
+        (
+            provider("https://agents.example:443", AGENT_PROVIDER_KEY),
+            "issuer must be a lowercase HTTPS URL",
+        ),
+        (
+            provider(AGENT_PROVIDER_ISSUER, ""),
+            "must contain at least one public signing key",
+        ),
+        (
+            provider(
+                AGENT_PROVIDER_ISSUER,
+                &format!("{AGENT_PROVIDER_KEY}, {AGENT_PROVIDER_KEY}"),
+            ),
+            "kid values must be unique",
+        ),
+        (
+            provider(
+                AGENT_PROVIDER_ISSUER,
+                &AGENT_PROVIDER_KEY.replace("kid: ap-1, ", ""),
+            ),
+            "require a nonempty kid",
+        ),
+        (
+            provider(
+                AGENT_PROVIDER_ISSUER,
+                "{kid: ap-1, alg: HS256, kty: oct, k: AA}",
+            ),
+            "require a supported asymmetric public signing key",
+        ),
+        (
+            provider(
+                AGENT_PROVIDER_ISSUER,
+                &AGENT_PROVIDER_KEY.replace("kid: ap-1,", "kid: ap-1, d: AA,"),
+            ),
+            "require a supported asymmetric public signing key",
+        ),
+    ] {
+        let file = agent_provider_configuration(&entries);
+        let error = Config::load_from_path(file.path()).unwrap_err();
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn rejects_invalid_agent_provider_jwks_endpoints() {
+    for endpoint in [
+        "",
+        "/jwks",
+        "http://keys.example/jwks",
+        "https://user@keys.example/jwks",
+        "https://keys.example/jwks#fragment",
+        "https://keys.example:not-a-port/jwks",
+    ] {
+        let file = agent_provider_configuration(&format!(
+            "  - issuer: {AGENT_PROVIDER_ISSUER}\n    jwks_uri: '{endpoint}'\n"
+        ));
+        let error = Config::load_from_path(file.path()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("jwks_uri must be an absolute HTTPS URL"),
+            "{error}"
+        );
     }
 }
 

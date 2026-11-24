@@ -3,6 +3,13 @@
   "title": "Config",
   "type": "object",
   "properties": {
+    "agent_providers": {
+      "description": "Agent providers trusted to issue AAuth agent tokens.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AgentProviderConfig"
+      }
+    },
     "clients": {
       "description": "OAuth clients accepted by the authorization server.",
       "type": "array",
@@ -97,6 +104,59 @@
     "clients"
   ],
   "$defs": {
+    "AgentProviderConfig": {
+      "type": "object",
+      "properties": {
+        "issuer": {
+          "description": "Exact HTTPS issuer of the agent provider.",
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        },
+        "jwks": {
+          "description": "Pinned JSON Web Key Set containing public token-signing keys.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentProviderJwks"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "jwks_uri": {
+          "description": "Configured HTTPS endpoint for keys absent from the pinned set.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "issuer"
+      ]
+    },
+    "AgentProviderJwks": {
+      "type": "object",
+      "properties": {
+        "keys": {
+          "description": "Public JWKs with unique key identifiers and explicit signing algorithms.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "keys"
+      ]
+    },
     "ClientConfig": {
       "type": "object",
       "properties": {

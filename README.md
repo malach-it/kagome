@@ -9,15 +9,26 @@ state effects, and failure boundaries inline through Rustdoc.
 
 ## Server configuration
 
-Kagome’s configuration is organized into five areas: `server` defines the
-listening address and public issuer URL; `crypto` points to the generated key
-material; `tokens` sets token lifetimes and authorization-code chain limits;
-`credentials` and `presentation_definitions` describe credentials and the
-scopes that request them; and `clients` defines OAuth clients, redirect URIs,
-supported protocol capabilities, wallet-binding/QR behavior, and optional
-federation or password authentication. Copy the example configuration, set
+The `server` settings define the listening address and public issuer URL.
+`crypto` points to the generated key material, and `tokens` sets token
+lifetimes and authorization-code chain limits. `credentials` and
+`presentation_definitions` describe credentials and the scopes that request
+them. `clients` defines OAuth clients, redirect URIs, supported protocol
+capabilities, wallet-binding/QR behavior, and optional federation or password
+authentication. Copy the example configuration, set
 `KAGOME_CONFIG` when using another file, and keep configuration and generated
 keys private because they contain client secrets and signing material.
+
+The optional `agent_providers` list defines which AAuth issuers Kagome trusts.
+Set `issuer` to the provider's exact lowercase HTTPS URL with only a host.
+Configure inline public signing keys in `jwks.keys`, an HTTPS `jwks_uri`, or
+both. Each signing key needs a unique `kid` and an explicit `alg`.
+
+Kagome uses an inline key when its `kid` matches. For other key IDs, it can
+retrieve keys from the issuer's configured endpoint. It caches remote keys
+for five minutes and fetches at most once per minute per provider. Inline
+key changes take effect after restarting Kagome. An empty or omitted
+`agent_providers` list trusts no providers.
 
 Copy the example configuration before starting Kagome:
 
@@ -91,7 +102,7 @@ clients:
               credential: [UniversityDegreeCredential]
 ```
 
-The example above is the complete configuration shape. In practice:
+The example above shows the core server settings.
 
 - `credentials` define issuable credential metadata and types.
 - `presentation_definitions` map OAuth scopes to Presentation Exchange rules.

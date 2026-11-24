@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     env,
     error::Error,
     fmt, fs,
@@ -48,6 +48,10 @@ pub struct Config {
     #[serde(default)]
     #[schemars(default)]
     pub tokens: TokenTtlsConfig,
+    /// Agent providers trusted to issue AAuth agent tokens.
+    #[serde(default)]
+    #[schemars(default)]
+    pub agent_providers: Vec<AgentProviderConfig>,
     /// Verifiable credential configurations advertised and issued by the server.
     #[serde(default = "default_credential_configurations")]
     #[schemars(default = "default_credential_configurations", length(min = 1))]
@@ -65,6 +69,29 @@ pub struct Config {
     #[serde(skip)]
     #[schemars(skip)]
     key_manager: KeyManager,
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentProviderConfig {
+    /// Exact HTTPS issuer of the agent provider.
+    #[schemars(length(min = 1), url)]
+    pub issuer: String,
+    /// Pinned JSON Web Key Set containing public token-signing keys.
+    #[serde(default)]
+    pub jwks: Option<AgentProviderJwks>,
+    /// Configured HTTPS endpoint for keys absent from the pinned set.
+    #[serde(default)]
+    #[schemars(url)]
+    pub jwks_uri: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentProviderJwks {
+    /// Public JWKs with unique key identifiers and explicit signing algorithms.
+    #[schemars(length(min = 1))]
+    pub keys: Vec<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
@@ -477,6 +504,12 @@ impl Config {
         CONFIG.get().map(|config| config.tokens).unwrap_or_default()
     }
 
+    pub fn trusted_agent_providers() -> &'static [AgentProviderConfig] {
+        CONFIG
+            .get()
+            .map_or(&[], |config| config.agent_providers.as_slice())
+    }
+
     pub fn replay_protection_enabled() -> bool {
         CONFIG
             .get()
@@ -569,6 +602,7 @@ impl Config {
                 "authorization_code_chain_max_depth": self.tokens.authorization_code_chain_max_depth,
             },
             "credentials": &self.credentials,
+            "agent_providers": self.agent_providers.iter().map(|provider| &provider.issuer).collect::<Vec<_>>(),
             "presentation_definitions": &self.presentation_definitions,
             "clients": clients,
         }))
@@ -780,6 +814,24 @@ impl Config {
                 path: path.to_owned(),
                 message: "server.replay_protection capacity must be greater than zero".to_owned(),
             });
+        }
+
+        let mut agent_provider_issuers = HashSet::new();
+        for (index, provider) in self.agent_providers.iter().enumerate() {
+            let invalid = |message| ConfigError::Validation {
+                path: path.to_owned(),
+                message: format!("agent_providers[{index}].{message}"),
+            };
+            if !crate::resources::agent_token::valid_server_identifier(&provider.issuer) {
+                return Err(invalid(
+                    "issuer must be a lowercase HTTPS URL with only a host",
+                ));
+            }
+            if !agent_provider_issuers.insert(&provider.issuer) {
+                return Err(invalid("issuer must be unique"));
+            }
+            crate::resources::agent_token::validate_provider_key_sources(provider)
+                .map_err(invalid)?;
         }
 
         if self.clients.is_empty() {
