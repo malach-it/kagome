@@ -87,7 +87,7 @@ fn parse_member<'a>(input: &mut &'a str) -> Option<SignatureKey<'a>> {
     })
 }
 
-fn parse_key<'a>(input: &mut &'a str) -> Option<&'a str> {
+pub(super) fn parse_key<'a>(input: &mut &'a str) -> Option<&'a str> {
     match input.as_bytes().first()? {
         b'a'..=b'z' | b'*' => Some(take_while(input, |ch| {
             ch.is_ascii_lowercase() || ch.is_ascii_digit() || "_-.*".contains(ch)
@@ -105,7 +105,7 @@ fn parse_token<'a>(input: &mut &'a str) -> Option<&'a str> {
     }
 }
 
-fn take_while<'a>(input: &mut &'a str, allowed: impl Fn(char) -> bool) -> &'a str {
+pub(super) fn take_while<'a>(input: &mut &'a str, allowed: impl Fn(char) -> bool) -> &'a str {
     let end = input.find(|ch| !allowed(ch)).unwrap_or(input.len());
     let (value, rest) = input.split_at(end);
     *input = rest;
@@ -115,12 +115,7 @@ fn take_while<'a>(input: &mut &'a str, allowed: impl Fn(char) -> bool) -> &'a st
 fn parse_parameter(input: &mut &str) -> Option<KeyParameter> {
     match input.as_bytes().first()? {
         b'"' => parse_string(input).map(KeyParameter::String),
-        b':' => {
-            let (encoded, rest) = input.strip_prefix(':')?.split_once(':')?;
-            let bytes = BYTE_SEQUENCE.decode(encoded).ok()?;
-            *input = rest;
-            Some(KeyParameter::Bytes(bytes))
-        }
+        b':' => parse_bytes(input).map(KeyParameter::Bytes),
         b'?' => {
             let (value, rest) = match input.as_bytes().get(1)? {
                 b'0' => (false, &input[2..]),
@@ -134,7 +129,14 @@ fn parse_parameter(input: &mut &str) -> Option<KeyParameter> {
     }
 }
 
-fn parse_string(input: &mut &str) -> Option<String> {
+pub(super) fn parse_bytes(input: &mut &str) -> Option<Vec<u8>> {
+    let (encoded, rest) = input.strip_prefix(':')?.split_once(':')?;
+    let bytes = BYTE_SEQUENCE.decode(encoded).ok()?;
+    *input = rest;
+    Some(bytes)
+}
+
+pub(super) fn parse_string(input: &mut &str) -> Option<String> {
     let mut chars = input.strip_prefix('"')?.chars();
     let mut value = String::new();
     while let Some(ch) = chars.next() {

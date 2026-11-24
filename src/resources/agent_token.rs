@@ -66,6 +66,25 @@ pub struct VerifiedAgentToken {
     expires_at: u64,
 }
 
+impl VerifiedAgentToken {
+    pub(super) fn verify_signature(
+        &self,
+        message: &[u8],
+        signature: &[u8],
+        key_id: Option<&str>,
+    ) -> bool {
+        if key_id.is_some_and(|key_id| {
+            key_id != self.key_thumbprint
+                && self.public_jwk.get("kid").and_then(Value::as_str) != Some(key_id)
+        }) {
+            return false;
+        }
+        public_key(&self.public_jwk).is_some_and(|(algorithm, key)| {
+            verify(&URL_SAFE_NO_PAD.encode(signature), message, &key, algorithm).unwrap_or(false)
+        })
+    }
+}
+
 /// Checks that the provider has an inline key set, an HTTPS endpoint, or both.
 /// Returns a configuration error message for invalid endpoints or pinned keys.
 pub(crate) fn validate_provider_key_sources(

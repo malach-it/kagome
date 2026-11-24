@@ -12,6 +12,14 @@ this catalog.
 
 ![All identity flow graphs](all.svg)
 
+## AAuth
+
+### Agent Resource Endpoint
+
+[Mermaid source](aauth/agent_resource_endpoint.mmd)
+
+![Agent resource endpoint](aauth/agent_resource_endpoint.svg)
+
 ## OAuth
 
 [OAuth documentation](oauth/README.md)

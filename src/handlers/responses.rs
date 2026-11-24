@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    errors::OAuthError,
+    errors::{OAuthError, OAuthErrorCode},
     requests::{
         AuthorizationCodeRequest, AuthorizeCodeRequest, AuthorizeLoginRequest,
         ClientCredentialsRequest, CodeChainRequest, CredentialRequest, PreAuthorizedCodeRequest,
@@ -559,12 +559,39 @@ pub fn authorize_redirect_response(
 }
 
 pub fn not_implemented_response() -> String {
+    text_not_implemented_response("")
+}
+
+pub fn agent_resource_response() -> String {
+    text_not_implemented_response("cache-control: no-store\r\n")
+}
+
+fn text_not_implemented_response(cache_control: &str) -> String {
     let response_body = "not implemented";
 
     format!(
-        "HTTP/1.1 501 Not Implemented\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        "HTTP/1.1 501 Not Implemented\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n{cache_control}connection: close\r\n\r\n{}",
         response_body.len(),
         response_body
+    )
+}
+
+pub fn agent_resource_error_response(error: &OAuthError) -> String {
+    let (status, challenge) = match error.kind {
+        OAuthErrorCode::InvalidTokenResponse => ("500 Internal Server Error", ""),
+        _ => (
+            "401 Unauthorized",
+            "aauth-requirement: requirement=agent-token\r\nsignature-error: error=invalid_signature\r\n",
+        ),
+    };
+    let body = serde_json::json!({
+        "error": error.error,
+        "error_description": error.error_description,
+    })
+    .to_string();
+    format!(
+        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\ncache-control: no-store\r\n{challenge}connection: close\r\n\r\n{body}",
+        body.len(),
     )
 }
 

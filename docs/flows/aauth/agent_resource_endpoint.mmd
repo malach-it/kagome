@@ -1,0 +1,15 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false, "wrappingWidth": 500}}}%%
+flowchart TD
+    start[Request /agent/resource] --> method{Method?}
+    method -- other --> not_found["`**HTTP 404** not found`"]
+    method -- GET --> request[Construct AgentResourceRequest]
+    request --> key["http_signature::validate"]
+    key -- token or input error --> error[Convert and log error]
+    key -- registry error --> server_error[Convert and log server error]
+    key -- provider-attested keys --> signature["http_signature::verify_message"]
+    signature -- verification error --> error
+    signature -- authenticated agent --> response[Convert accumulated response and log success]
+    response -- missing output --> server_error
+    response -- ok --> success["`**HTTP 501** Not Implemented`"]
+    error --> unauthorized["`**HTTP 401** agent token required or signature invalid`"]
+    server_error --> failure["`**HTTP 500** internal server error`"]

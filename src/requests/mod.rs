@@ -1,3 +1,4 @@
+mod agent_resource;
 mod authorize;
 mod federation_callback;
 mod grant_type;
@@ -5,6 +6,7 @@ mod oid4vci;
 mod oid4vp;
 mod siopv2;
 
+pub use agent_resource::{AgentResourceRequest, AgentResourceResponse};
 pub use authorize::{AuthorizeCodeRequest, AuthorizeCodeResponse, AuthorizeLoginRequest};
 pub use federation_callback::{FederationCallbackRequest, FederationCallbackResponse};
 pub use grant_type::{

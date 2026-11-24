@@ -38,6 +38,22 @@ and the latest observed token expiration. Observations of a rotated key
 create a separate record. The file is an inventory of provider attestations,
 and each HTTP request still needs its own signature verification.
 
+### Agent resource
+
+`GET /agent/resource` returns `501 Not Implemented` after it validates a
+trusted provider's agent token and verifies the HTTP message signature using
+the token's confirmation key. Missing or invalid authentication returns
+`401 Unauthorized`.
+
+Send one `Signature-Input` and one `Signature` field with the same label as
+the agent token's `Signature-Key` member. Cover `@method`, `@authority`,
+`@path`, and `signature-key`. The signed `created` timestamp must be within
+60 seconds of server time. If supplied, `expires` must be later than both
+`created` and the current time. The endpoint accepts additional ordinary
+header components and ignores query parameters and the request body.
+
+[Agent resource flow graph](docs/flows/aauth/agent_resource_endpoint.svg)
+
 Copy the example configuration before starting Kagome:
 
 ```bash

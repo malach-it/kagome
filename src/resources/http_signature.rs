@@ -1,4 +1,4 @@
-//! Signature-Key parsing and verification of provider-issued agent tokens.
+//! Verification of agent tokens and the HTTP messages they sign.
 
 use crate::{
     config::{AgentProviderConfig, Config},
@@ -7,9 +7,11 @@ use crate::{
 
 use super::agent_token::{VerifiedAgentToken, registry, verify_token};
 
+mod message;
 mod signature_key;
 
 pub use super::agent_token::AGENT_TOKEN_TYPE;
+pub use message::{SIGNATURE_HEADER, SIGNATURE_INPUT_HEADER, VerifyMessage, verify_message};
 pub use signature_key::{KeyParameter, SignatureKey, parse_signature_key};
 
 pub const SIGNATURE_KEY_HEADER: &str = "signature-key";

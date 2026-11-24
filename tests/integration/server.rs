@@ -360,6 +360,9 @@ fn start_server() -> String {
     let mut config = kagome::config::Config::load_from_path(&config_path)
         .expect("example configuration should load");
     config.server.rate_limit = kagome::config::RateLimitSetting::Boolean(false);
+    config
+        .agent_providers
+        .push(super::flows::aauth::agent_provider());
     let _ = std::fs::remove_file(config_path);
     config.clients[0].public = Some("example.com".to_owned());
     config.credentials.push(kagome::config::CredentialConfig {

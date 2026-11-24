@@ -8,6 +8,7 @@ const outputPath = join(repositoryRoot, "docs/flows/all.svg");
 const temporaryPath = `${outputPath}.tmp`;
 
 const graphs = [
+  ["AAuth — Agent Resource Endpoint", "aauth/agent_resource_endpoint.svg"],
   ["OAuth — Authorization Code Flow", "oauth/authorization_code.svg"],
   ["OAuth — Authorize Endpoint", "oauth/authorize_endpoint.svg"],
   ["OAuth — Client Credentials Flow", "oauth/client_credentials.svg"],
@@ -107,7 +108,7 @@ const document = [
   '<?xml version="1.0" encoding="UTF-8"?>',
   `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}" role="img" aria-labelledby="title description">`,
   "  <title id=\"title\">Kagome identity flow graphs</title>",
-  "  <desc id=\"description\">Landscape overview of all OAuth, OpenID4VCI, OpenID4VP, SIOPv2, and server flow and endpoint graphs.</desc>",
+  "  <desc id=\"description\">Landscape overview of all AAuth, OAuth, OpenID4VCI, OpenID4VP, SIOPv2, and server flow and endpoint graphs.</desc>",
   "  <style>.title { font: 700 72px sans-serif; fill: #222; }</style>",
   `  <rect width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`,
   ...sections,

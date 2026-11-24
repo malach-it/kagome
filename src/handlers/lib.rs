@@ -1,3 +1,4 @@
+pub mod agent_resource;
 pub mod authorize;
 pub mod echo;
 pub mod federation_callback;
