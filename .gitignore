@@ -2,4 +2,7 @@
 /kagome.yaml
 /kagome.crypto.yaml
 /kagome.htpasswd
+/kagome.agent-keys.json
+/kagome.agent-keys.json.lock
+/kagome.agent-keys.json.*.tmp
 /templates/*.*.html

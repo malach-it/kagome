@@ -1,4 +1,4 @@
-use std::sync::Once;
+use std::{fs, sync::Once, thread};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use kagome::{
@@ -9,7 +9,10 @@ use kagome::{
         validate,
     },
 };
-use ring::signature::{Ed25519KeyPair, KeyPair};
+use ring::{
+    rand::{SecureRandom, SystemRandom},
+    signature::{Ed25519KeyPair, KeyPair},
+};
 use serde_json::{Value, json};
 
 const ISSUER: &str = "https://agents.example";
@@ -161,6 +164,14 @@ fn request<'a>(fields: &[&'a str]) -> Request<'a> {
             provider,
             provider_with_issuer("https://other.example", &other_key),
         ];
+        let mut nonce = [0; 16];
+        SystemRandom::new().fill(&mut nonce).unwrap();
+        let directory = std::env::temp_dir().join(format!(
+            "kagome-agent-keys-{}",
+            URL_SAFE_NO_PAD.encode(nonce)
+        ));
+        fs::create_dir(&directory).unwrap();
+        config.agent_key_file = Some(directory.join("keys.json"));
         Config::set_global(config).unwrap();
     });
     Request {
@@ -170,7 +181,7 @@ fn request<'a>(fields: &[&'a str]) -> Request<'a> {
 }
 
 #[test]
-fn verifies_provider_signature_and_retains_separate_agent_keys_for_each_label() {
+fn verifies_and_persists_separate_agent_keys_for_each_label() {
     let provider_key = Ed25519KeyPair::from_seed_unchecked(&[1; 32]).unwrap();
     let next_provider_key = Ed25519KeyPair::from_seed_unchecked(&[4; 32]).unwrap();
     let agent_key = Ed25519KeyPair::from_seed_unchecked(&[2; 32]).unwrap();
@@ -182,12 +193,12 @@ fn verifies_provider_signature_and_retains_separate_agent_keys_for_each_label() 
     let field = format!(r#"first=jwt;jwt="{first}", second=jwt;jwt="{second}""#);
 
     let result = validate(request(&[&field])).unwrap();
-    let [first, second] = result.keys.as_slice() else {
+    let [first_entry, second_entry] = result.keys.as_slice() else {
         panic!("expected two verified keys");
     };
     for (entry, label, key) in [
-        (first, "first", agent_key),
-        (second, "second", second_agent_key),
+        (first_entry, "first", agent_key),
+        (second_entry, "second", second_agent_key),
     ] {
         assert_eq!(entry.label, label);
         assert_eq!(entry.agent_token.issuer, ISSUER);
@@ -197,6 +208,50 @@ fn verifies_provider_signature_and_retains_separate_agent_keys_for_each_label() 
             public_jwk(&key)
         );
     }
+
+    let path = Config::global().agent_key_file.as_ref().unwrap();
+    let initial = fs::read(path).unwrap();
+    let registry: Value = serde_json::from_slice(&initial).unwrap();
+    let keys = registry["provider_attested_keys"].as_array().unwrap();
+    assert_eq!(keys.len(), 2);
+    let first_seen_at = keys[0]["first_seen_at"].clone();
+    assert_ne!(keys[0]["jwk_thumbprint"], keys[1]["jwk_thumbprint"]);
+    for (stored, validated) in keys.iter().zip(result.keys.iter()) {
+        assert_eq!(stored["issuer"], ISSUER);
+        assert_eq!(stored["subject"], SUBJECT);
+        assert_eq!(
+            stored["public_jwk"],
+            serde_json::to_value(&validated.agent_token.public_jwk).unwrap()
+        );
+        assert_eq!(stored["first_seen_at"], stored["last_seen_at"]);
+        assert!(stored["latest_token_expires_at"].as_u64() > stored["last_seen_at"].as_u64());
+    }
+
+    let invalid_batch = format!(r#"first=jwt;jwt="{first}", invalid=jwt;jwt="invalid""#);
+    assert!(validate(request(&[&invalid_batch])).is_err());
+    assert_eq!(fs::read(path).unwrap(), initial);
+
+    thread::scope(|scope| {
+        for seed in [5, 6] {
+            let key = Ed25519KeyPair::from_seed_unchecked(&[seed; 32]).unwrap();
+            let token = sign(&provider_key, header(), claims(&key));
+            let field = format!(r#"sig=jwt;jwt="{token}""#);
+            scope.spawn(move || {
+                validate(request(&[&field])).unwrap();
+            });
+        }
+    });
+    validate(request(&[&field])).unwrap();
+    let registry: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    let keys = registry["provider_attested_keys"].as_array().unwrap();
+    assert_eq!(keys.len(), 4);
+    assert_eq!(keys[0]["first_seen_at"], first_seen_at);
+
+    fs::write(path, "broken registry").unwrap();
+    let error = validate(request(&[&field])).unwrap_err();
+    assert_eq!(error.kind, OAuthErrorCode::InvalidTokenResponse);
+    assert_eq!(fs::read_to_string(path).unwrap(), "broken registry");
+    fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
 
 #[test]

@@ -52,6 +52,9 @@ pub struct Config {
     #[serde(default)]
     #[schemars(default)]
     pub agent_providers: Vec<AgentProviderConfig>,
+    /// Optional JSON registry of provider-attested agent public keys.
+    #[serde(default)]
+    pub agent_key_file: Option<PathBuf>,
     /// Verifiable credential configurations advertised and issued by the server.
     #[serde(default = "default_credential_configurations")]
     #[schemars(default = "default_credential_configurations", length(min = 1))]
@@ -510,6 +513,10 @@ impl Config {
             .map_or(&[], |config| config.agent_providers.as_slice())
     }
 
+    pub(crate) fn agent_key_file() -> Option<&'static Path> {
+        CONFIG.get()?.agent_key_file.as_deref()
+    }
+
     pub fn replay_protection_enabled() -> bool {
         CONFIG
             .get()
@@ -603,6 +610,7 @@ impl Config {
             },
             "credentials": &self.credentials,
             "agent_providers": self.agent_providers.iter().map(|provider| &provider.issuer).collect::<Vec<_>>(),
+            "agent_key_file": &self.agent_key_file,
             "presentation_definitions": &self.presentation_definitions,
             "clients": clients,
         }))
@@ -694,6 +702,9 @@ impl Config {
             })?;
 
         config.validate(path)?;
+        if let Some(key_file) = &mut config.agent_key_file {
+            *key_file = resolve_relative_path(path, key_file);
+        }
         config.load_key_manager(path)?;
         config.load_client_password_files(path)?;
 
@@ -813,6 +824,17 @@ impl Config {
             return Err(ConfigError::Validation {
                 path: path.to_owned(),
                 message: "server.replay_protection capacity must be greater than zero".to_owned(),
+            });
+        }
+
+        if self
+            .agent_key_file
+            .as_deref()
+            .is_some_and(|path| path.file_name().is_none())
+        {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "agent_key_file must name a file".to_owned(),
             });
         }
 

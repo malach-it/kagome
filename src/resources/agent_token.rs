@@ -6,7 +6,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken::{
     Algorithm, AlgorithmFamily, DecodingKey,
     crypto::verify,
-    jwk::{AlgorithmParameters, EllipticCurve, Jwk},
+    jwk::{AlgorithmParameters, EllipticCurve, Jwk, ThumbprintHash},
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -17,6 +17,7 @@ use crate::{
 };
 
 mod jwks;
+pub(super) mod registry;
 
 pub const AGENT_TOKEN_TYPE: &str = "aa-agent+jwt";
 const METADATA_DOCUMENT: &str = "aauth-agent.json";
@@ -61,6 +62,8 @@ pub struct VerifiedAgentToken {
     pub issuer: String,
     pub subject: String,
     pub public_jwk: JwkFields,
+    key_thumbprint: String,
+    expires_at: u64,
 }
 
 /// Checks that the provider has an inline key set, an HTTPS endpoint, or both.
@@ -175,13 +178,16 @@ pub(super) fn verify_token(
     {
         return Err(malformed());
     }
-    public_key(&claims.cnf.jwk)
+    let (_, agent_jwk) = parsed_public_key(&claims.cnf.jwk)
+        .filter(|(_, jwk)| DecodingKey::from_jwk(jwk).is_ok())
         .ok_or_else(|| invalid("agent token cnf.jwk must be an asymmetric public signing key"))?;
 
     Ok(VerifiedAgentToken {
         issuer: claims.iss,
         subject: claims.sub,
         public_jwk: claims.cnf.jwk,
+        key_thumbprint: agent_jwk.thumbprint(ThumbprintHash::SHA256),
+        expires_at: claims.exp,
     })
 }
 
@@ -191,6 +197,11 @@ fn decode_part<T: DeserializeOwned>(encoded: &str) -> Option<T> {
 }
 
 fn public_key(fields: &JwkFields) -> Option<(Algorithm, DecodingKey)> {
+    let (algorithm, jwk) = parsed_public_key(fields)?;
+    Some((algorithm, DecodingKey::from_jwk(&jwk).ok()?))
+}
+
+fn parsed_public_key(fields: &JwkFields) -> Option<(Algorithm, Jwk)> {
     if ["k", "d", "p", "q", "dp", "dq", "qi", "oth"]
         .iter()
         .any(|name| fields.contains_key(*name))
@@ -230,7 +241,7 @@ fn public_key(fields: &JwkFields) -> Option<(Algorithm, DecodingKey)> {
     if !compatible {
         return None;
     }
-    Some((algorithm, DecodingKey::from_jwk(&jwk).ok()?))
+    Some((algorithm, jwk))
 }
 
 pub(crate) fn valid_server_identifier(issuer: &str) -> bool {

@@ -25,6 +25,8 @@ crypto:
 #           kty: OKP
 #           crv: Ed25519
 #           x: "<provider's base64url public key>"
+# Optional. Records provider-attested agent public keys in an existing directory.
+# agent_key_file: ./kagome.agent-keys.json
 tokens:
   access_token_ttl: 3600
   authorization_code_ttl: 600

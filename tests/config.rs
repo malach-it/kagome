@@ -46,6 +46,7 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.tokens.siopv2_state_ttl, 300);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
     assert!(config.agent_providers.is_empty());
+    assert!(config.agent_key_file.is_none());
     assert_eq!(config.credentials.len(), 1);
     assert_eq!(
         config.credentials[0].credential_configuration_id,
@@ -1735,6 +1736,18 @@ fn rejects_duplicate_presentation_definition_identifiers_and_ids() {
 
 const AGENT_PROVIDER_ISSUER: &str = "https://agents.example";
 const AGENT_PROVIDER_KEY: &str = r#"{kid: ap-1, alg: Ed25519, kty: OKP, crv: Ed25519, x: mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g}"#;
+
+#[test]
+fn resolves_agent_key_file_relative_to_the_configuration() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nagent_key_file: state/agent-keys.json\n",
+    ));
+    let config = Config::load_from_path(file.path()).unwrap();
+    assert_eq!(
+        config.agent_key_file.unwrap(),
+        file.path().parent().unwrap().join("state/agent-keys.json")
+    );
+}
 
 fn agent_provider_configuration(entries: &str) -> ConfigFile {
     ConfigFile::new(&configuration_yaml(&format!(

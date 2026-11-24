@@ -30,6 +30,14 @@ for five minutes and fetches at most once per minute per provider. Inline
 key changes take effect after restarting Kagome. An empty or omitted
 `agent_providers` list trusts no providers.
 
+Set `agent_key_file` to a JSON file in an existing writable directory to
+record provider-attested agent public keys. Relative paths are resolved
+against the configuration file. Kagome records each key by issuer, agent
+subject, and SHA-256 JWK thumbprint, with first- and last-seen timestamps
+and the latest observed token expiration. Observations of a rotated key
+create a separate record. The file is an inventory of provider attestations,
+and each HTTP request still needs its own signature verification.
+
 Copy the example configuration before starting Kagome:
 
 ```bash

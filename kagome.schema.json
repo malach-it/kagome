@@ -3,6 +3,14 @@
   "title": "Config",
   "type": "object",
   "properties": {
+    "agent_key_file": {
+      "description": "Optional JSON registry of provider-attested agent public keys.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
     "agent_providers": {
       "description": "Agent providers trusted to issue AAuth agent tokens.",
       "type": "array",

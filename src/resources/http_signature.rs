@@ -5,7 +5,7 @@ use crate::{
     errors::OAuthError,
 };
 
-use super::agent_token::{VerifiedAgentToken, verify_token};
+use super::agent_token::{VerifiedAgentToken, registry, verify_token};
 
 mod signature_key;
 
@@ -31,6 +31,8 @@ pub trait Validate {
 ///
 /// Each member must carry an agent token signed by a configured provider key.
 /// Stores the verified identities and confirmation keys after all entries pass.
+/// If a registry is configured, records the provider-attested keys before updating
+/// the request state.
 /// A subsequent step must verify the HTTP message signature with the corresponding
 /// confirmation key before using the identity to authenticate the request.
 ///
@@ -38,6 +40,7 @@ pub trait Validate {
 ///
 /// Returns `invalid_request` for missing, repeated, or malformed header fields,
 /// unsupported schemes, invalid tokens, and untrusted providers or keys.
+/// Returns `invalid_token_response` if the configured registry cannot be updated.
 pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
     let field = match request.signature_key_fields() {
         [field] => field,
@@ -55,6 +58,11 @@ pub fn validate<T: Validate>(mut request: T) -> Result<T, OAuthError> {
         .into_iter()
         .map(|entry| validate_entry(entry, providers, now))
         .collect::<Result<Vec<_>, _>>()?;
+    if let Some(path) = Config::agent_key_file() {
+        registry::record(path, keys.iter().map(|entry| &entry.agent_token), now).map_err(|_| {
+            OAuthError::invalid_token_response("agent key registry could not be updated")
+        })?;
+    }
     request.add_verified_signature_keys(keys);
     Ok(request)
 }
