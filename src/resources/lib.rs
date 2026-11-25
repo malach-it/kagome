@@ -1,4 +1,5 @@
 pub mod access_token;
+pub mod agent_ssh;
 pub mod agent_token;
 pub mod authorization_code;
 pub mod client_credentials;

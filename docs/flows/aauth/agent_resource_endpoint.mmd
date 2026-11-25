@@ -2,14 +2,22 @@
 flowchart TD
     start[Request /agent/resource] --> method{Method?}
     method -- other --> not_found["`**HTTP 404** not found`"]
-    method -- GET --> request[Construct AgentResourceRequest]
+    method -- GET or POST --> request[Construct AgentResourceRequest]
     request --> key["http_signature::validate"]
     key -- token or input error --> error[Convert and log error]
     key -- registry error --> server_error[Convert and log server error]
     key -- provider-attested keys --> signature["http_signature::verify_message"]
     signature -- verification error --> error
-    signature -- authenticated agent --> response[Convert accumulated response and log success]
+    signature -- authenticated agent --> flow{Selected endpoint}
+    flow -- GET --> response[Convert accumulated response and log success]
+    flow -- POST --> register["agent_ssh::register"]
+    register -- invalid scope header --> error
+    register -- any requested scope or registration denied --> denied[Convert and log denial]
+    register -- SSH state or write error --> server_error
+    register -- all requested scopes registered --> response
     response -- missing output --> server_error
-    response -- ok --> success["`**HTTP 501** Not Implemented`"]
+    response -- GET completed --> success["`**HTTP 501** Not Implemented`"]
+    response -- POST completed --> action["`**HTTP 200** SSH action`"]
     error --> unauthorized["`**HTTP 401** agent token required or signature invalid`"]
+    denied --> forbidden["`**HTTP 403** SSH registration denied`"]
     server_error --> failure["`**HTTP 500** internal server error`"]

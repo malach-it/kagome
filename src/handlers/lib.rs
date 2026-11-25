@@ -1,4 +1,5 @@
 pub mod agent_resource;
+pub mod agent_resource_ssh;
 pub mod authorize;
 pub mod echo;
 pub mod federation_callback;

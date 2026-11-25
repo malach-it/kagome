@@ -8,7 +8,7 @@ const outputPath = join(repositoryRoot, "docs/flows/all.svg");
 const temporaryPath = `${outputPath}.tmp`;
 
 const graphs = [
-  ["AAuth — Agent Resource Endpoint", "aauth/agent_resource_endpoint.svg"],
+  ["AAuth — Agent Resource Endpoint and SSH Handoff", "aauth/agent_resource_endpoint.svg"],
   ["OAuth — Authorization Code Flow", "oauth/authorization_code.svg"],
   ["OAuth — Authorize Endpoint", "oauth/authorize_endpoint.svg"],
   ["OAuth — Client Credentials Flow", "oauth/client_credentials.svg"],

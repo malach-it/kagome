@@ -100,6 +100,17 @@
       "description": "HTTP server settings.",
       "$ref": "#/$defs/ServerConfig"
     },
+    "ssh_resource": {
+      "description": "Optional SSH action authorized by the agent resource endpoint.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentSshConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "tokens": {
       "description": "OAuth token lifetime and authorization-code chain settings.",
       "$ref": "#/$defs/TokenTtlsConfig"
@@ -163,6 +174,112 @@
       "additionalProperties": false,
       "required": [
         "keys"
+      ]
+    },
+    "AgentSshCommandConfig": {
+      "type": "object",
+      "properties": {
+        "allow_stdin": {
+          "description": "Pass SSH standard input to this command. Disabled by default.",
+          "type": "boolean",
+          "default": false
+        },
+        "allowed_args": {
+          "description": "Exact argument lists allowed for this command. An empty list allows a bare invocation.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "executable": {
+          "description": "Absolute path to the server-owned executable.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Exact scope required to register this command.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "executable"
+      ]
+    },
+    "AgentSshConfig": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "description": "Legacy command map used with a list of granted scope names.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentSshCommandConfig"
+          }
+        },
+        "executable": {
+          "description": "Legacy executable for the fixed `resource` command.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "host": {
+          "description": "Host and port advertised to the SSH client.",
+          "type": "string"
+        },
+        "issuer": {
+          "description": "Trusted provider issuer and exact agent subject allowed to run the action.",
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "scopes": {
+          "description": "Commands grouped by scope, or the legacy list of granted scope names.",
+          "$ref": "#/$defs/AgentSshScopes"
+        },
+        "state_directory": {
+          "description": "Directory shared with Dropbear for the authorized key file.",
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "issuer",
+        "subject",
+        "host",
+        "port",
+        "state_directory"
+      ]
+    },
+    "AgentSshScopes": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ScopedAgentSshCommandConfig"
+            }
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       ]
     },
     "ClientConfig": {
@@ -529,6 +646,40 @@
         "urn:ietf:params:oauth:response-type:pre-authorized_code",
         "token",
         "vp_token"
+      ]
+    },
+    "ScopedAgentSshCommandConfig": {
+      "type": "object",
+      "properties": {
+        "allow_stdin": {
+          "description": "Pass SSH standard input to this command. Disabled by default.",
+          "type": "boolean",
+          "default": false
+        },
+        "allowed_args": {
+          "description": "Exact argument lists allowed for this command. An empty list allows a bare invocation.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "executable": {
+          "description": "Absolute path to the server-owned executable.",
+          "type": "string"
+        },
+        "name": {
+          "description": "SSH command name, unique across the agent's scopes.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "executable"
       ]
     },
     "ServerConfig": {

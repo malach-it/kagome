@@ -47,6 +47,7 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
     assert!(config.agent_providers.is_empty());
     assert!(config.agent_key_file.is_none());
+    assert!(config.ssh_resource.is_none());
     assert_eq!(config.credentials.len(), 1);
     assert_eq!(
         config.credentials[0].credential_configuration_id,
@@ -1753,6 +1754,223 @@ fn agent_provider_configuration(entries: &str) -> ConfigFile {
     ConfigFile::new(&configuration_yaml(&format!(
         "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nagent_providers:\n{entries}"
     )))
+}
+
+#[test]
+fn validates_agent_ssh_configuration() {
+    let entry = format!(
+        "  - issuer: {AGENT_PROVIDER_ISSUER}\n    jwks:\n      keys: [{AGENT_PROVIDER_KEY}]\n"
+    );
+    let valid = format!(
+        "{entry}ssh_resource:\n  issuer: {AGENT_PROVIDER_ISSUER}\n  subject: aauth:test@agents.example\n  host: resource.example\n  port: 2222\n  executable: /bin/hostname\n  state_directory: /run/kagome-ssh\n"
+    );
+    let path = agent_provider_configuration(&valid);
+    let config = Config::load_from_path(path.path())
+        .unwrap()
+        .ssh_resource
+        .unwrap();
+    assert_eq!(config.host, "resource.example");
+    assert_eq!(
+        config.executable.as_deref(),
+        Some(Path::new("/bin/hostname"))
+    );
+    let legacy = valid.replacen("ssh_resource:", "agent_ssh:", 1);
+    let path = agent_provider_configuration(&legacy);
+    assert_eq!(
+        Config::load_from_path(path.path()).unwrap().ssh_resource,
+        Some(config),
+    );
+    let (_, legacy_policy) = legacy.split_once("\nagent_ssh:").unwrap();
+    let duplicate = agent_provider_configuration(&format!("{valid}agent_ssh:{legacy_policy}"));
+    assert!(Config::load_from_path(duplicate.path()).is_err());
+
+    for (field, replacement, error) in [
+        (
+            "\n  issuer: https://agents.example",
+            "\n  issuer: https://other.example",
+            "issuer",
+        ),
+        (
+            "subject: aauth:test@agents.example",
+            "subject: test",
+            "subject",
+        ),
+        (
+            "host: resource.example",
+            "host: resource.example/ssh",
+            "host",
+        ),
+        ("port: 2222", "port: 0", "port"),
+        (
+            "executable: /bin/hostname",
+            "executable: '/bin/hostname ; /bin/sh'",
+            "executable",
+        ),
+        (
+            "state_directory: /run/kagome-ssh",
+            "state_directory: ssh",
+            "state_directory",
+        ),
+    ] {
+        let path = agent_provider_configuration(&valid.replace(field, replacement));
+        let error_text = Config::load_from_path(path.path()).unwrap_err().to_string();
+        assert!(
+            error_text.contains(&format!("ssh_resource.{error}")),
+            "{error_text}"
+        );
+    }
+}
+
+#[test]
+fn validates_scoped_ssh_commands() {
+    let valid = format!(
+        r#"  - issuer: {AGENT_PROVIDER_ISSUER}
+    jwks:
+      keys: [{AGENT_PROVIDER_KEY}]
+ssh_resource:
+  issuer: {AGENT_PROVIDER_ISSUER}
+  subject: aauth:test@agents.example
+  host: resource.example
+  port: 2222
+  state_directory: /run/kagome-ssh
+  scopes: [resource:read]
+  commands:
+    status: {{scope: resource:read, executable: /bin/hostname}}
+    details: {{scope: resource:read, executable: /bin/uname, allowed_args: [[], ["-a"]]}}
+"#
+    );
+    let path = agent_provider_configuration(&valid);
+    let config = Config::load_from_path(path.path())
+        .unwrap()
+        .ssh_resource
+        .unwrap();
+    assert_eq!(
+        config.commands["status"].scope,
+        config.commands["details"].scope
+    );
+    assert_eq!(
+        config.scopes,
+        kagome::config::AgentSshScopes::Legacy(vec!["resource:read".to_owned()])
+    );
+    assert_eq!(
+        config.commands["details"].allowed_args,
+        [vec![], vec!["-a"]]
+    );
+    assert!(config.commands["status"].allowed_args.is_empty());
+    for (field, replacement, error) in [
+        (
+            "scopes: [resource:read]",
+            "scopes: [resource:read, resource:read]",
+            "scopes",
+        ),
+        (
+            "scope: resource:read, executable: /bin/uname",
+            "scope: '', executable: /bin/uname",
+            "commands",
+        ),
+        ("details:", "details extra:", "commands"),
+        (
+            r#"allowed_args: [[], ["-a"]]"#,
+            r#"allowed_args: [["a\0b"]]"#,
+            "commands.allowed_args",
+        ),
+    ] {
+        let path = agent_provider_configuration(&valid.replace(field, replacement));
+        let error_text = Config::load_from_path(path.path()).unwrap_err().to_string();
+        assert!(
+            error_text.contains(&format!("ssh_resource.{error}")),
+            "{error_text}"
+        );
+    }
+}
+
+#[test]
+fn validates_ssh_command_lists_grouped_by_scope() {
+    let valid = format!(
+        r#"  - issuer: {AGENT_PROVIDER_ISSUER}
+    jwks:
+      keys: [{AGENT_PROVIDER_KEY}]
+ssh_resource:
+  issuer: {AGENT_PROVIDER_ISSUER}
+  subject: aauth:test@agents.example
+  host: resource.example
+  port: 2222
+  state_directory: /run/kagome-ssh
+  scopes:
+    resource:read:
+      - {{name: pwd, executable: /bin/pwd}}
+      - {{name: ls, executable: /bin/ls, allowed_args: [[], ["-a"]]}}
+    resource:write:
+      - {{name: tee, executable: /usr/bin/tee, allow_stdin: true}}
+"#
+    );
+    let path = agent_provider_configuration(&valid);
+    let config = Config::load_from_path(path.path())
+        .unwrap()
+        .ssh_resource
+        .unwrap();
+    let kagome::config::AgentSshScopes::Grouped(scopes) = config.scopes else {
+        panic!("expected grouped SSH scopes");
+    };
+    assert_eq!(scopes["resource:read"][0].name, "pwd");
+    assert_eq!(
+        scopes["resource:read"][1].allowed_args,
+        [vec![], vec!["-a"]]
+    );
+    assert!(scopes["resource:write"][0].allow_stdin);
+
+    let duplicate_scope = agent_provider_configuration(&format!(
+        "{valid}    resource:write:\n      - {{name: other, executable: /bin/pwd}}\n"
+    ));
+    assert!(Config::load_from_path(duplicate_scope.path()).is_err());
+
+    for (candidate, error) in [
+        (
+            valid.replace("resource:write:", "'invalid scope':"),
+            "scopes must contain valid OAuth scope tokens",
+        ),
+        (
+            valid.replace("name: tee", "name: pwd"),
+            "commands must have unique names across scopes",
+        ),
+        (
+            valid.replace("name: ls", "name: pwd"),
+            "commands must have unique names across scopes",
+        ),
+        (
+            valid.replace("name: ls", "name: 'ls extra'"),
+            "commands require valid names",
+        ),
+        (
+            valid.replace("executable: /bin/ls", "executable: ls"),
+            "safe absolute executable paths",
+        ),
+        (
+            valid.replace(r#"[[], ["-a"]]"#, r#"[["a\0b"]]"#),
+            "commands.allowed_args must not contain NUL bytes",
+        ),
+        (
+            format!("{valid}  executable: /bin/pwd\n"),
+            "cannot be combined with executable or commands",
+        ),
+        (
+            format!(
+                "{valid}  commands:\n    extra: {{scope: resource:read, executable: /bin/ls}}\n"
+            ),
+            "cannot be combined with executable or commands",
+        ),
+        (
+            format!(
+                "{}  scopes: {{resource:read: []}}\n",
+                valid.split_once("  scopes:").unwrap().0
+            ),
+            "scopes must configure at least one SSH command",
+        ),
+    ] {
+        let path = agent_provider_configuration(&candidate);
+        let error_text = Config::load_from_path(path.path()).unwrap_err().to_string();
+        assert!(error_text.contains(error), "{error_text}");
+    }
 }
 
 #[test]

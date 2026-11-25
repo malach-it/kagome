@@ -21,13 +21,17 @@ pub trait VerifyMessage {
     fn target_scheme(&self) -> Option<&str>;
     fn field_lines(&self, name: &str) -> &[&str];
     fn verified_signature_keys(&self) -> &[VerifiedSignatureKey];
-    fn set_authenticated_agent(&mut self, key_index: usize);
+    fn set_authenticated_agent(&mut self, key_index: usize, signature_created: u64);
+    fn additional_required_components(&self) -> &[&str] {
+        &[]
+    }
 }
 
 /// Verifies a single HTTP Message Signature with the corresponding
 /// provider-verified agent token from `http_signature::validate`. Requires the
 /// method, authority, path, and Signature-Key to be covered and the signed
-/// timestamps to be current. Stores the authenticated agent's key index.
+/// timestamps to be current. Stores the authenticated agent's key index and the
+/// signed creation timestamp.
 ///
 /// # Errors
 /// Returns `invalid_request` for missing or malformed signature fields,
@@ -52,6 +56,17 @@ pub fn verify_message<T: VerifyMessage>(mut request: T) -> Result<T, OAuthError>
         return Err(OAuthError::invalid_request(
             "HTTP signature must cover @method, @authority, @path, and signature-key",
         ));
+    }
+    for required in request.additional_required_components() {
+        if !input
+            .components
+            .iter()
+            .any(|component| component == required)
+        {
+            return Err(OAuthError::invalid_request(format!(
+                "HTTP signature must cover {required}"
+            )));
+        }
     }
     let now = jsonwebtoken::get_current_timestamp();
     if input.created.abs_diff(now) > SIGNATURE_WINDOW
@@ -80,7 +95,7 @@ pub fn verify_message<T: VerifyMessage>(mut request: T) -> Result<T, OAuthError>
         return Err(invalid_signature());
     }
 
-    request.set_authenticated_agent(index);
+    request.set_authenticated_agent(index, input.created);
     Ok(request)
 }
 

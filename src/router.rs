@@ -13,8 +13,14 @@ pub fn route_request(request: &KagomeRequest) -> String {
 }
 
 pub(crate) fn route_request_with_target(request: &KagomeRequest, target: Option<&Uri>) -> String {
-    if request.method == "GET" && request.path == "/agent/resource" {
-        return crate::handlers::agent_resource::handle_agent_resource(request, target);
+    match (request.method.as_str(), request.path.as_str()) {
+        ("GET", "/agent/resource") => {
+            return crate::handlers::agent_resource::handle_agent_resource(request, target);
+        }
+        ("POST", "/agent/resource") => {
+            return crate::handlers::agent_resource_ssh::handle_agent_resource_ssh(request, target);
+        }
+        _ => {}
     }
 
     if request.method.eq_ignore_ascii_case("GET") && request.path == "/authorize" {

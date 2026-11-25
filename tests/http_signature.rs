@@ -1,6 +1,9 @@
 use std::{fs, sync::Once, thread};
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{
+    Engine,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use kagome::{
     config::{AgentProviderConfig, AgentProviderJwks, Config},
     errors::OAuthErrorCode,
@@ -211,8 +214,10 @@ fn verifies_and_persists_separate_agent_keys_for_each_label() {
 
     let path = Config::global().agent_key_file.as_ref().unwrap();
     let initial = fs::read(path).unwrap();
-    let registry: Value = serde_json::from_slice(&initial).unwrap();
-    let keys = registry["provider_attested_keys"].as_array().unwrap();
+    let original_registry: Value = serde_json::from_slice(&initial).unwrap();
+    let keys = original_registry["provider_attested_keys"]
+        .as_array()
+        .unwrap();
     assert_eq!(keys.len(), 2);
     let first_seen_at = keys[0]["first_seen_at"].clone();
     assert_ne!(keys[0]["jwk_thumbprint"], keys[1]["jwk_thumbprint"]);
@@ -223,6 +228,15 @@ fn verifies_and_persists_separate_agent_keys_for_each_label() {
             stored["public_jwk"],
             serde_json::to_value(&validated.agent_token.public_jwk).unwrap()
         );
+        let public_key = URL_SAFE_NO_PAD
+            .decode(stored["public_jwk"]["x"].as_str().unwrap())
+            .unwrap();
+        let mut blob = b"\0\0\0\x0bssh-ed25519\0\0\0\x20".to_vec();
+        blob.extend_from_slice(&public_key);
+        assert_eq!(
+            stored["public_ssh_key"],
+            format!("ssh-ed25519 {}", STANDARD.encode(blob))
+        );
         assert_eq!(stored["first_seen_at"], stored["last_seen_at"]);
         assert!(stored["latest_token_expires_at"].as_u64() > stored["last_seen_at"].as_u64());
     }
@@ -230,6 +244,12 @@ fn verifies_and_persists_separate_agent_keys_for_each_label() {
     let invalid_batch = format!(r#"first=jwt;jwt="{first}", invalid=jwt;jwt="invalid""#);
     assert!(validate(request(&[&invalid_batch])).is_err());
     assert_eq!(fs::read(path).unwrap(), initial);
+
+    let mut legacy = original_registry.clone();
+    for key in legacy["provider_attested_keys"].as_array_mut().unwrap() {
+        key.as_object_mut().unwrap().remove("public_ssh_key");
+    }
+    fs::write(path, serde_json::to_vec(&legacy).unwrap()).unwrap();
 
     thread::scope(|scope| {
         for seed in [5, 6] {
@@ -246,6 +266,13 @@ fn verifies_and_persists_separate_agent_keys_for_each_label() {
     let keys = registry["provider_attested_keys"].as_array().unwrap();
     assert_eq!(keys.len(), 4);
     assert_eq!(keys[0]["first_seen_at"], first_seen_at);
+    for (stored, original) in keys.iter().zip(
+        original_registry["provider_attested_keys"]
+            .as_array()
+            .unwrap(),
+    ) {
+        assert_eq!(stored["public_ssh_key"], original["public_ssh_key"]);
+    }
 
     fs::write(path, "broken registry").unwrap();
     let error = validate(request(&[&field])).unwrap_err();

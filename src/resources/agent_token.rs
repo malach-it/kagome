@@ -18,6 +18,7 @@ use crate::{
 
 mod jwks;
 pub(super) mod registry;
+mod ssh_key;
 
 pub const AGENT_TOKEN_TYPE: &str = "aa-agent+jwt";
 const METADATA_DOCUMENT: &str = "aauth-agent.json";
@@ -67,6 +68,14 @@ pub struct VerifiedAgentToken {
 }
 
 impl VerifiedAgentToken {
+    pub(super) fn ssh_key(&self) -> Option<String> {
+        ssh_key::encode(&self.public_jwk)
+    }
+
+    pub(super) fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
+
     pub(super) fn verify_signature(
         &self,
         message: &[u8],
@@ -267,7 +276,7 @@ pub(crate) fn valid_server_identifier(issuer: &str) -> bool {
     issuer.strip_prefix("https://").is_some_and(valid_domain)
 }
 
-fn agent_domain(identifier: &str) -> Option<&str> {
+pub(super) fn agent_domain(identifier: &str) -> Option<&str> {
     let (local, domain) = identifier.strip_prefix("aauth:")?.split_once('@')?;
     (!local.is_empty()
         && local.len() <= 255

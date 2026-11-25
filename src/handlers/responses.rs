@@ -8,8 +8,9 @@ use crate::{
         SiopAuthorizationRequest, SiopResponseRequest,
     },
     resources::{
-        access_token::AccessToken, authorization_code::AuthorizationCode, grant_type::GrantType,
-        id_token::IdToken, pre_authorized_code, wallet_authorization,
+        access_token::AccessToken, agent_ssh::SshAction, agent_token::VerifiedAgentToken,
+        authorization_code::AuthorizationCode, grant_type::GrantType, id_token::IdToken,
+        pre_authorized_code, wallet_authorization,
     },
     templates,
     unit::KagomeRequest,
@@ -566,6 +567,44 @@ pub fn agent_resource_response() -> String {
     text_not_implemented_response("cache-control: no-store\r\n")
 }
 
+pub fn agent_ssh_response(action: &SshAction) -> Result<String, OAuthError> {
+    let body = serde_json::to_string(action)
+        .map_err(|_| OAuthError::invalid_token_response("SSH action could not be serialized"))?;
+    Ok(http_json_response(&body))
+}
+
+pub(crate) fn log_agent_resource_success(agent: &VerifiedAgentToken, ssh: Option<&SshAction>) {
+    let (method, outcome) = match ssh {
+        Some(_) => ("POST", "ssh_registered"),
+        None => ("GET", "authenticated"),
+    };
+    let mut attributes = vec![
+        ("method", method.to_owned()),
+        ("outcome", outcome.to_owned()),
+        ("iss", agent.issuer.clone()),
+        ("sub", agent.subject.clone()),
+    ];
+    if let Some(ssh) = ssh {
+        attributes.push(("scope", format!("{:?}", ssh.scope)));
+        attributes.push(("expires_at", ssh.expires_at.to_string()));
+    }
+    println!(
+        "[{}] agent_resource_handler success {}",
+        log_timestamp(),
+        log_attributes(&attributes)
+    );
+}
+
+pub(crate) fn log_agent_resource_failure(method: &str, error: &OAuthError) {
+    eprintln!(
+        "timestamp={} agent_resource_handler failure method={} error={} error_description={:?}",
+        log_timestamp(),
+        method,
+        error.error,
+        error.error_description,
+    );
+}
+
 fn text_not_implemented_response(cache_control: &str) -> String {
     let response_body = "not implemented";
 
@@ -579,6 +618,7 @@ fn text_not_implemented_response(cache_control: &str) -> String {
 pub fn agent_resource_error_response(error: &OAuthError) -> String {
     let (status, challenge) = match error.kind {
         OAuthErrorCode::InvalidTokenResponse => ("500 Internal Server Error", ""),
+        OAuthErrorCode::UnauthorizedClient => ("403 Forbidden", ""),
         _ => (
             "401 Unauthorized",
             "aauth-requirement: requirement=agent-token\r\nsignature-error: error=invalid_signature\r\n",

@@ -1,6 +1,8 @@
 use axum::http::Uri;
 
-use super::responses::{agent_resource_error_response, logged_response};
+use super::responses::{
+    agent_resource_error_response, log_agent_resource_failure, logged_response,
+};
 use crate::{requests::AgentResourceRequest, resources::http_signature, unit::KagomeRequest};
 
 pub fn handle_agent_resource(request: &KagomeRequest, target: Option<&Uri>) -> String {
@@ -10,7 +12,7 @@ pub fn handle_agent_resource(request: &KagomeRequest, target: Option<&Uri>) -> S
     {
         Ok(response) => response,
         Err(error) => {
-            eprintln!("Agent resource request failed: {}", error.error_description);
+            log_agent_resource_failure("GET", &error);
             agent_resource_error_response(&error)
         }
     }

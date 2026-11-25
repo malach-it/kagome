@@ -4,9 +4,13 @@ use axum::http::Uri;
 
 use crate::{
     errors::OAuthError,
-    handlers::responses::{ResponseLog, agent_resource_response},
-    resources::http_signature::{
-        SIGNATURE_KEY_HEADER, Validate, VerifiedSignatureKey, VerifyMessage,
+    handlers::responses::{
+        ResponseLog, agent_resource_response, agent_ssh_response, log_agent_resource_success,
+    },
+    resources::{
+        agent_ssh::{Register, SSH_SCOPE_HEADER, SshAction},
+        agent_token::VerifiedAgentToken,
+        http_signature::{SIGNATURE_KEY_HEADER, Validate, VerifiedSignatureKey, VerifyMessage},
     },
     unit::KagomeRequest,
 };
@@ -23,7 +27,8 @@ pub struct AgentResourceRequest<'a> {
 #[derive(Default)]
 pub struct AgentResourceResponse {
     verified_keys: Vec<VerifiedSignatureKey>,
-    authenticated_key_index: Option<usize>,
+    authenticated_key: Option<(usize, u64)>,
+    ssh_action: Option<SshAction>,
 }
 
 impl<'a> AgentResourceRequest<'a> {
@@ -82,21 +87,56 @@ impl VerifyMessage for AgentResourceRequest<'_> {
         &self.response.verified_keys
     }
 
-    fn set_authenticated_agent(&mut self, key_index: usize) {
-        self.response.authenticated_key_index = Some(key_index);
+    fn set_authenticated_agent(&mut self, key_index: usize, signature_created: u64) {
+        self.response.authenticated_key = Some((key_index, signature_created));
+    }
+
+    fn additional_required_components(&self) -> &[&str] {
+        if self.method == "POST" && !self.field_lines(SSH_SCOPE_HEADER).is_empty() {
+            &[SSH_SCOPE_HEADER]
+        } else {
+            &[]
+        }
+    }
+}
+
+impl Register for AgentResourceRequest<'_> {
+    fn ssh_scope_fields(&self) -> &[&str] {
+        self.field_lines(SSH_SCOPE_HEADER)
+    }
+
+    fn authenticated_agent(&self) -> Option<(&VerifiedAgentToken, u64)> {
+        let (index, created) = self.response.authenticated_key?;
+        let key = self.response.verified_keys.get(index)?;
+        Some((&key.agent_token, created))
+    }
+
+    fn set_ssh_action(&mut self, action: SshAction) {
+        self.response.ssh_action = Some(action);
     }
 }
 
 impl ResponseLog for AgentResourceRequest<'_> {
     fn to_http_response(&self) -> Result<String, OAuthError> {
-        self.response
-            .authenticated_key_index
-            .and_then(|index| self.response.verified_keys.get(index))
+        self.authenticated_agent()
             .ok_or_else(|| OAuthError::invalid_token_response("authenticated agent is missing"))?;
-        Ok(agent_resource_response())
+        match self.method {
+            "GET" => Ok(agent_resource_response()),
+            "POST" => agent_ssh_response(
+                self.response
+                    .ssh_action
+                    .as_ref()
+                    .ok_or_else(|| OAuthError::invalid_token_response("SSH action is missing"))?,
+            ),
+            _ => Err(OAuthError::invalid_token_response(
+                "agent resource method is invalid",
+            )),
+        }
     }
 
     fn log_success(&self) {
-        eprintln!("Agent resource request authenticated");
+        if let Some((agent, _)) = self.authenticated_agent() {
+            log_agent_resource_success(agent, self.response.ssh_action.as_ref());
+        }
     }
 }

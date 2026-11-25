@@ -1,6 +1,8 @@
 **
 !Cargo.toml
 !Cargo.lock
+!docker-entrypoint.sh
+!docker-ssh-resource.sh
 !src/
 !src/**
 !templates/

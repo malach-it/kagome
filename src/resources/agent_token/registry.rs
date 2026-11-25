@@ -10,7 +10,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 
-use super::{JwkFields, VerifiedAgentToken};
+use super::{JwkFields, VerifiedAgentToken, ssh_key};
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -25,6 +25,8 @@ struct AgentKey {
     subject: String,
     jwk_thumbprint: String,
     public_jwk: JwkFields,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    public_ssh_key: Option<String>,
     first_seen_at: u64,
     last_seen_at: u64,
     latest_token_expires_at: u64,
@@ -61,6 +63,7 @@ impl Registry {
                 })
                 .map(|(name, value)| (name.clone(), value.clone()))
                 .collect(),
+            public_ssh_key: None,
             first_seen_at: now,
             last_seen_at: now,
             latest_token_expires_at: token.expires_at,
@@ -70,7 +73,9 @@ impl Registry {
 
 /// Records a batch of already verified provider attestations. Observations for
 /// the same issuer, subject, and key update one record. Rotated keys get separate
-/// records. The complete batch is published atomically under an exclusive lock.
+/// records. OpenSSH public key lines are filled in for new and legacy records
+/// when their JWKs can be encoded. The batch is published atomically under an
+/// exclusive lock.
 ///
 /// # Errors
 ///
@@ -105,6 +110,11 @@ pub(in crate::resources) fn record<'a>(
     };
     for token in tokens {
         registry.observe(token, now);
+    }
+    for key in &mut registry.provider_attested_keys {
+        if key.public_ssh_key.is_none() {
+            key.public_ssh_key = ssh_key::encode(&key.public_jwk);
+        }
     }
 
     let mut nonce = [0; 16];

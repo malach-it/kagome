@@ -1,13 +1,24 @@
 services:
   kagome:
-    build: .
+    build:
+      context: .
+      args:
+        KAGOME_UID: ${KAGOME_UID:-1000}
+        KAGOME_GID: ${KAGOME_GID:-1000}
     init: true
-    user: "${KAGOME_UID:-1000}:${KAGOME_GID:-1000}"
     read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    environment:
+      KAGOME_SSH_PUBLIC_KEY: ${KAGOME_SSH_PUBLIC_KEY:-}
+      KAGOME_AGENT_SSH_ENABLED: ${KAGOME_AGENT_SSH_ENABLED:-0}
+    tmpfs:
+      - /run/kagome-ssh:uid=${KAGOME_UID:-1000},gid=${KAGOME_GID:-1000},mode=0700
+    volumes:
+      - kagome_home:/home/kagome
+      - kagome_ssh:/home/kagome/.ssh
     secrets:
       - source: kagome_config
         target: kagome.yaml
@@ -17,6 +28,7 @@ services:
         target: kagome.htpasswd.example
     ports:
       - "${KAGOME_PORT:-4000}:${KAGOME_PORT:-4000}"
+      - "${KAGOME_SSH_BIND:-127.0.0.1}:${KAGOME_SSH_PORT:-2222}:2222"
     healthcheck:
       test:
         [
@@ -188,6 +200,10 @@ services:
     command: run /scripts/openid4vp.k6.js
     profiles:
       - loadtest
+
+volumes:
+  kagome_home:
+  kagome_ssh:
 
 secrets:
   kagome_config:

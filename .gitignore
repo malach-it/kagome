@@ -2,6 +2,8 @@
 /kagome.yaml
 /kagome.crypto.yaml
 /kagome.htpasswd
+/.env
+/.agent-keys/
 /kagome.agent-keys.json
 /kagome.agent-keys.json.lock
 /kagome.agent-keys.json.*.tmp

@@ -14,11 +14,11 @@ this catalog.
 
 ## AAuth
 
-### Agent Resource Endpoint
+### Agent Resource Endpoint and SSH Handoff
 
 [Mermaid source](aauth/agent_resource_endpoint.mmd)
 
-![Agent resource endpoint](aauth/agent_resource_endpoint.svg)
+![Agent resource endpoint and SSH handoff](aauth/agent_resource_endpoint.svg)
 
 ## OAuth
 

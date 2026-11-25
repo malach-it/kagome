@@ -14,10 +14,11 @@ server:
     memory_length: 50
 crypto:
   key_file: kagome.crypto.yaml
-# Configure a trusted issuer with its public signing keys, JWKS endpoint, or both.
+# Optional. Trust an issuer through inline public keys or an HTTPS JWKS endpoint.
+# For local testing, use the public YAML from scripts/generate-agent-provider-key.py.
+# For remote keys, set jwks_uri to the provider's HTTPS JWKS URL.
 # agent_providers:
 #   - issuer: https://agents.example
-#     jwks_uri: https://agents.example/jwks.json
 #     jwks:
 #       keys:
 #         - kid: provider-key-1
@@ -27,6 +28,32 @@ crypto:
 #           x: "<provider's base64url public key>"
 # Optional. Records provider-attested agent public keys in an existing directory.
 # agent_key_file: ./kagome.agent-keys.json
+# Optional. Set KAGOME_AGENT_SSH_ENABLED=1 in Docker Compose to enable SSH.
+# Match the issuer to a trusted provider and the subject to its agent token.
+# A signed POST /agent/resource can request both scopes with
+# SSH-Scope: resource:read resource:write
+# ssh_resource:
+#   issuer: https://agents.example
+#   subject: "aauth:assistant@agents.example"
+#   host: 127.0.0.1
+#   port: 2222
+#   scopes:
+#     resource:read:
+#       - name: status
+#         executable: /bin/hostname
+#       - name: details
+#         executable: /bin/uname
+#       - name: ls
+#         executable: /bin/ls
+#         allowed_args: [[], ["-a"], ["-l"]]
+#       - name: pwd
+#         executable: /bin/pwd
+#     resource:write:
+#       - name: tee
+#         executable: /usr/bin/tee
+#         allowed_args: [["/home/kagome/test.txt"]]
+#         allow_stdin: true
+#   state_directory: /run/kagome-ssh
 tokens:
   access_token_ttl: 3600
   authorization_code_ttl: 600
