@@ -384,10 +384,15 @@ fn managed_key(line: &str) -> Option<(&str, Vec<CommandGrant>)> {
         [expiry, executable] if tag.starts_with(':') => {
             vec![parse_grant("resource", expiry, executable)?]
         }
-        _ if tag.is_empty() && args.len().is_multiple_of(3) => args
-            .chunks_exact(3)
-            .map(|chunk| parse_grant(chunk[0], chunk[1], chunk[2]))
-            .collect::<Option<_>>()?,
+        _ if tag.is_empty() => {
+            let (grants, []) = args.as_chunks::<3>() else {
+                return None;
+            };
+            grants
+                .iter()
+                .map(|[name, expiry, executable]| parse_grant(name, expiry, executable))
+                .collect::<Option<_>>()?
+        }
         _ => return None,
     };
     Some((key, grants))
@@ -537,6 +542,14 @@ mod tests {
             Some(("ssh-ed25519 old", vec![grant("resource", 60)]))
         );
         fs::remove_dir_all(config.state_directory).unwrap();
+    }
+
+    #[test]
+    fn rejects_legacy_registration_with_an_incomplete_grant() {
+        let line = format!(
+            "{MANAGED_PREFIX}resource 60 /bin/hostname details 60\" ssh-ed25519 old{MANAGED_TAG}"
+        );
+        assert!(managed_key(&line).is_none());
     }
 
     #[test]
