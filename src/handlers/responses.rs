@@ -583,6 +583,7 @@ pub(crate) fn log_agent_resource_success(agent: &VerifiedAgentToken, ssh: Option
         ("outcome", outcome.to_owned()),
         ("iss", agent.issuer.clone()),
         ("sub", agent.subject.clone()),
+        ("jti", format!("{:?}", agent.jti)),
     ];
     if let Some(ssh) = ssh {
         attributes.push(("scope", format!("{:?}", ssh.scope)));

@@ -62,6 +62,7 @@ struct Confirmation {
 pub struct VerifiedAgentToken {
     pub issuer: String,
     pub subject: String,
+    pub(crate) jti: String,
     pub public_jwk: JwkFields,
     key_thumbprint: String,
     expires_at: u64,
@@ -213,6 +214,7 @@ pub(super) fn verify_token(
     Ok(VerifiedAgentToken {
         issuer: claims.iss,
         subject: claims.sub,
+        jti: claims.jti,
         public_jwk: claims.cnf.jwk,
         key_thumbprint: agent_jwk.thumbprint(ThumbprintHash::SHA256),
         expires_at: claims.exp,
