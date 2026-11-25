@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Register local Kagome SSH scopes and run authorized commands.
+
+Run from the Kagome checkout with SSH enabled and an SSH resource configured in
+kagome.yaml. The agent uses its own Ed25519 key to sign requests and connect
+over SSH. If you need a new agent key, run the following commands.
+
+    mkdir -p -m 700 .agent-keys
+    ssh-keygen -t ed25519 -N '' -f .agent-keys/agent-ed25519
+
+For local token signing, generate a separate provider key at
+.agent-keys/example-provider-ed25519.pem. Add its printed public JWK to
+agent_providers in kagome.yaml and configure ssh_resource with that issuer and
+its agent subject. Use --provider-key to select another PEM.
+
+    python3 scripts/generate-agent-provider-key.py
+    ./scripts/shell access
+
+For --provider-url, enroll the agent key with your provider before requesting a token.
+Repeat --scope to register multiple scopes in one request.
+
+    ./scripts/shell access --provider-url https://agent.provider \\
+        --scope resource:read --scope resource:write
+
+Print the registration as JSON and exit. This also happens when stdin is not a terminal.
+
+    ./scripts/shell access --list
+
+At the kagome> prompt, type help to list authorized commands or exit to quit.
+OpenSSH asks you to verify the fingerprint on the first connection to an unknown host.
+"""
+
+import argparse
+import json
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+from test_agent_ssh import DEFAULT_AGENT_KEY, DEFAULT_PROVIDER_KEY, configured_registration_command
+
+
+REPOSITORY = Path(__file__).resolve().parents[1]
+KNOWN_HOSTS = REPOSITORY / ".agent-keys/known_hosts"
+AGENT_KEY = REPOSITORY / DEFAULT_AGENT_KEY
+
+
+def register(request_command):
+    result = subprocess.run(request_command(), stdout=subprocess.PIPE, text=True)
+    if result.returncode:
+        if result.stdout:
+            print(result.stdout, file=sys.stderr)
+        raise SystemExit(result.returncode)
+    try:
+        registration = json.loads(result.stdout)
+        if (
+            registration["action"] == "ssh"
+            and isinstance(registration["host"], str)
+            and isinstance(registration["user"], str)
+            and isinstance(registration["port"], int)
+            and isinstance(registration["expires_at"], int)
+            and isinstance(registration["commands"], list)
+            and all(isinstance(item, str) and item for item in registration["commands"])
+        ):
+            return registration
+    except (ValueError, KeyError, TypeError):
+        pass
+    raise SystemExit("Kagome returned an invalid SSH registration.")
+
+
+def run_ssh(registration, command):
+    ssh = [
+        "ssh", "-T",
+        "-o", "BatchMode=no",
+        "-o", "PreferredAuthentications=publickey",
+        "-o", "IdentitiesOnly=yes",
+        "-o", "ConnectTimeout=5",
+        "-o", "StrictHostKeyChecking=ask",
+        "-i", str(AGENT_KEY),
+        "-p", str(registration["port"]),
+        "-l", registration["user"],
+    ]
+    if KNOWN_HOSTS.is_file():
+        ssh.extend(("-o", f"UserKnownHostsFile={KNOWN_HOSTS}"))
+    ssh.extend(("--", registration["host"], command))
+    return subprocess.run(ssh).returncode
+
+
+def command_prompt(request_command):
+    registration = register(request_command)
+    print("Type 'help' for available commands or 'exit' to leave.", file=sys.stderr)
+
+    while True:
+        print("kagome> ", end="", file=sys.stderr, flush=True)
+        line = sys.stdin.readline()
+        command = line.strip()
+        if not line or command == "exit":
+            return
+        if not command:
+            continue
+
+        if registration["expires_at"] <= time.time():
+            registration = register(request_command)
+        if command == "help":
+            print("Available SSH commands:", file=sys.stderr)
+            for item in registration["commands"]:
+                print(f"  {item}", file=sys.stderr)
+            continue
+
+        status = run_ssh(registration, command)
+        if status:
+            print(f"SSH exited with status {status}.", file=sys.stderr)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    actions = parser.add_subparsers(dest="action", required=True)
+    access = actions.add_parser(
+        "access", help="register one or more SSH scopes", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    access.add_argument(
+        "--scope", action="append", default=[],
+        help="SSH scope, repeatable (default: resource:read)",
+    )
+    access.add_argument(
+        "--provider-key", type=Path,
+        help=f"private key for local token signing (default: {DEFAULT_PROVIDER_KEY})",
+    )
+    access.add_argument(
+        "--provider-url", metavar="URL",
+        help="agent provider base URL or /agent-token endpoint (uses the enrolled agent key)",
+    )
+    access.add_argument("--list", action="store_true", help="print the registration as JSON")
+    args = parser.parse_args()
+
+    def request_command():
+        return configured_registration_command(
+            provider_key=args.provider_key,
+            agent_key=AGENT_KEY,
+            provider_url=args.provider_url,
+            scopes=args.scope or ["resource:read"],
+            include_headers=False,
+        )
+
+    try:
+        if args.list or not sys.stdin.isatty():
+            print(json.dumps(register(request_command), indent=2))
+            return
+        command_prompt(request_command)
+    except argparse.ArgumentTypeError as error:
+        access.error(str(error))
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except OSError as error:
+        sys.exit(str(error))

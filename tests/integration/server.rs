@@ -1,12 +1,31 @@
 use std::{
+    fs,
     io::{self, BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
+    path::{Path, PathBuf},
     sync::OnceLock,
     thread,
     time::Duration,
 };
 
 static SERVER_ADDRESS: OnceLock<String> = OnceLock::new();
+static AGENT_SSH_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn agent_ssh_directory() -> &'static Path {
+    AGENT_SSH_DIRECTORY.get_or_init(|| {
+        let directory = std::env::temp_dir().join(format!(
+            "kagome-agent-ssh-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("authorized_keys"), "# static SSH keys\n").unwrap();
+        directory
+    })
+}
 
 pub fn send_request(request: &str) -> String {
     let mut stream =
@@ -360,6 +379,12 @@ fn start_server() -> String {
     let mut config = kagome::config::Config::load_from_path(&config_path)
         .expect("example configuration should load");
     config.server.rate_limit = kagome::config::RateLimitSetting::Boolean(false);
+    config
+        .agent_providers
+        .push(super::flows::aauth::agent_provider());
+    config.ssh_resource = Some(super::flows::aauth::agent_ssh_configuration(
+        agent_ssh_directory(),
+    ));
     let _ = std::fs::remove_file(config_path);
     config.clients[0].public = Some("example.com".to_owned());
     config.credentials.push(kagome::config::CredentialConfig {

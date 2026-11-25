@@ -1,3 +1,5 @@
+use axum::http::Uri;
+
 use crate::unit::KagomeRequest;
 
 pub fn route_raw_request(request: &str) -> String {
@@ -7,6 +9,20 @@ pub fn route_raw_request(request: &str) -> String {
 }
 
 pub fn route_request(request: &KagomeRequest) -> String {
+    route_request_with_target(request, None)
+}
+
+pub(crate) fn route_request_with_target(request: &KagomeRequest, target: Option<&Uri>) -> String {
+    match (request.method.as_str(), request.path.as_str()) {
+        ("GET", "/agent/resource") => {
+            return crate::handlers::agent_resource::handle_agent_resource(request, target);
+        }
+        ("POST", "/agent/resource") => {
+            return crate::handlers::agent_resource_ssh::handle_agent_resource_ssh(request, target);
+        }
+        _ => {}
+    }
+
     if request.method.eq_ignore_ascii_case("GET") && request.path == "/authorize" {
         return crate::handlers::authorize::handle_authorize(request);
     }

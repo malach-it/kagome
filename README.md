@@ -9,13 +9,13 @@ state effects, and failure boundaries inline through Rustdoc.
 
 ## Server configuration
 
-Kagome’s configuration is organized into five areas: `server` defines the
-listening address and public issuer URL; `crypto` points to the generated key
-material; `tokens` sets token lifetimes and authorization-code chain limits;
-`credentials` and `presentation_definitions` describe credentials and the
-scopes that request them; and `clients` defines OAuth clients, redirect URIs,
-supported protocol capabilities, wallet-binding/QR behavior, and optional
-federation or password authentication. Copy the example configuration, set
+The `server` settings define the listening address and public issuer URL.
+`crypto` points to the generated key material, and `tokens` sets token
+lifetimes and authorization-code chain limits. `credentials` and
+`presentation_definitions` describe credentials and the scopes that request
+them. `clients` defines OAuth clients, redirect URIs, supported protocol
+capabilities, wallet-binding/QR behavior, and optional federation or password
+authentication. Copy the example configuration, set
 `KAGOME_CONFIG` when using another file, and keep configuration and generated
 keys private because they contain client secrets and signing material.
 
@@ -44,6 +44,33 @@ server:
     memory_length: 50
 crypto:
   key_file: kagome.crypto.yaml
+# Optional. Paste the public YAML from scripts/generate-agent-provider-key.py.
+# agent_providers:
+#   - issuer: https://agents.example
+#     jwks:
+#       keys:
+#         - kid: provider-key-1
+#           alg: Ed25519
+#           kty: OKP
+#           crv: Ed25519
+#           x: "<provider's base64url public key>"
+# agent_key_file: ./kagome.agent-keys.json
+# Set KAGOME_AGENT_SSH_ENABLED=1 when starting Docker Compose.
+# ssh_resource:
+#   issuer: https://agents.example
+#   subject: "aauth:assistant@agents.example"
+#   host: 127.0.0.1
+#   port: 2222
+#   scopes:
+#     resource:read:
+#       - name: pwd
+#         executable: /bin/pwd
+#     resource:write:
+#       - name: tee
+#         executable: /usr/bin/tee
+#         allowed_args: [["/home/kagome/test.txt"]]
+#         allow_stdin: true
+#   state_directory: /run/kagome-ssh
 tokens:
   access_token_ttl: 3600
   authorization_code_ttl: 600
@@ -91,7 +118,7 @@ clients:
               credential: [UniversityDegreeCredential]
 ```
 
-The example above is the complete configuration shape. In practice:
+The example above shows the core server settings.
 
 - `credentials` define issuable credential metadata and types.
 - `presentation_definitions` map OAuth scopes to Presentation Exchange rules.
@@ -114,6 +141,14 @@ The example above is the complete configuration shape. In practice:
 - `crypto.key_file` is generated once, resolved relative to the YAML file, and
   must be protected with owner-only permissions. Rotating keys invalidates
   related artifacts or signatures.
+- `agent_providers` optionally lists trusted AAuth issuers and their public
+  signing keys, supplied inline in `jwks` or through an HTTPS `jwks_uri`.
+- `agent_key_file` optionally records provider-attested agent public keys in a
+  JSON file. Relative paths are resolved from the configuration file.
+- `ssh_resource` grants an exact agent issuer and subject SSH access to the
+  command lists under `scopes`. Command names must be unique across those lists.
+  Set `KAGOME_AGENT_SSH_ENABLED=1` to enable it in Docker Compose. Existing
+  configs can still use `agent_ssh` or a separate `commands` map.
 - `KAGOME_CONFIG` selects another configuration file. Startup rejects malformed
   YAML, unknown fields, invalid URLs, keys, clients, and capabilities.
 
@@ -125,6 +160,33 @@ error and wallet templates can be mounted under `/templates`.
 
 [`kagome.schema.json`](kagome.schema.json) provides editor validation and
 completion; regenerate it with `cargo run --example generate_config_schema > kagome.schema.json`.
+
+## Agent resource
+
+`GET /agent/resource` returns `501 Not Implemented` after it validates a
+trusted provider's agent token and verifies the HTTP message signature using
+the token's confirmation key. Missing or invalid authentication returns
+`401 Unauthorized`.
+
+Send one `Signature-Input` and one `Signature` field with the same label as
+the agent token's `Signature-Key` member. Cover `@method`, `@authority`,
+`@path`, and `signature-key`. The signed `created` timestamp must be within
+60 seconds of server time. If supplied, `expires` must be later than both
+`created` and the current time. The endpoint accepts additional ordinary
+header components and ignores query parameters and the request body.
+
+[Agent resource flow graph](docs/flows/aauth/agent_resource_endpoint.svg)
+
+A signed `POST /agent/resource` can register the agent's public key for
+short-lived SSH access to configured commands. The grant expires 60 seconds
+after the HTTP signature was created, or when the agent token expires if that
+comes first. Include one or more space-separated scopes in the signed
+`SSH-Scope` header. For local testing,
+`./scripts/shell access --list` signs with the generated example provider PEM.
+With `--provider-url`, it requests a token from the provider using the enrolled
+agent key. The token's issuer and subject must match `ssh_resource`. At the
+interactive `kagome>` prompt, OpenSSH asks you to verify and confirm an unknown
+host key before connecting.
 
 ## OpenID for Verifiable Credential Issuance
 

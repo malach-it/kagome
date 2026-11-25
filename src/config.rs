@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     env,
     error::Error,
     fmt, fs,
@@ -48,6 +48,16 @@ pub struct Config {
     #[serde(default)]
     #[schemars(default)]
     pub tokens: TokenTtlsConfig,
+    /// Agent providers trusted to issue AAuth agent tokens.
+    #[serde(default)]
+    #[schemars(default)]
+    pub agent_providers: Vec<AgentProviderConfig>,
+    /// Optional JSON registry of provider-attested agent public keys.
+    #[serde(default)]
+    pub agent_key_file: Option<PathBuf>,
+    /// Optional SSH action authorized by the agent resource endpoint.
+    #[serde(default, alias = "agent_ssh")]
+    pub ssh_resource: Option<AgentSshConfig>,
     /// Verifiable credential configurations advertised and issued by the server.
     #[serde(default = "default_credential_configurations")]
     #[schemars(default = "default_credential_configurations", length(min = 1))]
@@ -65,6 +75,109 @@ pub struct Config {
     #[serde(skip)]
     #[schemars(skip)]
     key_manager: KeyManager,
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSshConfig {
+    /// Trusted provider issuer and exact agent subject allowed to run the action.
+    pub issuer: String,
+    pub subject: String,
+    /// Host and port advertised to the SSH client.
+    pub host: String,
+    pub port: u16,
+    /// Legacy executable for the fixed `resource` command.
+    #[serde(default)]
+    pub executable: Option<PathBuf>,
+    /// Commands grouped by scope, or the legacy list of granted scope names.
+    #[serde(default)]
+    pub scopes: AgentSshScopes,
+    /// Legacy command map used with a list of granted scope names.
+    #[serde(default)]
+    pub commands: BTreeMap<String, AgentSshCommandConfig>,
+    /// Directory shared with Dropbear for the authorized key file.
+    pub state_directory: PathBuf,
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(untagged)]
+pub enum AgentSshScopes {
+    Grouped(
+        #[serde(deserialize_with = "deserialize_ssh_scope_lists")]
+        BTreeMap<String, Vec<ScopedAgentSshCommandConfig>>,
+    ),
+    Legacy(Vec<String>),
+}
+
+fn deserialize_ssh_scope_lists<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Vec<ScopedAgentSshCommandConfig>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // YAML mappings reject duplicate keys before conversion to the ordered map.
+    let scopes = serde_yaml_ng::Mapping::deserialize(deserializer)?;
+    serde_yaml_ng::from_value(serde_yaml_ng::Value::Mapping(scopes))
+        .map_err(serde::de::Error::custom)
+}
+
+impl Default for AgentSshScopes {
+    fn default() -> Self {
+        Self::Legacy(Vec::new())
+    }
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ScopedAgentSshCommandConfig {
+    /// SSH command name, unique across the agent's scopes.
+    pub name: String,
+    /// Absolute path to the server-owned executable.
+    pub executable: PathBuf,
+    /// Exact argument lists allowed for this command. An empty list allows a bare invocation.
+    #[serde(default)]
+    pub allowed_args: Vec<Vec<String>>,
+    /// Pass SSH standard input to this command. Disabled by default.
+    #[serde(default)]
+    pub allow_stdin: bool,
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSshCommandConfig {
+    /// Exact scope required to register this command.
+    pub scope: String,
+    /// Absolute path to the server-owned executable.
+    pub executable: PathBuf,
+    /// Exact argument lists allowed for this command. An empty list allows a bare invocation.
+    #[serde(default)]
+    pub allowed_args: Vec<Vec<String>>,
+    /// Pass SSH standard input to this command. Disabled by default.
+    #[serde(default)]
+    pub allow_stdin: bool,
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentProviderConfig {
+    /// Exact HTTPS issuer of the agent provider.
+    #[schemars(length(min = 1), url)]
+    pub issuer: String,
+    /// Pinned JSON Web Key Set containing public token-signing keys.
+    #[serde(default)]
+    pub jwks: Option<AgentProviderJwks>,
+    /// Configured HTTPS endpoint for keys absent from the pinned set.
+    #[serde(default)]
+    #[schemars(url)]
+    pub jwks_uri: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentProviderJwks {
+    /// Public JWKs with unique key identifiers and explicit signing algorithms.
+    #[schemars(length(min = 1))]
+    pub keys: Vec<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
@@ -477,6 +590,20 @@ impl Config {
         CONFIG.get().map(|config| config.tokens).unwrap_or_default()
     }
 
+    pub fn trusted_agent_providers() -> &'static [AgentProviderConfig] {
+        CONFIG
+            .get()
+            .map_or(&[], |config| config.agent_providers.as_slice())
+    }
+
+    pub(crate) fn agent_key_file() -> Option<&'static Path> {
+        CONFIG.get()?.agent_key_file.as_deref()
+    }
+
+    pub(crate) fn ssh_resource() -> Option<&'static AgentSshConfig> {
+        CONFIG.get()?.ssh_resource.as_ref()
+    }
+
     pub fn replay_protection_enabled() -> bool {
         CONFIG
             .get()
@@ -569,6 +696,9 @@ impl Config {
                 "authorization_code_chain_max_depth": self.tokens.authorization_code_chain_max_depth,
             },
             "credentials": &self.credentials,
+            "agent_providers": self.agent_providers.iter().map(|provider| &provider.issuer).collect::<Vec<_>>(),
+            "agent_key_file": &self.agent_key_file,
+            "ssh_resource_enabled": self.ssh_resource.is_some(),
             "presentation_definitions": &self.presentation_definitions,
             "clients": clients,
         }))
@@ -660,6 +790,9 @@ impl Config {
             })?;
 
         config.validate(path)?;
+        if let Some(key_file) = &mut config.agent_key_file {
+            *key_file = resolve_relative_path(path, key_file);
+        }
         config.load_key_manager(path)?;
         config.load_client_password_files(path)?;
 
@@ -780,6 +913,43 @@ impl Config {
                 path: path.to_owned(),
                 message: "server.replay_protection capacity must be greater than zero".to_owned(),
             });
+        }
+
+        if self
+            .agent_key_file
+            .as_deref()
+            .is_some_and(|path| path.file_name().is_none())
+        {
+            return Err(ConfigError::Validation {
+                path: path.to_owned(),
+                message: "agent_key_file must name a file".to_owned(),
+            });
+        }
+
+        let mut agent_provider_issuers = HashSet::new();
+        for (index, provider) in self.agent_providers.iter().enumerate() {
+            let invalid = |message| ConfigError::Validation {
+                path: path.to_owned(),
+                message: format!("agent_providers[{index}].{message}"),
+            };
+            if !crate::resources::agent_token::valid_server_identifier(&provider.issuer) {
+                return Err(invalid(
+                    "issuer must be a lowercase HTTPS URL with only a host",
+                ));
+            }
+            if !agent_provider_issuers.insert(&provider.issuer) {
+                return Err(invalid("issuer must be unique"));
+            }
+            crate::resources::agent_token::validate_provider_key_sources(provider)
+                .map_err(invalid)?;
+        }
+
+        if let Some(ssh_resource) = &self.ssh_resource {
+            crate::resources::agent_ssh::validate_config(ssh_resource, &agent_provider_issuers)
+                .map_err(|message| ConfigError::Validation {
+                    path: path.to_owned(),
+                    message: format!("ssh_resource.{message}"),
+                })?;
         }
 
         if self.clients.is_empty() {
@@ -1263,7 +1433,7 @@ fn is_host(host: &str) -> bool {
         })
 }
 
-fn is_scope_token(scope: &str) -> bool {
+pub(crate) fn is_scope_token(scope: &str) -> bool {
     !scope.is_empty()
         && scope.bytes().all(|byte| {
             byte == b'!' || (b'#'..=b'[').contains(&byte) || (b']'..=b'~').contains(&byte)

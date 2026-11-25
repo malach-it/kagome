@@ -310,6 +310,7 @@ async fn handle_request(
         Err(_) => return service_unavailable_response("request concurrency limit reached"),
     };
     let body_limit = request_body_limit(request.uri().path());
+    let target = request.uri().clone();
     let request = match timeout(
         state.limits.request_body_timeout,
         kagome_request(request, body_limit),
@@ -322,7 +323,12 @@ async fn handle_request(
     };
 
     blocking_response(
-        move || raw_http_response(&crate::router::route_request(&request), keep_alive),
+        move || {
+            raw_http_response(
+                &crate::router::route_request_with_target(&request, Some(&target)),
+                keep_alive,
+            )
+        },
         request_permit,
         state.limits.response_timeout,
     )

@@ -1,6 +1,15 @@
-use std::{error::Error, process::ExitCode};
+use std::{env, error::Error, ffi::OsStr, process::ExitCode};
 
 fn main() -> ExitCode {
+    let mut args = env::args_os().skip(1);
+    if args.next().as_deref() == Some(OsStr::new("--ssh-command")) {
+        return match (args.next(), args.next()) {
+            (Some(encoded), None) => encoded.to_str().map_or(ExitCode::from(126), |encoded| {
+                kagome::resources::agent_ssh::run_registered_command(encoded)
+            }),
+            _ => ExitCode::from(126),
+        };
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

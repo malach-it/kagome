@@ -1,3 +1,4 @@
+pub(super) mod aauth;
 mod common;
 mod oauth;
 mod openid4vci;

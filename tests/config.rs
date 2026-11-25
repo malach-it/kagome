@@ -45,6 +45,9 @@ fn loads_server_configuration_from_yaml() {
     assert_eq!(config.tokens.presentation_state_ttl, 300);
     assert_eq!(config.tokens.siopv2_state_ttl, 300);
     assert_eq!(config.tokens.authorization_code_chain_max_depth, 8);
+    assert!(config.agent_providers.is_empty());
+    assert!(config.agent_key_file.is_none());
+    assert!(config.ssh_resource.is_none());
     assert_eq!(config.credentials.len(), 1);
     assert_eq!(
         config.credentials[0].credential_configuration_id,
@@ -1729,6 +1732,359 @@ fn rejects_duplicate_presentation_definition_identifiers_and_ids() {
             .expect_err("duplicate presentation definition identity should fail");
 
         assert!(error.to_string().contains("must be unique"), "{error}");
+    }
+}
+
+const AGENT_PROVIDER_ISSUER: &str = "https://agents.example";
+const AGENT_PROVIDER_KEY: &str = r#"{kid: ap-1, alg: Ed25519, kty: OKP, crv: Ed25519, x: mbDL1A9YckRdA3AlHpbwDmEYpR9TJV3qQwKQkNbD63g}"#;
+
+#[test]
+fn resolves_agent_key_file_relative_to_the_configuration() {
+    let file = ConfigFile::new(&configuration_yaml(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nagent_key_file: state/agent-keys.json\n",
+    ));
+    let config = Config::load_from_path(file.path()).unwrap();
+    assert_eq!(
+        config.agent_key_file.unwrap(),
+        file.path().parent().unwrap().join("state/agent-keys.json")
+    );
+}
+
+fn agent_provider_configuration(entries: &str) -> ConfigFile {
+    ConfigFile::new(&configuration_yaml(&format!(
+        "server:\n  issuer: https://kagome.example.com\n  address: 127.0.0.1:4100\n  workers: 4\nagent_providers:\n{entries}"
+    )))
+}
+
+#[test]
+fn validates_agent_ssh_configuration() {
+    let entry = format!(
+        "  - issuer: {AGENT_PROVIDER_ISSUER}\n    jwks:\n      keys: [{AGENT_PROVIDER_KEY}]\n"
+    );
+    let valid = format!(
+        "{entry}ssh_resource:\n  issuer: {AGENT_PROVIDER_ISSUER}\n  subject: aauth:test@agents.example\n  host: resource.example\n  port: 2222\n  executable: /bin/hostname\n  state_directory: /run/kagome-ssh\n"
+    );
+    let path = agent_provider_configuration(&valid);
+    let config = Config::load_from_path(path.path())
+        .unwrap()
+        .ssh_resource
+        .unwrap();
+    assert_eq!(config.host, "resource.example");
+    assert_eq!(
+        config.executable.as_deref(),
+        Some(Path::new("/bin/hostname"))
+    );
+    let legacy = valid.replacen("ssh_resource:", "agent_ssh:", 1);
+    let path = agent_provider_configuration(&legacy);
+    assert_eq!(
+        Config::load_from_path(path.path()).unwrap().ssh_resource,
+        Some(config),
+    );
+    let (_, legacy_policy) = legacy.split_once("\nagent_ssh:").unwrap();
+    let duplicate = agent_provider_configuration(&format!("{valid}agent_ssh:{legacy_policy}"));
+    assert!(Config::load_from_path(duplicate.path()).is_err());
+
+    for (field, replacement, error) in [
+        (
+            "\n  issuer: https://agents.example",
+            "\n  issuer: https://other.example",
+            "issuer",
+        ),
+        (
+            "subject: aauth:test@agents.example",
+            "subject: test",
+            "subject",
+        ),
+        (
+            "host: resource.example",
+            "host: resource.example/ssh",
+            "host",
+        ),
+        ("port: 2222", "port: 0", "port"),
+        (
+            "executable: /bin/hostname",
+            "executable: '/bin/hostname ; /bin/sh'",
+            "executable",
+        ),
+        (
+            "state_directory: /run/kagome-ssh",
+            "state_directory: ssh",
+            "state_directory",
+        ),
+    ] {
+        let path = agent_provider_configuration(&valid.replace(field, replacement));
+        let error_text = Config::load_from_path(path.path()).unwrap_err().to_string();
+        assert!(
+            error_text.contains(&format!("ssh_resource.{error}")),
+            "{error_text}"
+        );
+    }
+}
+
+#[test]
+fn validates_scoped_ssh_commands() {
+    let valid = format!(
+        r#"  - issuer: {AGENT_PROVIDER_ISSUER}
+    jwks:
+      keys: [{AGENT_PROVIDER_KEY}]
+ssh_resource:
+  issuer: {AGENT_PROVIDER_ISSUER}
+  subject: aauth:test@agents.example
+  host: resource.example
+  port: 2222
+  state_directory: /run/kagome-ssh
+  scopes: [resource:read]
+  commands:
+    status: {{scope: resource:read, executable: /bin/hostname}}
+    details: {{scope: resource:read, executable: /bin/uname, allowed_args: [[], ["-a"]]}}
+"#
+    );
+    let path = agent_provider_configuration(&valid);
+    let config = Config::load_from_path(path.path())
+        .unwrap()
+        .ssh_resource
+        .unwrap();
+    assert_eq!(
+        config.commands["status"].scope,
+        config.commands["details"].scope
+    );
+    assert_eq!(
+        config.scopes,
+        kagome::config::AgentSshScopes::Legacy(vec!["resource:read".to_owned()])
+    );
+    assert_eq!(
+        config.commands["details"].allowed_args,
+        [vec![], vec!["-a"]]
+    );
+    assert!(config.commands["status"].allowed_args.is_empty());
+    for (field, replacement, error) in [
+        (
+            "scopes: [resource:read]",
+            "scopes: [resource:read, resource:read]",
+            "scopes",
+        ),
+        (
+            "scope: resource:read, executable: /bin/uname",
+            "scope: '', executable: /bin/uname",
+            "commands",
+        ),
+        ("details:", "details extra:", "commands"),
+        (
+            r#"allowed_args: [[], ["-a"]]"#,
+            r#"allowed_args: [["a\0b"]]"#,
+            "commands.allowed_args",
+        ),
+    ] {
+        let path = agent_provider_configuration(&valid.replace(field, replacement));
+        let error_text = Config::load_from_path(path.path()).unwrap_err().to_string();
+        assert!(
+            error_text.contains(&format!("ssh_resource.{error}")),
+            "{error_text}"
+        );
+    }
+}
+
+#[test]
+fn validates_ssh_command_lists_grouped_by_scope() {
+    let valid = format!(
+        r#"  - issuer: {AGENT_PROVIDER_ISSUER}
+    jwks:
+      keys: [{AGENT_PROVIDER_KEY}]
+ssh_resource:
+  issuer: {AGENT_PROVIDER_ISSUER}
+  subject: aauth:test@agents.example
+  host: resource.example
+  port: 2222
+  state_directory: /run/kagome-ssh
+  scopes:
+    resource:read:
+      - {{name: pwd, executable: /bin/pwd}}
+      - {{name: ls, executable: /bin/ls, allowed_args: [[], ["-a"]]}}
+    resource:write:
+      - {{name: tee, executable: /usr/bin/tee, allow_stdin: true}}
+"#
+    );
+    let path = agent_provider_configuration(&valid);
+    let config = Config::load_from_path(path.path())
+        .unwrap()
+        .ssh_resource
+        .unwrap();
+    let kagome::config::AgentSshScopes::Grouped(scopes) = config.scopes else {
+        panic!("expected grouped SSH scopes");
+    };
+    assert_eq!(scopes["resource:read"][0].name, "pwd");
+    assert_eq!(
+        scopes["resource:read"][1].allowed_args,
+        [vec![], vec!["-a"]]
+    );
+    assert!(scopes["resource:write"][0].allow_stdin);
+
+    let duplicate_scope = agent_provider_configuration(&format!(
+        "{valid}    resource:write:\n      - {{name: other, executable: /bin/pwd}}\n"
+    ));
+    assert!(Config::load_from_path(duplicate_scope.path()).is_err());
+
+    for (candidate, error) in [
+        (
+            valid.replace("resource:write:", "'invalid scope':"),
+            "scopes must contain valid OAuth scope tokens",
+        ),
+        (
+            valid.replace("name: tee", "name: pwd"),
+            "commands must have unique names across scopes",
+        ),
+        (
+            valid.replace("name: ls", "name: pwd"),
+            "commands must have unique names across scopes",
+        ),
+        (
+            valid.replace("name: ls", "name: 'ls extra'"),
+            "commands require valid names",
+        ),
+        (
+            valid.replace("executable: /bin/ls", "executable: ls"),
+            "safe absolute executable paths",
+        ),
+        (
+            valid.replace(r#"[[], ["-a"]]"#, r#"[["a\0b"]]"#),
+            "commands.allowed_args must not contain NUL bytes",
+        ),
+        (
+            format!("{valid}  executable: /bin/pwd\n"),
+            "cannot be combined with executable or commands",
+        ),
+        (
+            format!(
+                "{valid}  commands:\n    extra: {{scope: resource:read, executable: /bin/ls}}\n"
+            ),
+            "cannot be combined with executable or commands",
+        ),
+        (
+            format!(
+                "{}  scopes: {{resource:read: []}}\n",
+                valid.split_once("  scopes:").unwrap().0
+            ),
+            "scopes must configure at least one SSH command",
+        ),
+    ] {
+        let path = agent_provider_configuration(&candidate);
+        let error_text = Config::load_from_path(path.path()).unwrap_err().to_string();
+        assert!(error_text.contains(error), "{error_text}");
+    }
+}
+
+#[test]
+fn loads_pinned_agent_provider_keys_with_a_distinct_issuer() {
+    let next_key = AGENT_PROVIDER_KEY.replace("ap-1", "ap-2");
+    let file = agent_provider_configuration(&format!(
+        "  - issuer: {AGENT_PROVIDER_ISSUER}\n    jwks:\n      keys: [{AGENT_PROVIDER_KEY}, {next_key}]\n"
+    ));
+    let config = Config::load_from_path(file.path()).unwrap();
+    let provider = &config.agent_providers[0];
+    assert_ne!(config.server.issuer, provider.issuer);
+    assert_eq!(provider.issuer, AGENT_PROVIDER_ISSUER);
+    let keys = &provider.jwks.as_ref().unwrap().keys;
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[1]["kid"], "ap-2");
+    assert!(provider.jwks_uri.is_none());
+}
+
+#[test]
+fn loads_agent_provider_with_a_jwks_endpoint_and_optional_pins() {
+    for inline in [
+        String::new(),
+        format!("    jwks:\n      keys: [{AGENT_PROVIDER_KEY}]\n"),
+    ] {
+        let endpoint = "https://keys.example/providers/agents.json";
+        let file = agent_provider_configuration(&format!(
+            "  - issuer: {AGENT_PROVIDER_ISSUER}\n    jwks_uri: {endpoint}\n{inline}"
+        ));
+        let config = Config::load_from_path(file.path()).unwrap();
+        let provider = &config.agent_providers[0];
+        assert_eq!(provider.jwks_uri.as_deref(), Some(endpoint));
+        assert_eq!(provider.jwks.is_some(), !inline.is_empty());
+    }
+}
+
+#[test]
+fn rejects_ambiguous_or_invalid_agent_provider_configuration() {
+    let provider = |issuer: &str, keys: &str| {
+        format!("  - issuer: {issuer}\n    jwks:\n      keys: [{keys}]\n")
+    };
+    let valid = provider(AGENT_PROVIDER_ISSUER, AGENT_PROVIDER_KEY);
+    for (entries, expected) in [
+        (format!("{valid}{valid}"), "issuer must be unique"),
+        (
+            format!("  - issuer: {AGENT_PROVIDER_ISSUER}\n"),
+            "jwks or jwks_uri is required",
+        ),
+        (
+            provider("http://agents.example", AGENT_PROVIDER_KEY),
+            "issuer must be a lowercase HTTPS URL",
+        ),
+        (
+            provider("https://agents.example:443", AGENT_PROVIDER_KEY),
+            "issuer must be a lowercase HTTPS URL",
+        ),
+        (
+            provider(AGENT_PROVIDER_ISSUER, ""),
+            "must contain at least one public signing key",
+        ),
+        (
+            provider(
+                AGENT_PROVIDER_ISSUER,
+                &format!("{AGENT_PROVIDER_KEY}, {AGENT_PROVIDER_KEY}"),
+            ),
+            "kid values must be unique",
+        ),
+        (
+            provider(
+                AGENT_PROVIDER_ISSUER,
+                &AGENT_PROVIDER_KEY.replace("kid: ap-1, ", ""),
+            ),
+            "require a nonempty kid",
+        ),
+        (
+            provider(
+                AGENT_PROVIDER_ISSUER,
+                "{kid: ap-1, alg: HS256, kty: oct, k: AA}",
+            ),
+            "require a supported asymmetric public signing key",
+        ),
+        (
+            provider(
+                AGENT_PROVIDER_ISSUER,
+                &AGENT_PROVIDER_KEY.replace("kid: ap-1,", "kid: ap-1, d: AA,"),
+            ),
+            "require a supported asymmetric public signing key",
+        ),
+    ] {
+        let file = agent_provider_configuration(&entries);
+        let error = Config::load_from_path(file.path()).unwrap_err();
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn rejects_invalid_agent_provider_jwks_endpoints() {
+    for endpoint in [
+        "",
+        "/jwks",
+        "http://keys.example/jwks",
+        "https://user@keys.example/jwks",
+        "https://keys.example/jwks#fragment",
+        "https://keys.example:not-a-port/jwks",
+    ] {
+        let file = agent_provider_configuration(&format!(
+            "  - issuer: {AGENT_PROVIDER_ISSUER}\n    jwks_uri: '{endpoint}'\n"
+        ));
+        let error = Config::load_from_path(file.path()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("jwks_uri must be an absolute HTTPS URL"),
+            "{error}"
+        );
     }
 }
 
